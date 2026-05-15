@@ -550,3 +550,21 @@ footer{
   .newsletter-card { grid-template-columns: 1fr; padding: 32px }
   .nl-stats { flex-direction: row; border-left: none; border-top: 1px solid var(--border); padding-left: 0; padding-top: 24px }
 }
+
+/* FIX CARDS */
+.article-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.article-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.article-footer {
+  margin-top: auto;
+}
