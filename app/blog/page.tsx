@@ -1,9 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { Suspense } from "react";
 
-async function BlogData() {
-  const supabase = await createClient();
+export default async function BlogPage() {
+  const supabase = createSupabaseClient();
 
   const { data: articles, error } = await supabase
     .from("articles")
@@ -40,13 +39,5 @@ async function BlogData() {
         ))}
       </div>
     </div>
-  );
-}
-
-export default function BlogPage() {
-  return (
-    <Suspense fallback={<div className="p-6">Cargando...</div>}>
-      <BlogData />
-    </Suspense>
   );
 }

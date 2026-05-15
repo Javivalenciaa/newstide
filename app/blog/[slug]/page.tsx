@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 
 export default async function BlogPostPage({
@@ -6,7 +6,7 @@ export default async function BlogPostPage({
 }: {
   params: { slug: string };
 }) {
-  const supabase = await createClient();
+  const supabase = createSupabaseClient();
 
   const { data: article, error } = await supabase
     .from("articles")
@@ -26,8 +26,8 @@ export default async function BlogPostPage({
       <h1 className="mt-2 text-4xl font-bold">{article.title}</h1>
       <p className="mt-4 text-gray-500">{article.excerpt}</p>
 
-      <div className="prose prose-neutral mt-8 max-w-none">
-        <pre className="whitespace-pre-wrap font-sans">{article.content}</pre>
+      <div className="mt-8 whitespace-pre-wrap leading-7">
+        {article.content}
       </div>
     </article>
   );
