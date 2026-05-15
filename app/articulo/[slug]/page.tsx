@@ -25,15 +25,17 @@ function formatDate(d: string) {
 export default async function ArticuloPage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
-  const { data: article, error } = await supabase
+  const { slug } = await params
+
+  const { data: article } = await supabase
     .from('articles')
     .select('*')
-    .eq('slug', params.slug)
-    .single()
+    .eq('slug', slug)
+    .maybeSingle()
 
-  if (error || !article) {
+  if (!article) {
     notFound()
   }
 
@@ -41,10 +43,7 @@ export default async function ArticuloPage({
     <div className="article-page">
 
       {/* HERO */}
-      <div
-        className="article-hero"
-        style={{ background: article!.image_gradient }}
-      >
+      <div className="article-hero" style={{ background: article!.image_gradient }}>
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
@@ -76,18 +75,12 @@ export default async function ArticuloPage({
       {/* CUERPO */}
       <div className="container">
         <div className="article-body-wrap">
-          <div
-            className="article-content"
-            style={{ whiteSpace: 'pre-wrap' }}
-          >
+          <div className="article-content" style={{ whiteSpace: 'pre-wrap' }}>
             {article!.content}
           </div>
 
           {/* VOLVER */}
-          <div style={{
-            marginTop: 64, paddingTop: 32,
-            borderTop: '1px solid var(--border)'
-          }}>
+          <div style={{ marginTop: 64, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
             <Link href="/" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               color: 'var(--cyan)', fontSize: 14, fontWeight: 600
