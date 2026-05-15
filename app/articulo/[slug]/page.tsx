@@ -1,46 +1,72 @@
-import { supabase } from '@/lib/supabase'
-import { notFound } from 'next/navigation'
-import ReactMarkdown from 'react-markdown'
+import { createClient } from "@supabase/supabase-js";
+import { notFound } from "next/navigation";
 
-export async function generateStaticParams() {
-  const { data } = await supabase.from('articles').select('slug')
-  return (data || []).map(a => ({ slug: a.slug }))
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-export default async function ArticlePage({ params }: { params: { slug: string } }) {
-  const { data: article } = await supabase
-    .from('articles')
-    .select('*')
-    .eq('slug', params.slug)
-    .single()
+export default async function ArticuloPage({
+  params,
+}: {
+  params: { slug: string };
+}) {
+  const { data: article, error } = await supabase
+    .from("articles")
+    .select("*")
+    .eq("slug", params.slug)
+    .single();
 
-  if (!article) notFound()
+  if (error || !article) {
+    notFound();
+  }
+
+  const color: Record<string, string> = {
+    IA: "#6ecfca", Startups: "#9b8cef",
+    Herramientas: "#e8d5a3", Tutoriales: "#7ecf9b", Noticias: "#ef6c6c",
+  };
+  const cat = color[article.category] || "#6ecfca";
 
   return (
-    <main className="article-page">
-      <div className="article-hero" style={{background: article.image_gradient}}>
-        <div className="article-hero-overlay"/>
-        <div className="container">
-          <div className="article-header">
-            <div className="article-meta-top">
-              <span className="badge-article">{article.category}</span>
-              <span className="meta-sep">·</span>
-              <span>{article.reading_time} min de lectura</span>
-              <span className="meta-sep">·</span>
-              <span>{new Date(article.published_at).toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}</span>
-            </div>
-            <h1 className="article-main-title">{article.title}</h1>
-            <p className="article-byline">Por <strong>{article.author}</strong></p>
-          </div>
+    <main style={{ background: "#0a0a0a", minHeight: "100vh", color: "#fff" }}>
+      <article style={{ maxWidth: 760, margin: "0 auto", padding: "80px 24px" }}>
+
+        {/* META */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24 }}>
+          <span style={{
+            padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+            letterSpacing: "0.1em", textTransform: "uppercase",
+            background: `${cat}18`, color: cat, border: `1px solid ${cat}30`,
+          }}>
+            {article.category}
+          </span>
+          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+            {article.author} · {article.reading_time} min
+          </span>
         </div>
-      </div>
-      <div className="container">
-        <div className="article-body-wrap">
-          <article className="article-content">
-            <ReactMarkdown>{article.content}</ReactMarkdown>
-          </article>
+
+        {/* TÍTULO */}
+        <h1 style={{ fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: 800, lineHeight: 1.15, marginBottom: 20 }}>
+          {article.title}
+        </h1>
+
+        {/* EXCERPT */}
+        <p style={{ fontSize: 18, color: "rgba(255,255,255,0.65)", lineHeight: 1.7, marginBottom: 40 }}>
+          {article.excerpt}
+        </p>
+
+        {/* SEPARADOR */}
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", marginBottom: 40 }} />
+
+        {/* CONTENIDO */}
+        <div style={{
+          fontSize: 17, lineHeight: 1.85, color: "rgba(255,255,255,0.85)",
+          whiteSpace: "pre-wrap",
+        }}>
+          {article.content}
         </div>
-      </div>
+
+      </article>
     </main>
-  )
+  );
 }
