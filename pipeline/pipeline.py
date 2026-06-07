@@ -16,8 +16,8 @@ SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 ARTICLES_PER_DAY     = 3
-MODEL_GENERATE       = "claude-sonnet-4-5"   # Claude para generar (calidad)
-MODEL_HUMANIZE       = "gpt-4o-mini"          # GPT para humanizar (barato)
+MODEL_GENERATE       = "claude-sonnet-4-5"
+MODEL_HUMANIZE       = "gpt-4o-mini"
 
 openai_client    = OpenAI(api_key=OPENAI_API_KEY)
 claude_client    = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -50,8 +50,8 @@ def slugify(text):
     text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
-    text = re.sub(r"[^a-z0-9\\s-]", "", text)
-    text = re.sub(r"[\\s]+", "-", text.strip())
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"[\s]+", "-", text.strip())
     return text[:80]
 
 def md5(text):
@@ -174,16 +174,15 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
 
 # ── STEP 4: SAVE TO SUPABASE ──────────────────────────────────────────────
 def save_article(keyword, content, excerpt, category, idx):
-    lines = content.strip().split("\\n")
+    lines = content.strip().split("\n")
     title = keyword[:100]
     for line in lines[:5]:
         if line.strip().startswith("# "):
             title = line.strip()[2:].strip()
             break
 
-    # Quitar la línea H1 del contenido
     if lines and lines[0].strip().startswith("# "):
-        content = "\\n".join(lines[1:]).strip()
+        content = "\n".join(lines[1:]).strip()
 
     data = {
         "title": title,
@@ -209,7 +208,7 @@ def save_article(keyword, content, excerpt, category, idx):
 
 # ── MAIN ──────────────────────────────────────────────────────────────────
 def main():
-    print(f"\\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
 
     keywords = get_keywords()
@@ -224,7 +223,7 @@ def main():
 
     publicados = 0
     for i, keyword in enumerate(nuevas[:ARTICLES_PER_DAY]):
-        print(f"\\n📝 Artículo {i+1}/{min(len(nuevas), ARTICLES_PER_DAY)}")
+        print(f"\n📝 Artículo {i+1}/{min(len(nuevas), ARTICLES_PER_DAY)}")
         try:
             result = generate_article(keyword)
             humanized = humanize(result["content"])
@@ -234,19 +233,7 @@ def main():
         except Exception as e:
             print(f"  ❌ Error: {e}")
 
-    print(f"\\n✅ Completado: {publicados} artículos publicados")
+    print(f"\n✅ Completado: {publicados} artículos publicados")
 
 if __name__ == "__main__":
     main()
-
-with open('output/requirements.txt', 'w') as f:
-    f.write(requirements_updated)
-
-print("Pipeline con Claude listo")
-print("\nCambios respecto a la versión anterior:")
-print("  - Línea 13: ANTHROPIC_API_KEY = os.environ['ANTHROPIC_API_KEY']")
-print("  - Línea 17: MODEL_GENERATE = 'claude-sonnet-4-5'")
-print("  - Línea 20: claude_client = anthropic.Anthropic(...)")
-print("  - Función generate_article: usa claude_client.messages.create()")
-print("  - requirements.txt: añadido anthropic>=0.25.0")
-print("  - daily.yml: añadir secret ANTHROPIC_API_KEY")
