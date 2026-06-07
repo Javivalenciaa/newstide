@@ -239,7 +239,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-with open('/home/user/output/requirements.txt', 'w') as f:
+with open('output/requirements.txt', 'w') as f:
     f.write(requirements_updated)
 
 print("Pipeline con Claude listo")
