@@ -1,7 +1,10 @@
+import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+
+export const revalidate = 3600
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
@@ -21,6 +24,51 @@ function Badge({ cat }: { cat: string }) {
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
+  const { slug } = await params
+
+  const { data: article } = await supabase
+    .from('articles')
+    .select('title, excerpt, slug, category, published_at')
+    .eq('slug', slug)
+    .maybeSingle()
+
+  if (!article) {
+    return {
+      title: 'Artículo no encontrado | NewsTide',
+      description: 'Este contenido no está disponible en NewsTide.',
+    }
+  }
+
+  const title = `${article.title} | NewsTide`
+  const description = article.excerpt || 'Tecnología, IA y tendencias para founders, developers y profesionales.'
+  const url = `https://www.newstide.news/articulo/${article.slug}`
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      title,
+      description,
+      url,
+      siteName: 'NewsTide',
+      locale: 'es_ES',
+      type: 'article',
+      publishedTime: article.published_at,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
+  }
 }
 
 export default async function ArticuloPage({
