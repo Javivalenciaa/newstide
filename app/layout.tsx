@@ -19,6 +19,10 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     site: '@newstide',
   },
+  icons: {
+    icon: '/favicon.ico',
+  },
+
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
