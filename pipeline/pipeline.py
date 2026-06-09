@@ -2,13 +2,13 @@ import os
 import hashlib
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from serpapi import GoogleSearch
 from openai import OpenAI
 import anthropic
 from supabase import create_client
 
-# ── CONFIG ─────────────────────────────────────────────────────────────────
+# ── CONFIG ───────────────────────────────────────────────────────────────────────────
 SERPAPI_KEY          = os.environ["SERPAPI_KEY"]
 OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
@@ -45,7 +45,7 @@ AUTHORS = [
     "Pedro Sánchez", "Sofía Jiménez", "Luis Torres"
 ]
 
-# ── HELPERS ────────────────────────────────────────────────────────────────
+# ── HELPERS ──────────────────────────────────────────────────────────────────────────
 def slugify(text):
     text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
@@ -71,7 +71,7 @@ def already_published(keyword):
     res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
 
-# ── STEP 1: TRENDING KEYWORDS ─────────────────────────────────────────────
+# ── STEP 1: TRENDING KEYWORDS ─────────────────────────────────────────────────────────
 def get_keywords():
     print("🔍 Buscando tendencias...")
     keywords = []
@@ -102,7 +102,7 @@ def get_keywords():
         ]
     return keywords
 
-# ── STEP 2: GENERATE WITH CLAUDE ──────────────────────────────────────────
+# ── STEP 2: GENERATE WITH CLAUDE ──────────────────────────────────────────────────────
 def generate_article(keyword):
     print(f"  ✍️  Claude generando: {keyword[:60]}...")
     category = detect_category(keyword)
@@ -142,7 +142,7 @@ EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
 
     return {"content": raw, "excerpt": excerpt, "category": category}
 
-# ── STEP 3: HUMANIZE WITH GPT-4O MINI ────────────────────────────────────
+# ── STEP 3: HUMANIZE WITH GPT-4O MINI ────────────────────────────────────────────────
 def humanize(text):
     print("  🧠 GPT humanizando...")
     response = openai_client.chat.completions.create(
@@ -172,7 +172,7 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
     )
     return response.choices[0].message.content
 
-# ── STEP 4: SAVE TO SUPABASE ──────────────────────────────────────────────
+# ── STEP 4: SAVE TO SUPABASE ────────────────────────────────────────────────────────────────
 def save_article(keyword, content, excerpt, category, idx):
     lines = content.strip().split("\n")
     title = keyword[:100]
@@ -183,6 +183,8 @@ def save_article(keyword, content, excerpt, category, idx):
 
     if lines and lines[0].strip().startswith("# "):
         content = "\n".join(lines[1:]).strip()
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     data = {
         "title": title,
@@ -196,6 +198,7 @@ def save_article(keyword, content, excerpt, category, idx):
         "reading_time": reading_time(content),
         "featured": idx == 0,
         "image_gradient": GRADIENTS[idx % len(GRADIENTS)],
+        "published_at": now_iso,
     }
 
     try:
@@ -206,7 +209,7 @@ def save_article(keyword, content, excerpt, category, idx):
         print(f"  ❌ Error guardando: {e}")
         return False
 
-# ── MAIN ──────────────────────────────────────────────────────────────────
+# ── MAIN ──────────────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
