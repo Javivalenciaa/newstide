@@ -74,12 +74,13 @@ def already_published(keyword):
     res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
 
-# ── UNSPLASH: buscar imagen relevante ───────────────────────────────────────────────────
+def normalize_year(text: str) -> str:
+    """Sustituye años pasados aislados (2023, 2024, 2025) por 2026 en el keyword
+    antes de pasárselo a Claude, para evitar que se cuelen en el título."""
+    return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
+
+# ── UNSPLASH: buscar imagen relevante ────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
-    """
-    Busca en Unsplash con `query` y devuelve un dict con url y attribution.
-    idx permite coger diferentes fotos de la misma búsqueda (cover=0, inline=1).
-    """
     try:
         resp = requests.get(
             "https://api.unsplash.com/search/photos",
@@ -98,7 +99,7 @@ def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
             return None
         pick = results[min(idx, len(results) - 1)]
         return {
-            "url": pick["urls"]["regular"],       # ~1080px de ancho
+            "url": pick["urls"]["regular"],
             "alt": pick.get("alt_description") or query,
             "author": pick["user"]["name"],
             "author_url": pick["user"]["links"]["html"],
@@ -107,13 +108,8 @@ def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
         print(f"  Unsplash error: {e}")
         return None
 
-# ── CLAUDE: genera keywords para Unsplash + valida relevancia ─────────────────────────
+# ── CLAUDE: genera keywords para Unsplash + valida relevancia ────────────────────────
 def get_image_queries(title: str, excerpt: str) -> list[str]:
-    """
-    Pide a Claude 3 queries en inglés para buscar en Unsplash.
-    Devuelve lista de strings, ej: ["artificial intelligence data", "startup team meeting", "code laptop"]
-    Usa claude-haiku (el más barato) — coste negligible (~$0.0003 por llamada).
-    """
     prompt = (
         f"Article title: {title}\n"
         f"Summary: {excerpt}\n\n"
@@ -135,10 +131,6 @@ def get_image_queries(title: str, excerpt: str) -> list[str]:
         return ["technology innovation", "digital future", "startup team"]
 
 def validate_image(image: dict, title: str) -> bool:
-    """
-    Valida con Claude haiku si la imagen es visualmente coherente con el artículo.
-    Solo rechaza si es claramente inapropiada. Por defecto aprueba.
-    """
     prompt = (
         f"Article title: {title}\n"
         f"Image description: {image['alt']}\n\n"
@@ -154,12 +146,9 @@ def validate_image(image: dict, title: str) -> bool:
         answer = msg.content[0].text.strip().upper()
         return answer.startswith("Y")
     except:
-        return True  # si falla la validación, dejamos pasar
+        return True
 
 def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | None:
-    """
-    Itera los queries hasta encontrar una imagen que pase la validación.
-    """
     for query in queries:
         img = get_unsplash_image(query, idx=idx)
         if img and validate_image(img, title):
@@ -219,6 +208,7 @@ REQUISITOS:
 - Tono: experto pero accesible, no corporativo
 - Nunca empieces con "En el mundo de..." ni frases genéricas
 - Categoría del artículo: {category}
+- El año actual es 2026. Si el keyword menciona años anteriores como 2023, 2024 o 2025 en un contexto de actualidad o consejo, actualízalos a 2026. Solo conserva el año original si es una referencia histórica imprescindible.
 
 Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
@@ -227,7 +217,7 @@ EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
         model=MODEL_GENERATE,
         max_tokens=2800,
         messages=[{"role": "user", "content": prompt}],
-        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia."
+        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026; nunca uses 2024 o 2025 como año vigente salvo que sea contexto histórico."
     )
 
     raw = message.content[0].text
@@ -271,12 +261,6 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
 
 # ── STEP 4: INJECT IMAGES INTO MARKDOWN ──────────────────────────────────────────────
 def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
-    """
-    Inyecta:
-    - cover: al principio del contenido (tras el primer párrafo)
-    - inline: tras el primer H2 (segunda sección)
-    Incluye attributión a Unsplash según sus ToS.
-    """
     def img_md(img: dict, caption: str = "") -> str:
         alt = img["alt"].replace('"', "'")
         attr = f"*Foto: [{img['author']}]({img['author_url']}) en Unsplash*"
@@ -288,7 +272,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
 
     lines = content.split("\n")
 
-    # Insertar portada tras el primer párrafo no vacío
     if cover:
         inserted_cover = False
         new_lines = []
@@ -304,7 +287,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
                 blank_after_para = False
         lines = new_lines
 
-    # Insertar imagen inline tras el primer H2
     if inline:
         inserted_inline = False
         new_lines = []
@@ -321,7 +303,7 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
 
     return "\n".join(lines)
 
-# ── STEP 5: SAVE TO SUPABASE ────────────────────────────────────────────────────────────────
+# ── STEP 5: SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 def save_article(keyword, content, excerpt, category, idx):
     lines = content.strip().split("\n")
     title = keyword[:100]
@@ -377,27 +359,29 @@ def main():
     for i, keyword in enumerate(nuevas[:ARTICLES_PER_DAY]):
         print(f"\n📝 Artículo {i+1}/{min(len(nuevas), ARTICLES_PER_DAY)}")
         try:
-            result = generate_article(keyword)
+            # Normalizar año en el keyword antes de pasarlo a Claude
+            keyword_normalized = normalize_year(keyword)
+            if keyword_normalized != keyword:
+                print(f"  📅 Keyword normalizado: {keyword_normalized[:80]}")
+
+            result = generate_article(keyword_normalized)
             humanized = humanize(result["content"])
 
-            # Obtener título provisional para queries de imagen
-            title_preview = keyword[:100]
+            title_preview = keyword_normalized[:100]
             for line in humanized.strip().split("\n")[:5]:
                 if line.strip().startswith("# "):
                     title_preview = line.strip()[2:].strip()
                     break
 
-            # Buscar imágenes con validación
             print("  🔍 Buscando imágenes Unsplash...")
             queries = get_image_queries(title_preview, result["excerpt"])
             print(f"  Queries: {queries}")
             cover_img  = fetch_best_image(queries, title_preview, idx=0)
             inline_img = fetch_best_image(queries, title_preview, idx=1)
 
-            # Inyectar imágenes en el contenido
             content_with_images = inject_images(humanized, cover_img, inline_img)
 
-            if save_article(keyword, content_with_images, result["excerpt"], result["category"], i):
+            if save_article(keyword_normalized, content_with_images, result["excerpt"], result["category"], i):
                 publicados += 1
             time.sleep(2)
         except Exception as e:
