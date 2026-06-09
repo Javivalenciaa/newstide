@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import Link from 'next/link'
+import LangSwitcher from '@/components/LangSwitcher'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
@@ -10,19 +11,9 @@ export const metadata: Metadata = {
   title: 'NewsTide — La inteligencia que transforma el futuro',
   description: 'Tecnología, IA y tendencias para founders, developers y profesionales.',
   metadataBase: new URL('https://www.newstide.news'),
-  openGraph: {
-    siteName: 'NewsTide',
-    locale: 'es_ES',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    site: '@newstide',
-  },
-  icons: {
-    icon: '/favicon.ico',
-  },
-
+  openGraph: { siteName: 'NewsTide', locale: 'es_ES', type: 'website' },
+  twitter: { card: 'summary_large_image', site: '@newstide' },
+  icons: { icon: '/favicon.ico' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/#articles">Artículos</Link>
             <Link href="/#newsletter">Newsletter</Link>
           </div>
-          <div className="nav-right">
+          <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <LangSwitcher />
             <Link href="/#newsletter" className="nav-cta">Suscribirse</Link>
           </div>
         </nav>
@@ -48,10 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="container">
             <div className="footer-top">
               <div className="footer-brand">
-                <Link href="/" className="nav-logo" style={{marginBottom:'12px'}}>
+                <Link href="/" className="nav-logo" style={{ marginBottom: '12px' }}>
                   <div className="nav-logo-mark">NT</div>NewsTide
                 </Link>
-                <p className="footer-tagline">Tecnología, IA y tendencias<br/>para los que van por delante.</p>
+                <p className="footer-tagline">Tecnología, IA y tendencias<br />para los que van por delante.</p>
               </div>
               <div className="footer-links">
                 <div className="footer-col">
@@ -71,14 +63,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
             <div className="footer-bottom">
               <span>© 2026 NewsTide · Todos los derechos reservados</span>
-              <span style={{color:'var(--faint)'}}>newstide.news</span>
+              <span style={{ color: 'var(--faint)' }}>newstide.news</span>
             </div>
           </div>
         </footer>
-        <script dangerouslySetInnerHTML={{__html: `
+        <script dangerouslySetInnerHTML={{ __html: `
           const nav = document.getElementById('navbar');
           window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 20), {passive:true});
-        `}}/>
+        ` }} />
       </body>
     </html>
   )

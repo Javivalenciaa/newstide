@@ -2,7 +2,6 @@ import os
 import hashlib
 import re
 import time
-import random
 import requests
 from datetime import datetime, timezone
 from serpapi import GoogleSearch
@@ -10,7 +9,7 @@ from openai import OpenAI
 import anthropic
 from supabase import create_client
 
-# ── CONFIG ───────────────────────────────────────────────────────────────────────────
+# ── CONFIG ───────────────────────────────────────────────────────────────────
 SERPAPI_KEY          = os.environ["SERPAPI_KEY"]
 OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
@@ -22,9 +21,9 @@ ARTICLES_PER_DAY     = 3
 MODEL_GENERATE       = "claude-sonnet-4-5"
 MODEL_HUMANIZE       = "gpt-4o-mini"
 
-openai_client    = OpenAI(api_key=OPENAI_API_KEY)
-claude_client    = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-supabase_client  = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+openai_client   = OpenAI(api_key=OPENAI_API_KEY)
+claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 GRADIENTS = [
     "linear-gradient(135deg,#0d2a2e,#0d1a2e)",
@@ -48,7 +47,7 @@ AUTHORS = [
     "Pedro Sánchez", "Sofía Jiménez", "Luis Torres"
 ]
 
-# ── HELPERS ──────────────────────────────────────────────────────────────────────────
+# ── HELPERS ──────────────────────────────────────────────────────────────────
 def slugify(text):
     text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
@@ -75,21 +74,14 @@ def already_published(keyword):
     return len(res.data) > 0
 
 def normalize_year(text: str) -> str:
-    """Sustituye años pasados aislados (2023, 2024, 2025) por 2026 en el keyword
-    antes de pasárselo a Claude, para evitar que se cuelen en el título."""
     return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
 
-# ── UNSPLASH: buscar imagen relevante ────────────────────────────────────────────────
+# ── UNSPLASH ──────────────────────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
     try:
         resp = requests.get(
             "https://api.unsplash.com/search/photos",
-            params={
-                "query": query,
-                "per_page": 5,
-                "orientation": "landscape",
-                "content_filter": "high",
-            },
+            params={"query": query, "per_page": 5, "orientation": "landscape", "content_filter": "high"},
             headers={"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"},
             timeout=10,
         )
@@ -108,20 +100,16 @@ def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
         print(f"  Unsplash error: {e}")
         return None
 
-# ── CLAUDE: genera keywords para Unsplash + valida relevancia ────────────────────────
 def get_image_queries(title: str, excerpt: str) -> list[str]:
     prompt = (
-        f"Article title: {title}\n"
-        f"Summary: {excerpt}\n\n"
+        f"Article title: {title}\nSummary: {excerpt}\n\n"
         "Give me exactly 3 short English search queries (2-4 words each) to find "
         "relevant, visually appealing Unsplash photos for this tech article. "
-        "Queries should be concrete and visual (avoid abstract terms). "
-        "Reply with ONLY the 3 queries, one per line, no numbering, no explanation."
+        "Queries should be concrete and visual. Reply with ONLY the 3 queries, one per line."
     )
     try:
         msg = claude_client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=60,
+            model="claude-haiku-4-5", max_tokens=60,
             messages=[{"role": "user", "content": prompt}],
         )
         lines = [l.strip() for l in msg.content[0].text.strip().splitlines() if l.strip()]
@@ -131,20 +119,12 @@ def get_image_queries(title: str, excerpt: str) -> list[str]:
         return ["technology innovation", "digital future", "startup team"]
 
 def validate_image(image: dict, title: str) -> bool:
-    prompt = (
-        f"Article title: {title}\n"
-        f"Image description: {image['alt']}\n\n"
-        "Is this image visually relevant and appropriate for a professional tech article? "
-        "Reply with only YES or NO."
-    )
     try:
         msg = claude_client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=5,
-            messages=[{"role": "user", "content": prompt}],
+            model="claude-haiku-4-5", max_tokens=5,
+            messages=[{"role": "user", "content": f"Article title: {title}\nImage description: {image['alt']}\n\nIs this image visually relevant and appropriate for a professional tech article? Reply with only YES or NO."}],
         )
-        answer = msg.content[0].text.strip().upper()
-        return answer.startswith("Y")
+        return msg.content[0].text.strip().upper().startswith("Y")
     except:
         return True
 
@@ -152,34 +132,25 @@ def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | Non
     for query in queries:
         img = get_unsplash_image(query, idx=idx)
         if img and validate_image(img, title):
-            print(f"  🖼️  Imagen encontrada: '{query}' → {img['author']}")
+            print(f"  🖼️  Imagen: '{query}' → {img['author']}")
             return img
         time.sleep(0.5)
     return None
 
-# ── STEP 1: TRENDING KEYWORDS ─────────────────────────────────────────────────────────
+# ── STEP 1: TRENDING KEYWORDS ─────────────────────────────────────────────────
 def get_keywords():
     print("🔍 Buscando tendencias...")
     keywords = []
-    queries = [
-        "inteligencia artificial noticias",
-        "startups tecnología España",
-        "herramientas IA productividad",
-    ]
-    for q in queries:
+    for q in ["inteligencia artificial noticias", "startups tecnología España", "herramientas IA productividad"]:
         try:
-            results = GoogleSearch({
-                "q": q, "location": "Spain", "hl": "es", "gl": "es",
-                "api_key": SERPAPI_KEY, "num": 10
-            }).get_dict()
+            results = GoogleSearch({"q": q, "location": "Spain", "hl": "es", "gl": "es", "api_key": SERPAPI_KEY, "num": 10}).get_dict()
             for r in results.get("organic_results", [])[:4]:
-                title = r.get("title", "")
-                if title and len(title) > 20:
-                    keywords.append(title)
+                t = r.get("title", "")
+                if t and len(t) > 20:
+                    keywords.append(t)
         except Exception as e:
             print(f"  SerpAPI error: {e}")
         time.sleep(1)
-
     if not keywords:
         keywords = [
             "Cómo usar la IA para automatizar tu negocio en 2026",
@@ -188,11 +159,10 @@ def get_keywords():
         ]
     return keywords
 
-# ── STEP 2: GENERATE WITH CLAUDE ──────────────────────────────────────────────────────
+# ── STEP 2: GENERATE ES WITH CLAUDE ──────────────────────────────────────────
 def generate_article(keyword):
-    print(f"  ✍️  Claude generando: {keyword[:60]}...")
+    print(f"  ✍️  Claude generando ES: {keyword[:60]}...")
     category = detect_category(keyword)
-
     prompt = f"""Escribe un artículo completo en español sobre: "{keyword}"
 
 ESTRUCTURA (usa markdown):
@@ -214,133 +184,142 @@ Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
 
     message = claude_client.messages.create(
-        model=MODEL_GENERATE,
-        max_tokens=2800,
+        model=MODEL_GENERATE, max_tokens=2800,
         messages=[{"role": "user", "content": prompt}],
-        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026; nunca uses 2024 o 2025 como año vigente salvo que sea contexto histórico."
+        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026; nunca uses 2024 o 2025 como año vigente salvo contexto histórico."
     )
-
     raw = message.content[0].text
     excerpt = ""
     if "EXCERPT:" in raw:
         parts = raw.split("EXCERPT:")
         raw = parts[0].strip()
         excerpt = parts[1].strip()[:200]
-
     return {"content": raw, "excerpt": excerpt, "category": category}
 
-# ── STEP 3: HUMANIZE WITH GPT-4O MINI ────────────────────────────────────────────────
+# ── STEP 3: HUMANIZE ES ───────────────────────────────────────────────────────
 def humanize(text):
-    print("  🧠 GPT humanizando...")
+    print("  🧠 GPT humanizando ES...")
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
             {"role": "system", "content": """Eres un editor humano con 15 años de experiencia en medios digitales.
 Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los datos:
-
-ESTILO:
 - Mezcla frases cortas (5-8 palabras) con frases largas (18-28 palabras)
 - Usa conectores variados: "sin embargo", "dicho esto", "lo curioso es que", "ojo"
 - Añade opinión ocasional: "lo que más me sorprende", "honestamente", "en mi experiencia"
 - Incluye 1-2 preguntas retóricas naturales
-
-VOCABULARIO (sustituye palabras típicas de IA):
-- "fundamental" → "clave"
-- "en conclusión" → "para cerrar"
-- "es importante destacar" → reescribir o eliminar
-- "robusto" → "sólido" o "fiable"
-- "implementar" → "aplicar" o "poner en marcha"
-
+- "fundamental" → "clave", "en conclusión" → "para cerrar", "robusto" → "sólido"
 Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
-        temperature=0.88,
-        max_tokens=2800
+        temperature=0.88, max_tokens=2800
     )
     return response.choices[0].message.content
 
-# ── STEP 4: INJECT IMAGES INTO MARKDOWN ──────────────────────────────────────────────
+# ── STEP 4: TRANSLATE + HUMANIZE EN ──────────────────────────────────────────
+def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
+    print("  🌐 GPT traduciendo EN...")
+    response = openai_client.chat.completions.create(
+        model=MODEL_HUMANIZE,
+        messages=[
+            {"role": "system", "content": "You are a professional tech journalist and translator. Translate the following Spanish tech article to natural, fluent American English. Keep all markdown formatting (headings, bold, lists). Adapt idioms and expressions naturally — do not translate literally. Keep the same structure and length. At the end, on a separate line, write exactly: TITLE_EN: [translated H1 title] and EXCERPT_EN: [one sentence summary, max 150 chars]"},
+            {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
+        ],
+        temperature=0.75, max_tokens=2800
+    )
+    raw = response.choices[0].message.content
+    title_en = es_title  # fallback
+    excerpt_en = es_excerpt
+    content_en = raw
+
+    if "TITLE_EN:" in raw:
+        parts = raw.split("TITLE_EN:")
+        content_en = parts[0].strip()
+        rest = parts[1]
+        if "EXCERPT_EN:" in rest:
+            title_en = rest.split("EXCERPT_EN:")[0].strip()[:150]
+            excerpt_en = rest.split("EXCERPT_EN:")[1].strip()[:200]
+        else:
+            title_en = rest.strip()[:150]
+    elif "EXCERPT_EN:" in raw:
+        parts = raw.split("EXCERPT_EN:")
+        content_en = parts[0].strip()
+        excerpt_en = parts[1].strip()[:200]
+
+    return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en}
+
+# ── STEP 5: INJECT IMAGES ────────────────────────────────────────────────────
 def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
-    def img_md(img: dict, caption: str = "") -> str:
+    def img_md(img: dict) -> str:
         alt = img["alt"].replace('"', "'")
-        attr = f"*Foto: [{img['author']}]({img['author_url']}) en Unsplash*"
-        block = f"![{alt}]({img['url']})"
-        if caption:
-            block += f"\n*{caption}*"
-        block += f"\n{attr}\n"
-        return block
+        return f"![{alt}]({img['url']})\n*Photo: [{img['author']}]({img['author_url']}) on Unsplash*\n"
 
     lines = content.split("\n")
-
     if cover:
-        inserted_cover = False
-        new_lines = []
-        blank_after_para = False
+        new_lines, inserted, blank = [], False, False
         for line in lines:
             new_lines.append(line)
-            if not inserted_cover and line.strip() and not line.startswith("#"):
-                blank_after_para = True
-            elif blank_after_para and not line.strip():
-                new_lines.append("")
-                new_lines.append(img_md(cover))
-                inserted_cover = True
-                blank_after_para = False
+            if not inserted and line.strip() and not line.startswith("#"):
+                blank = True
+            elif blank and not line.strip():
+                new_lines += ["", img_md(cover)]
+                inserted = True
+                blank = False
         lines = new_lines
-
     if inline:
-        inserted_inline = False
-        new_lines = []
-        h2_count = 0
+        new_lines, h2_count = [], 0
         for line in lines:
             new_lines.append(line)
             if line.startswith("## "):
                 h2_count += 1
-                if h2_count == 2 and not inserted_inline:
-                    new_lines.append("")
-                    new_lines.append(img_md(inline))
-                    inserted_inline = True
+                if h2_count == 2:
+                    new_lines += ["", img_md(inline)]
         lines = new_lines
-
     return "\n".join(lines)
 
-# ── STEP 5: SAVE TO SUPABASE ──────────────────────────────────────────────────────────
-def save_article(keyword, content, excerpt, category, idx):
-    lines = content.strip().split("\n")
-    title = keyword[:100]
+# ── STEP 6: SAVE TO SUPABASE ─────────────────────────────────────────────────
+def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en):
+    lines = content_es.strip().split("\n")
+    title_es = keyword[:100]
     for line in lines[:5]:
         if line.strip().startswith("# "):
-            title = line.strip()[2:].strip()
+            title_es = line.strip()[2:].strip()
             break
-
     if lines and lines[0].strip().startswith("# "):
-        content = "\n".join(lines[1:]).strip()
+        content_es = "\n".join(lines[1:]).strip()
+
+    # strip H1 from EN content too
+    en_lines = content_en.strip().split("\n")
+    if en_lines and en_lines[0].strip().startswith("# "):
+        content_en = "\n".join(en_lines[1:]).strip()
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
     data = {
-        "title": title,
-        "slug": slugify(title),
-        "content": content,
-        "excerpt": excerpt or title[:150],
-        "category": category,
-        "author": AUTHORS[idx % len(AUTHORS)],
-        "keyword": keyword,
+        "title":      title_es,
+        "slug":       slugify(title_es),
+        "content":    content_es,
+        "excerpt":    excerpt_es or title_es[:150],
+        "title_en":   title_en or title_es,
+        "content_en": content_en,
+        "excerpt_en": excerpt_en or excerpt_es or title_es[:150],
+        "category":   category,
+        "author":     AUTHORS[idx % len(AUTHORS)],
+        "keyword":    keyword,
         "keyword_hash": md5(keyword),
-        "reading_time": reading_time(content),
-        "featured": idx == 0,
+        "reading_time": reading_time(content_es),
+        "featured":   idx == 0,
         "image_gradient": GRADIENTS[idx % len(GRADIENTS)],
-        "published_at": now_iso,
+        "published_at":   now_iso,
     }
-
     try:
         supabase_client.table("articles").insert(data).execute()
-        print(f"  ✅ Guardado: {title[:60]}")
+        print(f"  ✅ Guardado: {title_es[:60]}")
         return True
     except Exception as e:
         print(f"  ❌ Error guardando: {e}")
         return False
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────────────
+# ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
@@ -348,7 +327,6 @@ def main():
     keywords = get_keywords()
     nuevas = [k for k in keywords if not already_published(k)]
     print(f"📋 Keywords nuevas: {len(nuevas)}")
-
     if not nuevas:
         nuevas = [
             f"Tendencias IA para empresas {datetime.now().strftime('%B %Y')}",
@@ -359,29 +337,29 @@ def main():
     for i, keyword in enumerate(nuevas[:ARTICLES_PER_DAY]):
         print(f"\n📝 Artículo {i+1}/{min(len(nuevas), ARTICLES_PER_DAY)}")
         try:
-            # Normalizar año en el keyword antes de pasarlo a Claude
-            keyword_normalized = normalize_year(keyword)
-            if keyword_normalized != keyword:
-                print(f"  📅 Keyword normalizado: {keyword_normalized[:80]}")
+            kw = normalize_year(keyword)
+            if kw != keyword:
+                print(f"  📅 Keyword normalizado: {kw[:80]}")
 
-            result = generate_article(keyword_normalized)
+            result   = generate_article(kw)
             humanized = humanize(result["content"])
 
-            title_preview = keyword_normalized[:100]
+            title_preview = kw[:100]
             for line in humanized.strip().split("\n")[:5]:
                 if line.strip().startswith("# "):
                     title_preview = line.strip()[2:].strip()
                     break
 
             print("  🔍 Buscando imágenes Unsplash...")
-            queries = get_image_queries(title_preview, result["excerpt"])
-            print(f"  Queries: {queries}")
+            queries    = get_image_queries(title_preview, result["excerpt"])
             cover_img  = fetch_best_image(queries, title_preview, idx=0)
             inline_img = fetch_best_image(queries, title_preview, idx=1)
+            content_es = inject_images(humanized, cover_img, inline_img)
 
-            content_with_images = inject_images(humanized, cover_img, inline_img)
+            en = translate_to_english(content_es, result["excerpt"], title_preview)
 
-            if save_article(keyword_normalized, content_with_images, result["excerpt"], result["category"], i):
+            if save_article(kw, content_es, result["excerpt"], result["category"], i,
+                            en["content_en"], en["title_en"], en["excerpt_en"]):
                 publicados += 1
             time.sleep(2)
         except Exception as e:
