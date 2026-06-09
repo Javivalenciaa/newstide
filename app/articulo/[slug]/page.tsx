@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import Image from 'next/image'
 
 export const revalidate = 3600
 
@@ -51,9 +52,7 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: {
-      canonical: url,
-    },
+    alternates: { canonical: url },
     openGraph: {
       title,
       description,
@@ -148,6 +147,24 @@ export default async function ArticuloPage({
                     fontSize: 17, lineHeight: 1.8,
                     color: 'rgba(240,240,238,0.85)', marginBottom: 20
                   }}>{children}</p>
+                ),
+                img: ({ src, alt }) => (
+                  src ? (
+                    <span style={{ display: 'block', margin: '32px 0' }}>
+                      <img
+                        src={src}
+                        alt={alt || ''}
+                        style={{
+                          width: '100%',
+                          borderRadius: 12,
+                          objectFit: 'cover',
+                          maxHeight: 480,
+                          display: 'block',
+                          border: '1px solid var(--border)',
+                        }}
+                      />
+                    </span>
+                  ) : null
                 ),
                 ul: ({ children }) => (
                   <ul style={{ margin: '16px 0 20px 24px' }}>{children}</ul>

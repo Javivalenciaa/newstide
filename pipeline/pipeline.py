@@ -2,6 +2,8 @@ import os
 import hashlib
 import re
 import time
+import random
+import requests
 from datetime import datetime, timezone
 from serpapi import GoogleSearch
 from openai import OpenAI
@@ -14,6 +16,7 @@ OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
 SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 
 ARTICLES_PER_DAY     = 3
 MODEL_GENERATE       = "claude-sonnet-4-5"
@@ -70,6 +73,100 @@ def reading_time(text):
 def already_published(keyword):
     res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
+
+# ── UNSPLASH: buscar imagen relevante ───────────────────────────────────────────────────
+def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
+    """
+    Busca en Unsplash con `query` y devuelve un dict con url y attribution.
+    idx permite coger diferentes fotos de la misma búsqueda (cover=0, inline=1).
+    """
+    try:
+        resp = requests.get(
+            "https://api.unsplash.com/search/photos",
+            params={
+                "query": query,
+                "per_page": 5,
+                "orientation": "landscape",
+                "content_filter": "high",
+            },
+            headers={"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+        pick = results[min(idx, len(results) - 1)]
+        return {
+            "url": pick["urls"]["regular"],       # ~1080px de ancho
+            "alt": pick.get("alt_description") or query,
+            "author": pick["user"]["name"],
+            "author_url": pick["user"]["links"]["html"],
+        }
+    except Exception as e:
+        print(f"  Unsplash error: {e}")
+        return None
+
+# ── CLAUDE: genera keywords para Unsplash + valida relevancia ─────────────────────────
+def get_image_queries(title: str, excerpt: str) -> list[str]:
+    """
+    Pide a Claude 3 queries en inglés para buscar en Unsplash.
+    Devuelve lista de strings, ej: ["artificial intelligence data", "startup team meeting", "code laptop"]
+    Usa claude-haiku (el más barato) — coste negligible (~$0.0003 por llamada).
+    """
+    prompt = (
+        f"Article title: {title}\n"
+        f"Summary: {excerpt}\n\n"
+        "Give me exactly 3 short English search queries (2-4 words each) to find "
+        "relevant, visually appealing Unsplash photos for this tech article. "
+        "Queries should be concrete and visual (avoid abstract terms). "
+        "Reply with ONLY the 3 queries, one per line, no numbering, no explanation."
+    )
+    try:
+        msg = claude_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=60,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        lines = [l.strip() for l in msg.content[0].text.strip().splitlines() if l.strip()]
+        return lines[:3] if lines else ["technology innovation", "digital future", "startup team"]
+    except Exception as e:
+        print(f"  Claude haiku error: {e}")
+        return ["technology innovation", "digital future", "startup team"]
+
+def validate_image(image: dict, title: str) -> bool:
+    """
+    Valida con Claude haiku si la imagen es visualmente coherente con el artículo.
+    Solo rechaza si es claramente inapropiada. Por defecto aprueba.
+    """
+    prompt = (
+        f"Article title: {title}\n"
+        f"Image description: {image['alt']}\n\n"
+        "Is this image visually relevant and appropriate for a professional tech article? "
+        "Reply with only YES or NO."
+    )
+    try:
+        msg = claude_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=5,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = msg.content[0].text.strip().upper()
+        return answer.startswith("Y")
+    except:
+        return True  # si falla la validación, dejamos pasar
+
+def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | None:
+    """
+    Itera los queries hasta encontrar una imagen que pase la validación.
+    """
+    for query in queries:
+        img = get_unsplash_image(query, idx=idx)
+        if img and validate_image(img, title):
+            print(f"  🖼️  Imagen encontrada: '{query}' → {img['author']}")
+            return img
+        time.sleep(0.5)
+    return None
 
 # ── STEP 1: TRENDING KEYWORDS ─────────────────────────────────────────────────────────
 def get_keywords():
@@ -172,7 +269,59 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
     )
     return response.choices[0].message.content
 
-# ── STEP 4: SAVE TO SUPABASE ────────────────────────────────────────────────────────────────
+# ── STEP 4: INJECT IMAGES INTO MARKDOWN ──────────────────────────────────────────────
+def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
+    """
+    Inyecta:
+    - cover: al principio del contenido (tras el primer párrafo)
+    - inline: tras el primer H2 (segunda sección)
+    Incluye attributión a Unsplash según sus ToS.
+    """
+    def img_md(img: dict, caption: str = "") -> str:
+        alt = img["alt"].replace('"', "'")
+        attr = f"*Foto: [{img['author']}]({img['author_url']}) en Unsplash*"
+        block = f"![{alt}]({img['url']})"
+        if caption:
+            block += f"\n*{caption}*"
+        block += f"\n{attr}\n"
+        return block
+
+    lines = content.split("\n")
+
+    # Insertar portada tras el primer párrafo no vacío
+    if cover:
+        inserted_cover = False
+        new_lines = []
+        blank_after_para = False
+        for line in lines:
+            new_lines.append(line)
+            if not inserted_cover and line.strip() and not line.startswith("#"):
+                blank_after_para = True
+            elif blank_after_para and not line.strip():
+                new_lines.append("")
+                new_lines.append(img_md(cover))
+                inserted_cover = True
+                blank_after_para = False
+        lines = new_lines
+
+    # Insertar imagen inline tras el primer H2
+    if inline:
+        inserted_inline = False
+        new_lines = []
+        h2_count = 0
+        for line in lines:
+            new_lines.append(line)
+            if line.startswith("## "):
+                h2_count += 1
+                if h2_count == 2 and not inserted_inline:
+                    new_lines.append("")
+                    new_lines.append(img_md(inline))
+                    inserted_inline = True
+        lines = new_lines
+
+    return "\n".join(lines)
+
+# ── STEP 5: SAVE TO SUPABASE ────────────────────────────────────────────────────────────────
 def save_article(keyword, content, excerpt, category, idx):
     lines = content.strip().split("\n")
     title = keyword[:100]
@@ -230,7 +379,25 @@ def main():
         try:
             result = generate_article(keyword)
             humanized = humanize(result["content"])
-            if save_article(keyword, humanized, result["excerpt"], result["category"], i):
+
+            # Obtener título provisional para queries de imagen
+            title_preview = keyword[:100]
+            for line in humanized.strip().split("\n")[:5]:
+                if line.strip().startswith("# "):
+                    title_preview = line.strip()[2:].strip()
+                    break
+
+            # Buscar imágenes con validación
+            print("  🔍 Buscando imágenes Unsplash...")
+            queries = get_image_queries(title_preview, result["excerpt"])
+            print(f"  Queries: {queries}")
+            cover_img  = fetch_best_image(queries, title_preview, idx=0)
+            inline_img = fetch_best_image(queries, title_preview, idx=1)
+
+            # Inyectar imágenes en el contenido
+            content_with_images = inject_images(humanized, cover_img, inline_img)
+
+            if save_article(keyword, content_with_images, result["excerpt"], result["category"], i):
                 publicados += 1
             time.sleep(2)
         except Exception as e:
