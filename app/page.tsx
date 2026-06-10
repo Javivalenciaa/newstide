@@ -41,7 +41,7 @@ export default async function Home() {
     .from('articles')
     .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,image_gradient')
     .order('published_at', { ascending: false })
-    .limit(20)
+    .limit(7)
 
   const featured = articles?.find(a => a.featured) || articles?.[0]
   const rest = articles?.filter(a => a.id !== featured?.id) || []
@@ -65,6 +65,11 @@ export default async function Home() {
           <p className="hero-sub">
             Artículos de fondo, herramientas y tendencias para founders, developers y profesionales.
           </p>
+          <div className="hero-ctas">
+            <Link href="/articulos" className="nav-cta" style={{ fontSize: 15, padding: '12px 28px' }}>
+              Ver todos los artículos →
+            </Link>
+          </div>
           <div className="hero-tags">
             <span>Tendencias:</span>
             {['Claude vs GPT-4o', 'Automatización', 'Startups IA 2026', 'RAG avanzado'].map(t => (
@@ -107,7 +112,7 @@ export default async function Home() {
         </section>
       )}
 
-      {/* ARTICLES GRID */}
+      {/* ARTICLES PREVIEW — solo 6 en la landing */}
       <section className="section-articles" id="articles">
         <div className="container">
           <div className="section-header">
@@ -166,6 +171,19 @@ export default async function Home() {
                 <button className="sidebar-sub-btn">Suscribirse gratis</button>
               </div>
             </aside>
+          </div>
+          {/* CTA to full articles page */}
+          <div style={{ textAlign: 'center', marginTop: 48 }}>
+            <Link href="/articulos" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '14px 32px', borderRadius: 8,
+              border: '1px solid var(--border)',
+              color: 'var(--accent)', fontWeight: 600, fontSize: 15,
+              textDecoration: 'none', transition: 'border-color 0.2s',
+              background: 'rgba(110,207,202,0.05)'
+            }}>
+              Ver todos los artículos →
+            </Link>
           </div>
         </div>
       </section>

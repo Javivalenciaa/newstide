@@ -54,7 +54,7 @@ export default async function HomeEN() {
     .from('articles')
     .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient')
     .order('published_at', { ascending: false })
-    .limit(20)
+    .limit(7)
 
   const featured = articles?.find(a => a.featured) || articles?.[0]
   const rest = articles?.filter(a => a.id !== featured?.id) || []
@@ -83,6 +83,11 @@ export default async function HomeEN() {
           <p className="hero-sub">
             In-depth articles, tools and trends for founders, developers and professionals.
           </p>
+          <div className="hero-ctas">
+            <Link href="/en/articles" className="nav-cta" style={{ fontSize: 15, padding: '12px 28px' }}>
+              Browse all articles →
+            </Link>
+          </div>
           <div className="hero-tags">
             <span>Trending:</span>
             {['Claude vs GPT-4o', 'Automation', 'AI Startups 2026', 'Advanced RAG'].map(tag => (
@@ -122,7 +127,7 @@ export default async function HomeEN() {
         </section>
       )}
 
-      {/* ARTICLES GRID */}
+      {/* ARTICLES PREVIEW */}
       <section className="section-articles" id="articles">
         <div className="container">
           <div className="section-header">
@@ -181,6 +186,19 @@ export default async function HomeEN() {
                 <button className="sidebar-sub-btn">Subscribe for free</button>
               </div>
             </aside>
+          </div>
+          {/* CTA to full articles page */}
+          <div style={{ textAlign: 'center', marginTop: 48 }}>
+            <Link href="/en/articles" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '14px 32px', borderRadius: 8,
+              border: '1px solid var(--border)',
+              color: 'var(--accent)', fontWeight: 600, fontSize: 15,
+              textDecoration: 'none', transition: 'border-color 0.2s',
+              background: 'rgba(110,207,202,0.05)'
+            }}>
+              Browse all articles →
+            </Link>
           </div>
         </div>
       </section>

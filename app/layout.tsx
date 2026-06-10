@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import Link from 'next/link'
 import LangSwitcher from '@/components/LangSwitcher'
+import MobileNav from '@/components/MobileNav'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
@@ -25,14 +26,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="nav-logo-mark">NT</div>
             NewsTide
           </Link>
+          {/* Desktop links */}
           <div className="nav-links">
             <Link href="/">Inicio</Link>
-            <Link href="/#articles">Artículos</Link>
+            <Link href="/articulos">Artículos</Link>
             <Link href="/#newsletter">Newsletter</Link>
           </div>
           <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <LangSwitcher />
             <Link href="/#newsletter" className="nav-cta">Suscribirse</Link>
+            {/* Mobile hamburger */}
+            <MobileNav lang="es" />
           </div>
         </nav>
         {children}
@@ -48,10 +52,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="footer-links">
                 <div className="footer-col">
                   <div className="footer-col-title">Categorías</div>
-                  <Link href="/">IA & Modelos</Link>
-                  <Link href="/">Startups</Link>
-                  <Link href="/">Herramientas</Link>
-                  <Link href="/">Tutoriales</Link>
+                  <Link href="/articulos">IA & Modelos</Link>
+                  <Link href="/articulos">Startups</Link>
+                  <Link href="/articulos">Herramientas</Link>
+                  <Link href="/articulos">Tutoriales</Link>
                 </div>
                 <div className="footer-col">
                   <div className="footer-col-title">Empresa</div>
