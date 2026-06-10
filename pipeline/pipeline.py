@@ -3,7 +3,7 @@ import hashlib
 import re
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from serpapi import GoogleSearch
 from openai import OpenAI
 import anthropic
@@ -75,6 +75,103 @@ def already_published(keyword):
 
 def normalize_year(text: str) -> str:
     return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
+
+# ── GET RECENT ARTICLES FROM SUPABASE ────────────────────────────────────────
+def get_recent_articles_context() -> str:
+    """
+    Fetches titles and keywords from the last 30 days.
+    Returns a formatted string to inject into prompts so the AI
+    knows what topics have already been covered and must avoid repeating.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    try:
+        res = supabase_client.table("articles") \
+            .select("title, keyword, category") \
+            .gte("published_at", since) \
+            .order("published_at", desc=True) \
+            .limit(50) \
+            .execute()
+        if not res.data:
+            return "No hay artículos recientes."
+        lines = [f"- [{r['category']}] {r['title']}" for r in res.data]
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"  ⚠️  Error leyendo Supabase: {e}")
+        return "No disponible."
+
+# ── SPECIALIZE KEYWORD INTO A NICHE ANGLE ────────────────────────────────────
+def specialize_keyword(raw_keyword: str, recent_context: str) -> str:
+    """
+    Takes a broad trending keyword and asks Claude to transform it
+    into a specific, niche angle that:
+    1. Has NOT been covered in recent articles
+    2. Is concrete (tool-specific, audience-specific, use-case-specific)
+    3. Would genuinely interest founders/developers
+    """
+    print(f"  🎯 Especializando keyword: {raw_keyword[:60]}...")
+    prompt = f"""Tienes este tema trending de Google: "{raw_keyword}"
+
+Estos son los artículos publicados en NewsTide el último mes (NO debes repetir estos temas ni temáticas similares):
+{recent_context}
+
+Tu tarea: transforma el tema trending en UN ángulo específico y concreto para un artículo.
+
+REGLAS OBLIGATORIAS:
+1. Sé MUY específico: menciona una herramienta concreta, caso de uso, perfil de usuario o contexto real
+   MAL: "Cómo usar la IA para ser más productivo en 2026"
+   BIEN: "Cómo usar Cursor + Claude para refactorizar código legacy sin romper tests"
+   MAL: "Las mejores herramientas de IA para startups"
+   BIEN: "Cómo Notion AI está ayudando a equipos de 3 personas a gestionar el caos del product-market fit"
+2. Evita cualquier tema ya cubierto en la lista de arriba (ni el mismo tema, ni el mismo ángulo)
+3. El ángulo debe interesar a founders, developers o product managers
+4. Incluye una perspectiva única: comparativa, caso de estudio, error común, dato contraintuitivo
+5. NO empieces con genéricos como "El futuro de...", "Todo sobre...", "Guía completa de..."
+
+Responde ÚNICAMENTE con el título/ángulo especializado (1 línea, máximo 100 caracteres). Sin explicaciones."""
+
+    try:
+        msg = claude_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=80,
+            messages=[{"role": "user", "content": prompt}],
+            system="Eres un editor de contenido tech que crea ángulos únicos y específicos para artículos. Nunca produces temas genéricos."
+        )
+        specialized = msg.content[0].text.strip().strip('"').strip("'")
+        print(f"  ✅ Ángulo: {specialized[:80]}")
+        return specialized if len(specialized) > 15 else raw_keyword
+    except Exception as e:
+        print(f"  ⚠️  Error especializando: {e}")
+        return raw_keyword
+
+# ── CHECK SEMANTIC SIMILARITY AGAINST RECENT TITLES ──────────────────────────
+def is_too_similar_to_recent(niche_keyword: str, recent_context: str) -> bool:
+    """
+    Asks Claude to check whether the specialized keyword is semantically
+    too similar to any recent article. Returns True if it should be skipped.
+    """
+    if recent_context == "No hay artículos recientes." or recent_context == "No disponible.":
+        return False
+    try:
+        prompt = f"""Nuevo artículo propuesto: "{niche_keyword}"
+
+Artículos publicados recientemente:
+{recent_context}
+
+¿El artículo propuesto cubre el mismo tema o un ángulo muy similar a alguno de los artículos ya publicados?
+Responde SOLO con: YES o NO"""
+        msg = claude_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=5,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = msg.content[0].text.strip().upper()
+        if answer.startswith("YES"):
+            print(f"  ⚠️  Demasiado similar a artículos recientes — saltando")
+            return True
+        return False
+    except Exception as e:
+        print(f"  ⚠️  Error comprobando similitud: {e}")
+        return False
 
 # ── UNSPLASH ──────────────────────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
@@ -160,10 +257,13 @@ def get_keywords():
     return keywords
 
 # ── STEP 2: GENERATE ES WITH CLAUDE ──────────────────────────────────────────
-def generate_article(keyword):
+def generate_article(keyword, recent_context: str):
     print(f"  ✍️  Claude generando ES: {keyword[:60]}...")
     category = detect_category(keyword)
     prompt = f"""Escribe un artículo completo en español sobre: "{keyword}"
+
+ARTÍCULOS YA PUBLICADOS EN NEWSTIDE (no repitas estas temáticas ni estos ángulos):
+{recent_context}
 
 ESTRUCTURA (usa markdown):
 - Título H1 atractivo y específico (no el keyword literal)
@@ -179,6 +279,7 @@ REQUISITOS:
 - Nunca empieces con "En el mundo de..." ni frases genéricas
 - Categoría del artículo: {category}
 - El año actual es 2026. Si el keyword menciona años anteriores como 2023, 2024 o 2025 en un contexto de actualidad o consejo, actualízalos a 2026. Solo conserva el año original si es una referencia histórica imprescindible.
+- El artículo DEBE ofrecer un ángulo diferente a los ya publicados — profundiza en lo específico, no repitas perspectivas generales
 
 Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
@@ -186,7 +287,7 @@ EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
     message = claude_client.messages.create(
         model=MODEL_GENERATE, max_tokens=2800,
         messages=[{"role": "user", "content": prompt}],
-        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026; nunca uses 2024 o 2025 como año vigente salvo contexto histórico."
+        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026; nunca uses 2024 o 2025 como año vigente salvo contexto histórico. Cada artículo debe tener un ángulo único y concreto — nunca repitas temáticas ya cubiertas."
     )
     raw = message.content[0].text
     excerpt = ""
@@ -228,7 +329,7 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
         temperature=0.75, max_tokens=2800
     )
     raw = response.choices[0].message.content
-    title_en = es_title  # fallback
+    title_en = es_title
     excerpt_en = es_excerpt
     content_en = raw
 
@@ -288,7 +389,6 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     if lines and lines[0].strip().startswith("# "):
         content_es = "\n".join(lines[1:]).strip()
 
-    # strip H1 from EN content too
     en_lines = content_en.strip().split("\n")
     if en_lines and en_lines[0].strip().startswith("# "):
         content_en = "\n".join(en_lines[1:]).strip()
@@ -324,9 +424,18 @@ def main():
     print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
 
-    keywords = get_keywords()
-    nuevas = [k for k in keywords if not already_published(k)]
-    print(f"📋 Keywords nuevas: {len(nuevas)}")
+    # Load recent articles ONCE — used throughout the pipeline
+    print("📚 Cargando artículos recientes de Supabase...")
+    recent_context = get_recent_articles_context()
+    recent_lines = [l for l in recent_context.splitlines() if l.strip()]
+    print(f"   {len(recent_lines)} artículos del último mes cargados")
+
+    raw_keywords = get_keywords()
+
+    # Deduplicate by exact keyword hash
+    nuevas = [k for k in raw_keywords if not already_published(k)]
+    print(f"📋 Keywords nuevas (sin hash duplicado): {len(nuevas)}")
+
     if not nuevas:
         nuevas = [
             f"Tendencias IA para empresas {datetime.now().strftime('%B %Y')}",
@@ -334,17 +443,34 @@ def main():
         ]
 
     publicados = 0
-    for i, keyword in enumerate(nuevas[:ARTICLES_PER_DAY]):
-        print(f"\n📝 Artículo {i+1}/{min(len(nuevas), ARTICLES_PER_DAY)}")
-        try:
-            kw = normalize_year(keyword)
-            if kw != keyword:
-                print(f"  📅 Keyword normalizado: {kw[:80]}")
+    intentos   = 0
+    max_intentos = len(nuevas) + 5  # allow extra attempts if some get skipped
 
-            result   = generate_article(kw)
+    for i, raw_keyword in enumerate(nuevas):
+        if publicados >= ARTICLES_PER_DAY:
+            break
+        if intentos >= max_intentos:
+            break
+        intentos += 1
+
+        print(f"\n📝 Procesando keyword {i+1}: {raw_keyword[:60]}")
+        try:
+            kw_norm = normalize_year(raw_keyword)
+
+            # Transform broad keyword into a specific niche angle
+            niche_kw = specialize_keyword(kw_norm, recent_context)
+
+            # Semantic deduplication check
+            if is_too_similar_to_recent(niche_kw, recent_context):
+                print(f"  ⏭️  Saltado por similitud semántica")
+                continue
+
+            article_idx = publicados  # use published count for gradient/author/featured
+
+            result    = generate_article(niche_kw, recent_context)
             humanized = humanize(result["content"])
 
-            title_preview = kw[:100]
+            title_preview = niche_kw[:100]
             for line in humanized.strip().split("\n")[:5]:
                 if line.strip().startswith("# "):
                     title_preview = line.strip()[2:].strip()
@@ -358,9 +484,12 @@ def main():
 
             en = translate_to_english(content_es, result["excerpt"], title_preview)
 
-            if save_article(kw, content_es, result["excerpt"], result["category"], i,
-                            en["content_en"], en["title_en"], en["excerpt_en"]):
+            if save_article(niche_kw, content_es, result["excerpt"], result["category"],
+                            article_idx, en["content_en"], en["title_en"], en["excerpt_en"]):
                 publicados += 1
+                # Update recent_context in memory so next article in same run also avoids it
+                recent_context = f"- [{result['category']}] {title_preview}\n" + recent_context
+
             time.sleep(2)
         except Exception as e:
             print(f"  ❌ Error: {e}")
