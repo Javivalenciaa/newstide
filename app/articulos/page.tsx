@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
@@ -18,6 +19,8 @@ const CAT_COLORS: Record<string, string> = {
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
 
+const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
+
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
@@ -36,7 +39,7 @@ function Badge({ cat }: { cat: string }) {
 export default async function ArticulosPage() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,image_gradient')
+    .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(100)
 
@@ -97,7 +100,17 @@ export default async function ArticulosPage() {
                 style={{ '--delay': `${i * 0.04}s` } as React.CSSProperties}
               >
                 <div className="article-img">
-                  <div className="article-img-inner" style={{ background: a.image_gradient }} />
+                  {a.cover_image_url ? (
+                    <Image
+                      src={a.cover_image_url}
+                      alt={a.title}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                    />
+                  ) : (
+                    <div className="article-img-inner" style={{ background: FALLBACK_GRADIENT }} />
+                  )}
                 </div>
                 <div className="article-body">
                   <div className="article-meta">

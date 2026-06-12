@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import Link from 'next/link'
 
 export const revalidate = 3600
@@ -13,13 +14,15 @@ interface Article {
   published_at: string
   reading_time: number
   featured: boolean
-  image_gradient: string
+  cover_image_url: string | null
 }
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
+
+const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -39,7 +42,7 @@ function Badge({ cat }: { cat: string }) {
 export default async function Home() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,image_gradient')
+    .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(7)
 
@@ -88,8 +91,19 @@ export default async function Home() {
         <section id="featured">
           <div className="container">
             <Link href={`/articulo/${featured.slug}`} className="featured-card">
-              <div className="featured-img" style={{ background: featured.image_gradient }}>
-                <div className="featured-dots" />
+              <div className="featured-img" style={!featured.cover_image_url ? { background: FALLBACK_GRADIENT } : undefined}>
+                {featured.cover_image_url ? (
+                  <Image
+                    src={featured.cover_image_url}
+                    alt={featured.title}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    priority
+                  />
+                ) : (
+                  <div className="featured-dots" />
+                )}
               </div>
               <div className="featured-content">
                 <div className="featured-meta">
@@ -129,7 +143,17 @@ export default async function Home() {
                   style={{ '--delay': `${i * 0.1}s` } as React.CSSProperties}
                 >
                   <div className="article-img">
-                    <div className="article-img-inner" style={{ background: a.image_gradient }} />
+                    {a.cover_image_url ? (
+                      <Image
+                        src={a.cover_image_url}
+                        alt={a.title}
+                        fill
+                        className="object-cover"
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                      />
+                    ) : (
+                      <div className="article-img-inner" style={{ background: FALLBACK_GRADIENT }} />
+                    )}
                   </div>
                   <div className="article-body">
                     <div className="article-meta">
