@@ -4,9 +4,40 @@ import LangSwitcher from '@/components/LangSwitcher'
 import MobileNav from '@/components/MobileNav'
 
 export const metadata: Metadata = {
-  title: 'NewsTide — The intelligence shaping the future',
+  title: {
+    default: 'NewsTide — The intelligence shaping the future',
+    template: '%s | NewsTide',
+  },
   description: 'Technology, AI and trends for founders, developers and professionals.',
-  openGraph: { siteName: 'NewsTide', locale: 'en_US', type: 'website' },
+  alternates: {
+    canonical: 'https://www.newstide.news/en',
+    languages: {
+      'es': 'https://www.newstide.news',
+      'en': 'https://www.newstide.news/en',
+    },
+  },
+  openGraph: {
+    siteName: 'NewsTide',
+    locale: 'en_US',
+    type: 'website',
+    url: 'https://www.newstide.news/en',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@newstide',
+    creator: '@newstide',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
 }
 
 export default function EnLayout({ children }: { children: React.ReactNode }) {
@@ -41,7 +72,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
             <div className="footer-links">
               <div className="footer-col">
                 <div className="footer-col-title">Categories</div>
-                <Link href="/en/articles">AI & Models</Link>
+                <Link href="/en/articles">AI &amp; Models</Link>
                 <Link href="/en/articles">Startups</Link>
                 <Link href="/en/articles">Tools</Link>
                 <Link href="/en/articles">Tutorials</Link>
@@ -62,7 +93,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
       </footer>
       <script dangerouslySetInnerHTML={{ __html: `
         const nav = document.getElementById('navbar');
-        window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 20), {passive:true});
+        if(nav) window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 20), {passive:true});
       ` }} />
     </>
   )

@@ -7,14 +7,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .select('slug, published_at')
     .order('published_at', { ascending: false })
 
-  const esUrls = (articles || []).map((a) => ({
+  const esArticleUrls = (articles || []).map((a) => ({
     url: `https://www.newstide.news/articulo/${a.slug}`,
     lastModified: new Date(a.published_at),
     changeFrequency: 'weekly' as const,
     priority: 0.8,
   }))
 
-  const enUrls = (articles || []).map((a) => ({
+  const enArticleUrls = (articles || []).map((a) => ({
     url: `https://www.newstide.news/en/article/${a.slug}`,
     lastModified: new Date(a.published_at),
     changeFrequency: 'weekly' as const,
@@ -22,10 +22,31 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }))
 
   return [
-    { url: 'https://www.newstide.news',     lastModified: new Date(), priority: 1.0 },
-    { url: 'https://www.newstide.news/en',  lastModified: new Date(), priority: 1.0 },
-    { url: 'https://www.newstide.news/blog', lastModified: new Date(), priority: 0.9 },
-    ...esUrls,
-    ...enUrls,
+    {
+      url: 'https://www.newstide.news',
+      lastModified: new Date(),
+      changeFrequency: 'daily' as const,
+      priority: 1.0,
+    },
+    {
+      url: 'https://www.newstide.news/en',
+      lastModified: new Date(),
+      changeFrequency: 'daily' as const,
+      priority: 1.0,
+    },
+    {
+      url: 'https://www.newstide.news/articulos',
+      lastModified: new Date(),
+      changeFrequency: 'daily' as const,
+      priority: 0.9,
+    },
+    {
+      url: 'https://www.newstide.news/en/articles',
+      lastModified: new Date(),
+      changeFrequency: 'daily' as const,
+      priority: 0.9,
+    },
+    ...esArticleUrls,
+    ...enArticleUrls,
   ]
 }
