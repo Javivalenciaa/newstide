@@ -91,18 +91,16 @@ export default async function Home() {
         <section id="featured">
           <div className="container">
             <Link href={`/articulo/${featured.slug}`} className="featured-card">
-              <div className="featured-img" style={!featured.cover_image_url ? { background: FALLBACK_GRADIENT } : undefined}>
-                {featured.cover_image_url ? (
+              <div className="featured-img">
+                {featured.cover_image_url && (
                   <Image
                     src={featured.cover_image_url}
                     alt={featured.title}
                     fill
-                    className="object-cover"
-                    sizes="(max-width: 768px) 100vw, 50vw"
+                    style={{ objectFit: 'cover' }}
+                    sizes="(max-width: 768px) 100vw, 1200px"
                     priority
                   />
-                ) : (
-                  <div className="featured-dots" />
                 )}
               </div>
               <div className="featured-content">
@@ -126,7 +124,7 @@ export default async function Home() {
         </section>
       )}
 
-      {/* ARTICLES PREVIEW — solo 6 en la landing */}
+      {/* ARTICLES PREVIEW */}
       <section className="section-articles" id="articles">
         <div className="container">
           <div className="section-header">
@@ -148,7 +146,7 @@ export default async function Home() {
                         src={a.cover_image_url}
                         alt={a.title}
                         fill
-                        className="object-cover"
+                        style={{ objectFit: 'cover' }}
                         sizes="(max-width: 768px) 100vw, 33vw"
                       />
                     ) : (
@@ -196,7 +194,6 @@ export default async function Home() {
               </div>
             </aside>
           </div>
-          {/* CTA to full articles page */}
           <div style={{ textAlign: 'center', marginTop: 48 }}>
             <Link href="/articulos" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,

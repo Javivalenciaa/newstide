@@ -68,10 +68,7 @@ export default async function ArticulosPage() {
           <p style={{ color: 'var(--muted)', fontSize: 16, maxWidth: 480 }}>
             {articles?.length || 0} artículos sobre IA, startups, herramientas y tecnología.
           </p>
-          {/* CATEGORY PILLS */}
-          <div style={{
-            display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 28
-          }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 28 }}>
             {cats.map(c => (
               <span key={c} style={{
                 padding: '6px 14px', borderRadius: '20px', fontSize: 13, fontWeight: 500,
@@ -105,7 +102,7 @@ export default async function ArticulosPage() {
                       src={a.cover_image_url}
                       alt={a.title}
                       fill
-                      className="object-cover"
+                      style={{ objectFit: 'cover' }}
                       sizes="(max-width: 768px) 100vw, 33vw"
                     />
                   ) : (
