@@ -26,22 +26,30 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+export async function generateStaticParams() {
+  const { data } = await supabase.from('articles').select('slug')
+  return (data || []).map((a) => ({ slug: a.slug }))
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
   const { data: article } = await supabase
     .from('articles')
-    .select('title, title_en, excerpt, excerpt_en, slug, category, published_at')
+    .select('title, title_en, excerpt, excerpt_en, slug, category, published_at, cover_image_url, author')
     .eq('slug', slug)
     .maybeSingle()
 
-  if (!article) return { title: 'Article not found | NewsTide' }
+  if (!article) return { title: 'Article not found' }
 
-  const title = `${article.title_en || article.title} | NewsTide`
+  const title = article.title_en || article.title
   const description = article.excerpt_en || article.excerpt || 'Technology, AI and trends for founders, developers and professionals.'
   const url = `https://www.newstide.news/en/article/${article.slug}`
   const urlES = `https://www.newstide.news/articulo/${article.slug}`
+  const images = article.cover_image_url
+    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
+    : []
 
   return {
     title,
@@ -54,8 +62,13 @@ export async function generateMetadata(
       title, description, url,
       siteName: 'NewsTide', locale: 'en_US', type: 'article',
       publishedTime: article.published_at,
+      authors: [article.author],
+      images,
     },
-    twitter: { card: 'summary_large_image', title, description },
+    twitter: {
+      card: 'summary_large_image', title, description,
+      ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
+    },
   }
 }
 
@@ -76,9 +89,51 @@ export default async function ArticlePageEN({
   const title   = article!.title_en   || article!.title
   const content = article!.content_en || article!.content
   const excerpt = article!.excerpt_en || article!.excerpt
+  const url = `https://www.newstide.news/en/article/${article!.slug}`
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: title,
+    description: excerpt || '',
+    url,
+    datePublished: article!.published_at,
+    dateModified: article!.published_at,
+    inLanguage: 'en',
+    author: {
+      '@type': 'Person',
+      name: article!.author,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'NewsTide',
+      url: 'https://www.newstide.news',
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://www.newstide.news/favicon-192x192.png',
+      },
+    },
+    ...(article!.cover_image_url ? {
+      image: {
+        '@type': 'ImageObject',
+        url: article!.cover_image_url,
+        width: 1200,
+        height: 630,
+      },
+    } : {}),
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': url,
+    },
+  }
 
   return (
     <div className="article-page">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       {/* HERO */}
       <div className="article-hero" style={{ background: article!.image_gradient }}>
         <div className="article-hero-overlay" />

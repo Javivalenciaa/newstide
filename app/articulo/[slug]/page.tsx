@@ -27,6 +27,11 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+export async function generateStaticParams() {
+  const { data } = await supabase.from('articles').select('slug')
+  return (data || []).map((a) => ({ slug: a.slug }))
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
@@ -34,25 +39,32 @@ export async function generateMetadata(
 
   const { data: article } = await supabase
     .from('articles')
-    .select('title, excerpt, slug, category, published_at')
+    .select('title, excerpt, slug, category, published_at, cover_image_url, author')
     .eq('slug', slug)
     .maybeSingle()
 
   if (!article) {
     return {
-      title: 'Artículo no encontrado | NewsTide',
+      title: 'Artículo no encontrado',
       description: 'Este contenido no está disponible en NewsTide.',
     }
   }
 
-  const title = `${article.title} | NewsTide`
+  const title = article.title
   const description = article.excerpt || 'Tecnología, IA y tendencias para founders, developers y profesionales.'
   const url = `https://www.newstide.news/articulo/${article.slug}`
+  const urlEN = `https://www.newstide.news/en/article/${article.slug}`
+  const images = article.cover_image_url
+    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
+    : []
 
   return {
     title,
     description,
-    alternates: { canonical: url },
+    alternates: {
+      canonical: url,
+      languages: { 'es': url, 'en': urlEN },
+    },
     openGraph: {
       title,
       description,
@@ -61,11 +73,14 @@ export async function generateMetadata(
       locale: 'es_ES',
       type: 'article',
       publishedTime: article.published_at,
+      authors: [article.author],
+      images,
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
+      ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
     },
   }
 }
@@ -85,8 +100,50 @@ export default async function ArticuloPage({
 
   if (!article) notFound()
 
+  const url = `https://www.newstide.news/articulo/${article!.slug}`
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: article!.title,
+    description: article!.excerpt || '',
+    url,
+    datePublished: article!.published_at,
+    dateModified: article!.published_at,
+    inLanguage: 'es',
+    author: {
+      '@type': 'Person',
+      name: article!.author,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'NewsTide',
+      url: 'https://www.newstide.news',
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://www.newstide.news/favicon-192x192.png',
+      },
+    },
+    ...(article!.cover_image_url ? {
+      image: {
+        '@type': 'ImageObject',
+        url: article!.cover_image_url,
+        width: 1200,
+        height: 630,
+      },
+    } : {}),
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': url,
+    },
+  }
+
   return (
     <div className="article-page">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* HERO */}
       <div className="article-hero" style={{ background: article!.image_gradient }}>
