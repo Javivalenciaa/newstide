@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
@@ -26,13 +27,15 @@ interface Article {
   published_at: string
   reading_time: number
   featured: boolean
-  image_gradient: string
+  cover_image_url: string | null
 }
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
+
+const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -52,7 +55,7 @@ function Badge({ cat }: { cat: string }) {
 export default async function HomeEN() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient')
+    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(7)
 
@@ -103,8 +106,17 @@ export default async function HomeEN() {
         <section id="featured">
           <div className="container">
             <Link href={`/en/article/${featured.slug}`} className="featured-card">
-              <div className="featured-img" style={{ background: featured.image_gradient }}>
-                <div className="featured-dots" />
+              <div className="featured-img" style={!featured.cover_image_url ? { background: FALLBACK_GRADIENT } : undefined}>
+                {featured.cover_image_url && (
+                  <Image
+                    src={featured.cover_image_url}
+                    alt={t(featured).title}
+                    fill
+                    style={{ objectFit: 'cover' }}
+                    sizes="(max-width: 768px) 100vw, 1200px"
+                    priority
+                  />
+                )}
               </div>
               <div className="featured-content">
                 <div className="featured-meta">
@@ -144,7 +156,17 @@ export default async function HomeEN() {
                   style={{ '--delay': `${i * 0.1}s` } as React.CSSProperties}
                 >
                   <div className="article-img">
-                    <div className="article-img-inner" style={{ background: a.image_gradient }} />
+                    {a.cover_image_url ? (
+                      <Image
+                        src={a.cover_image_url}
+                        alt={t(a).title}
+                        fill
+                        style={{ objectFit: 'cover' }}
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                      />
+                    ) : (
+                      <div className="article-img-inner" style={{ background: FALLBACK_GRADIENT }} />
+                    )}
                   </div>
                   <div className="article-body">
                     <div className="article-meta">
@@ -187,7 +209,6 @@ export default async function HomeEN() {
               </div>
             </aside>
           </div>
-          {/* CTA to full articles page */}
           <div style={{ textAlign: 'center', marginTop: 48 }}>
             <Link href="/en/articles" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
