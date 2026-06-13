@@ -81,6 +81,15 @@ def already_published_hash(keyword):
 def normalize_year(text: str) -> str:
     return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
 
+def strip_code_fences(text: str) -> str:
+    """Remove wrapping ```markdown ... ``` or ``` ... ``` that GPT sometimes adds."""
+    text = text.strip()
+    # Remove opening fence: ```markdown, ```md, or plain ```
+    text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
+    # Remove closing fence at the very end
+    text = re.sub(r'\n```\s*$', '', text)
+    return text.strip()
+
 # ── LOAD RECENT ARTICLES ──────────────────────────────────────────────────────
 def get_recent_articles() -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
@@ -405,6 +414,9 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
         parts = raw.split("EXCERPT_EN:")
         content_en = parts[0].strip()
         excerpt_en = parts[1].strip()[:200]
+
+    # Strip markdown code fences that GPT sometimes wraps around the translation
+    content_en = strip_code_fences(content_en)
 
     return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en}
 
