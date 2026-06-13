@@ -84,9 +84,7 @@ def normalize_year(text: str) -> str:
 def strip_code_fences(text: str) -> str:
     """Remove wrapping ```markdown ... ``` or ``` ... ``` that GPT sometimes adds."""
     text = text.strip()
-    # Remove opening fence: ```markdown, ```md, or plain ```
     text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
-    # Remove closing fence at the very end
     text = re.sub(r'\n```\s*$', '', text)
     return text.strip()
 
@@ -383,37 +381,50 @@ Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los da
 Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
-        temperature=0.88, max_tokens=2800
+        temperature=0.88, max_tokens=4096
     )
     return response.choices[0].message.content
 
 # ── TRANSLATE + HUMANIZE EN ───────────────────────────────────────────────────
 def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
     print("  🌐 GPT traduciendo EN...")
+    # TITLE_EN and EXCERPT_EN are requested at the TOP so they are never lost to truncation
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
-            {"role": "system", "content": "You are a professional tech journalist and translator. Translate the following Spanish tech article to natural, fluent American English. Keep all markdown formatting. Adapt idioms naturally. At the end write: TITLE_EN: [translated H1 title] and EXCERPT_EN: [one sentence summary, max 150 chars]"},
+            {"role": "system", "content": (
+                "You are a professional tech journalist and translator. "
+                "Translate the following Spanish tech article to natural, fluent American English. "
+                "Keep all markdown formatting. Adapt idioms naturally. "
+                "IMPORTANT: Start your response with exactly these two lines before the article body:\n"
+                "TITLE_EN: [translated H1 title]\n"
+                "EXCERPT_EN: [one sentence summary, max 150 chars]\n"
+                "Then a blank line, then the full translated article body (without the H1 title line)."
+            )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
         ],
-        temperature=0.75, max_tokens=2800
+        temperature=0.75, max_tokens=4096
     )
-    raw = response.choices[0].message.content
-    title_en, excerpt_en, content_en = es_title, es_excerpt, raw
+    raw = response.choices[0].message.content.strip()
 
-    if "TITLE_EN:" in raw:
-        parts = raw.split("TITLE_EN:")
-        content_en = parts[0].strip()
-        rest = parts[1]
-        if "EXCERPT_EN:" in rest:
-            title_en = rest.split("EXCERPT_EN:")[0].strip()[:150]
-            excerpt_en = rest.split("EXCERPT_EN:")[1].strip()[:200]
-        else:
-            title_en = rest.strip()[:150]
-    elif "EXCERPT_EN:" in raw:
-        parts = raw.split("EXCERPT_EN:")
-        content_en = parts[0].strip()
-        excerpt_en = parts[1].strip()[:200]
+    title_en  = es_title
+    excerpt_en = es_excerpt
+    content_en = raw
+
+    # Parse TITLE_EN and EXCERPT_EN from the top of the response
+    lines = raw.splitlines()
+    body_start = 0
+    for i, line in enumerate(lines):
+        if line.startswith("TITLE_EN:"):
+            title_en = line[len("TITLE_EN:"):].strip()[:150]
+            body_start = i + 1
+        elif line.startswith("EXCERPT_EN:"):
+            excerpt_en = line[len("EXCERPT_EN:"):].strip()[:200]
+            body_start = i + 1
+    # Skip leading blank lines after the metadata
+    while body_start < len(lines) and not lines[body_start].strip():
+        body_start += 1
+    content_en = "\n".join(lines[body_start:]).strip()
 
     # Strip markdown code fences that GPT sometimes wraps around the translation
     content_en = strip_code_fences(content_en)
@@ -576,7 +587,6 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         inline_img = fetch_best_image(queries, title_preview, idx=1)
         content_es = inject_images(humanized, cover_img, inline_img)
 
-        # Extract clean cover URL to save as dedicated field in Supabase
         cover_image_url = cover_img["url"] if cover_img else None
 
         en = translate_to_english(content_es, result["excerpt"], title_preview)
