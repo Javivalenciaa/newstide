@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
@@ -13,25 +14,12 @@ export const metadata: Metadata = {
   },
 }
 
-interface Article {
-  id: string
-  title: string
-  title_en: string
-  slug: string
-  excerpt: string
-  excerpt_en: string
-  category: string
-  author: string
-  published_at: string
-  reading_time: number
-  featured: boolean
-  image_gradient: string
-}
-
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
+
+const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -51,11 +39,11 @@ function Badge({ cat }: { cat: string }) {
 export default async function ArticlesPageEN() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient')
+    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(100)
 
-  const t = (a: Article) => ({
+  const t = (a: { title_en?: string | null; title: string; excerpt_en?: string | null; excerpt: string }) => ({
     title: a.title_en || a.title,
     excerpt: a.excerpt_en || a.excerpt,
   })
@@ -85,7 +73,6 @@ export default async function ArticlesPageEN() {
           <p style={{ color: 'var(--muted)', fontSize: 16, maxWidth: 480 }}>
             {articles?.length || 0} articles on AI, startups, tools and technology.
           </p>
-          {/* CATEGORY PILLS */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 28 }}>
             {cats.map(c => (
               <span key={c} style={{
@@ -115,7 +102,17 @@ export default async function ArticlesPageEN() {
                 style={{ '--delay': `${i * 0.04}s` } as React.CSSProperties}
               >
                 <div className="article-img">
-                  <div className="article-img-inner" style={{ background: a.image_gradient }} />
+                  {a.cover_image_url ? (
+                    <Image
+                      src={a.cover_image_url}
+                      alt={t(a).title}
+                      fill
+                      style={{ objectFit: 'cover' }}
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                    />
+                  ) : (
+                    <div className="article-img-inner" style={{ background: a.image_gradient || FALLBACK_GRADIENT }} />
+                  )}
                 </div>
                 <div className="article-body">
                   <div className="article-meta">

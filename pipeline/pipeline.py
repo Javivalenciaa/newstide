@@ -19,7 +19,7 @@ UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 
 ARTICLES_PER_RUN   = 3
 MODEL_GENERATE     = "claude-sonnet-4-5"
-MODEL_FAST         = "gpt-4o-mini"          # cheap model for dedup / classification
+MODEL_FAST         = "gpt-4o-mini"
 MODEL_HUMANIZE     = "gpt-4o-mini"
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
@@ -104,7 +104,6 @@ def format_recent_context(articles: list[dict]) -> str:
 
 # ── SOURCE 1: SERPAPI TRENDING NEWS ──────────────────────────────────────────
 def fetch_serpapi_news() -> list[str]:
-    """Fetch specific today's news headlines — not generic trends."""
     queries = [
         "OpenAI Anthropic Google DeepMind news today",
         "startups IA financiación noticias hoy",
@@ -133,7 +132,6 @@ def fetch_serpapi_news() -> list[str]:
 
 # ── SOURCE 2: SERPAPI TRENDING SEARCHES ──────────────────────────────────────
 def fetch_serpapi_trends() -> list[str]:
-    """Google trending searches related to tech/AI."""
     queries = [
         "inteligencia artificial novedades junio 2026",
         "mejores herramientas IA developers 2026",
@@ -159,14 +157,8 @@ def fetch_serpapi_trends() -> list[str]:
         time.sleep(0.8)
     return results
 
-# ── SOURCE 3: NICHE TOPIC GENERATOR (AI-driven) ──────────────────────────────
+# ── SOURCE 3: NICHE TOPIC GENERATOR ──────────────────────────────────────────
 def generate_niche_topics(recent_articles: list[dict], n: int = 15) -> list[str]:
-    """
-    Ask GPT to brainstorm N very specific, niche topics that:
-    - haven't been covered yet
-    - are based on real 2026 trends in AI/startups/tools
-    - are hyper-specific (tool + audience + use case)
-    """
     recent_titles = "\n".join(f"- {a['title']}" for a in recent_articles[:30])
     today = datetime.now().strftime("%B %d, %Y")
     prompt = f"""Hoy es {today}. Eres editor jefe de NewsTide, un medio tech premium para founders y developers en español.
@@ -202,7 +194,6 @@ Formato: una idea por línea, sin numeración, sin explicación. Solo el título
 
 # ── SOURCE 4: EMERGENCY FALLBACK TOPICS ──────────────────────────────────────
 def get_fallback_topics() -> list[str]:
-    """Hardcoded specific topics as last resort — always different angles."""
     today = datetime.now().strftime("%B %Y")
     return [
         f"Cursor vs GitHub Copilot en {today}: cuál usar según tu stack",
@@ -224,11 +215,6 @@ def get_fallback_topics() -> list[str]:
 
 # ── DEDUPLICATION ENGINE ──────────────────────────────────────────────────────
 def is_duplicate_topic(candidate: str, recent_articles: list[dict], published_this_run: list[str]) -> bool:
-    """
-    Uses GPT-4o-mini to check if candidate overlaps with recent articles OR
-    articles published in this same pipeline run.
-    Returns True if it's a duplicate/too similar.
-    """
     all_existing = [a["title"] for a in recent_articles] + published_this_run
     if not all_existing:
         return False
@@ -256,13 +242,9 @@ Responde ÚNICAMENTE: YES o NO"""
         return answer.startswith("YES")
     except Exception as e:
         print(f"  ⚠️  Error dedup check: {e}")
-        return False  # On error, don't block — let it through
+        return False
 
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
-    """
-    If a topic is too similar to existing ones, mutate it into a different angle.
-    Uses GPT to find a genuinely different spin.
-    """
     recent_titles = "\n".join(f"- {a['title']}" for a in recent_articles[:20])
     angles = [
         "un tutorial técnico paso a paso muy específico",
@@ -303,37 +285,27 @@ Responde ÚNICAMENTE con el nuevo título/ángulo (1 línea, máximo 120 caracte
 
 # ── BUILD CANDIDATE POOL ──────────────────────────────────────────────────────
 def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
-    """
-    Builds a large pool of candidate topics from 4 sources.
-    Returns a deduplicated list, most-specific-first.
-    """
     print("🔍 Construyendo pool de candidatos (4 fuentes)...")
-
     pool = []
 
-    # Source 1: Today's news
     print("  📰 Fuente 1: Noticias del día (SerpAPI news)...")
     news = fetch_serpapi_news()
     print(f"     → {len(news)} titulares obtenidos")
     pool.extend(news)
 
-    # Source 2: Trending searches
     print("  📈 Fuente 2: Búsquedas trending (SerpAPI organic)...")
     trends = fetch_serpapi_trends()
     print(f"     → {len(trends)} tendencias obtenidas")
     pool.extend(trends)
 
-    # Source 3: AI-generated niche topics
     print("  🧠 Fuente 3: Ideas de nicho (GPT-4o-mini)...")
     niche = generate_niche_topics(recent_articles, n=15)
     print(f"     → {len(niche)} ideas de nicho generadas")
     pool.extend(niche)
 
-    # Source 4: Fallback hardcoded (always available)
     fallback = get_fallback_topics()
     pool.extend(fallback)
 
-    # Deduplicate by exact text
     seen = set()
     unique = []
     for p in pool:
@@ -515,7 +487,7 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     return "\n".join(lines)
 
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
-def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en):
+def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en, cover_image_url=None):
     lines = content_es.strip().split("\n")
     title_es = keyword[:100]
     for line in lines[:5]:
@@ -531,21 +503,22 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = {
-        "title":         title_es,
-        "slug":          slugify(title_es),
-        "content":       content_es,
-        "excerpt":       excerpt_es or title_es[:150],
-        "title_en":      title_en or title_es,
-        "content_en":    content_en,
-        "excerpt_en":    excerpt_en or excerpt_es or title_es[:150],
-        "category":      category,
-        "author":        AUTHORS[idx % len(AUTHORS)],
-        "keyword":       keyword,
-        "keyword_hash":  md5(keyword),
-        "reading_time":  reading_time(content_es),
-        "featured":      idx == 0,
-        "image_gradient": GRADIENTS[idx % len(GRADIENTS)],
-        "published_at":  now_iso,
+        "title":           title_es,
+        "slug":            slugify(title_es),
+        "content":         content_es,
+        "excerpt":         excerpt_es or title_es[:150],
+        "title_en":        title_en or title_es,
+        "content_en":      content_en,
+        "excerpt_en":      excerpt_en or excerpt_es or title_es[:150],
+        "category":        category,
+        "author":          AUTHORS[idx % len(AUTHORS)],
+        "keyword":         keyword,
+        "keyword_hash":    md5(keyword),
+        "reading_time":    reading_time(content_es),
+        "featured":        idx == 0,
+        "image_gradient":  GRADIENTS[idx % len(GRADIENTS)],
+        "published_at":    now_iso,
+        "cover_image_url": cover_image_url,
     }
     try:
         supabase_client.table("articles").insert(data).execute()
@@ -557,13 +530,8 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
 
 # ── PROCESS ONE TOPIC → ARTICLE ───────────────────────────────────────────────
 def process_topic(topic: str, recent_articles: list[dict], published_this_run: list[str], article_idx: int) -> str | None:
-    """
-    Takes a raw topic, validates it's not a duplicate (with mutation retry),
-    generates, humanizes, translates and saves. Returns saved title or None.
-    """
     recent_context = format_recent_context(recent_articles)
 
-    # Dedup loop: up to 5 mutation attempts
     candidate = topic
     for attempt in range(5):
         if not is_duplicate_topic(candidate, recent_articles, published_this_run):
@@ -574,7 +542,6 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         print(f"  ❌ No se pudo encontrar ángulo único para: {topic[:50]} — saltando")
         return None
 
-    # Also skip if exact hash already in DB
     if already_published_hash(candidate):
         print(f"  ⏭️  Hash exacto ya existe — saltando")
         return None
@@ -585,7 +552,6 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         result    = generate_article(candidate, recent_context)
         humanized = humanize(result["content"])
 
-        # Extract actual title from generated content
         title_preview = candidate[:100]
         for line in humanized.strip().split("\n")[:5]:
             if line.strip().startswith("# "):
@@ -598,11 +564,15 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         inline_img = fetch_best_image(queries, title_preview, idx=1)
         content_es = inject_images(humanized, cover_img, inline_img)
 
+        # Extract clean cover URL to save as dedicated field in Supabase
+        cover_image_url = cover_img["url"] if cover_img else None
+
         en = translate_to_english(content_es, result["excerpt"], title_preview)
 
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
-            article_idx, en["content_en"], en["title_en"], en["excerpt_en"]
+            article_idx, en["content_en"], en["title_en"], en["excerpt_en"],
+            cover_image_url=cover_image_url,
         )
         return saved_title
 
@@ -615,16 +585,13 @@ def main():
     print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
 
-    # 1. Load existing articles for dedup context
     print("📚 Cargando artículos recientes de Supabase...")
     recent_articles = get_recent_articles()
     print(f"   {len(recent_articles)} artículos del último mes cargados")
 
-    # 2. Build large candidate pool from 4 sources
     candidate_pool = build_candidate_pool(recent_articles)
 
-    # 3. Publish loop — keep going until 3 articles published
-    published_titles: list[str] = []   # titles published in THIS run (for intra-run dedup)
+    published_titles: list[str] = []
     pool_index = 0
     extra_niche_attempts = 0
 
@@ -632,12 +599,10 @@ def main():
 
     while len(published_titles) < ARTICLES_PER_RUN:
 
-        # If we've exhausted the pool, generate more niche topics on-the-fly
         if pool_index >= len(candidate_pool):
             extra_niche_attempts += 1
             if extra_niche_attempts > 4:
                 print("⚠️  Pool agotado tras múltiples expansiones — forzando fallbacks directos")
-                # Force-generate with unique timestamp to avoid dedup
                 ts = datetime.now().strftime("%H:%M:%S")
                 forced_topics = [
                     f"Cómo Claude 3.5 Sonnet supera a GPT-4o en tareas de código ({ts})",
@@ -651,7 +616,7 @@ def main():
                 candidate_pool.extend(extra)
                 if not extra:
                     candidate_pool.extend(get_fallback_topics())
-            continue  # restart loop check
+            continue
 
         topic = candidate_pool[pool_index]
         pool_index += 1
@@ -667,7 +632,6 @@ def main():
 
         if saved:
             published_titles.append(saved)
-            # Add to recent_articles in memory so next article avoids it too
             recent_articles.insert(0, {
                 "title": saved,
                 "keyword": topic,
