@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 
@@ -27,8 +27,8 @@ function formatDate(d: string) {
 }
 
 export async function generateStaticParams() {
-  const { data } = await supabase.from('articles').select('slug, slug_en')
-  return (data || []).map((a) => ({ slug: a.slug_en || a.slug }))
+  const { data } = await supabase.from('articles').select('slug_en').not('slug_en', 'is', null)
+  return (data || []).map((a) => ({ slug: a.slug_en }))
 }
 
 export async function generateMetadata(
@@ -36,26 +36,17 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { slug } = await params
 
-  let { data: article } = await supabase
+  const { data: article } = await supabase
     .from('articles')
     .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url, author')
     .eq('slug_en', slug)
     .maybeSingle()
 
-  if (!article) {
-    const fallback = await supabase
-      .from('articles')
-      .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url, author')
-      .eq('slug', slug)
-      .maybeSingle()
-    article = fallback.data
-  }
-
   if (!article) return { title: 'Article not found' }
 
   const title = article.title_en || article.title
   const description = article.excerpt_en || article.excerpt || 'Technology, AI and trends for founders, developers and professionals.'
-  const enSlug = article.slug_en || article.slug
+  const enSlug = article.slug_en
   const url = `https://www.newstide.news/en/article/${enSlug}`
   const urlES = `https://www.newstide.news/articulo/${article.slug}`
   const images = article.cover_image_url
@@ -66,14 +57,10 @@ export async function generateMetadata(
     title,
     description,
     alternates: {
-      // Canonical apunta exactamente a esta URL EN
       canonical: url,
       languages: {
-        // Self-referential hreflang EN (exigido por Google)
         'en': url,
-        // Alternate hreflang ES
         'es': urlES,
-        // x-default apunta a la versión EN como principal
         'x-default': url,
       },
     },
@@ -98,29 +85,34 @@ export default async function ArticlePageEN({
 }) {
   const { slug } = await params
 
-  let { data: article } = await supabase
+  // Only look up by slug_en — no Spanish slug fallback on the EN route
+  const { data: article } = await supabase
     .from('articles')
     .select('*')
     .eq('slug_en', slug)
     .maybeSingle()
 
+  // If not found by slug_en, check if it's a Spanish slug and redirect
   if (!article) {
-    const fallback = await supabase
+    const { data: bySlugEs } = await supabase
       .from('articles')
-      .select('*')
+      .select('slug_en')
       .eq('slug', slug)
       .maybeSingle()
-    article = fallback.data
+
+    if (bySlugEs?.slug_en) {
+      redirect(`/en/article/${bySlugEs.slug_en}`)
+    }
+
+    notFound()
   }
 
-  if (!article) notFound()
-
-  const title   = article!.title_en   || article!.title
-  const content = article!.content_en || article!.content
-  const excerpt = article!.excerpt_en || article!.excerpt
-  const enSlug  = article!.slug_en    || article!.slug
+  const title   = article.title_en   || article.title
+  const content = article.content_en || article.content
+  const excerpt = article.excerpt_en || article.excerpt
+  const enSlug  = article.slug_en
   const url     = `https://www.newstide.news/en/article/${enSlug}`
-  const urlES   = `https://www.newstide.news/articulo/${article!.slug}`
+  const urlES   = `https://www.newstide.news/articulo/${article.slug}`
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -128,12 +120,12 @@ export default async function ArticlePageEN({
     headline: title,
     description: excerpt || '',
     url,
-    datePublished: article!.published_at,
-    dateModified: article!.published_at,
+    datePublished: article.published_at,
+    dateModified: article.published_at,
     inLanguage: 'en',
     author: {
       '@type': 'Person',
-      name: article!.author,
+      name: article.author,
     },
     publisher: {
       '@type': 'Organization',
@@ -144,10 +136,10 @@ export default async function ArticlePageEN({
         url: 'https://www.newstide.news/favicon-192x192.png',
       },
     },
-    ...(article!.cover_image_url ? {
+    ...(article.cover_image_url ? {
       image: {
         '@type': 'ImageObject',
-        url: article!.cover_image_url,
+        url: article.cover_image_url,
         width: 1200,
         height: 630,
       },
@@ -172,23 +164,23 @@ export default async function ArticlePageEN({
       <link rel="canonical" href={url} />
 
       {/* HERO */}
-      <div className="article-hero" style={{ background: article!.image_gradient }}>
+      <div className="article-hero" style={{ background: article.image_gradient }}>
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
             <div className="article-meta-top">
               <Link href="/en" style={{ color: 'var(--muted)' }}>Home</Link>
               <span className="meta-sep">/</span>
-              <span>{article!.category}</span>
+              <span>{article.category}</span>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
-              <Badge cat={article!.category} />
+              <Badge cat={article.category} />
               <span className="meta-sep">·</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article!.author}</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article.author}</span>
               <span className="meta-sep">·</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article!.published_at)}</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
               <span className="meta-sep">·</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article!.reading_time} min read</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article.reading_time} min read</span>
             </div>
             <h1 className="article-main-title">{title}</h1>
             <p className="article-byline">{excerpt}</p>
@@ -249,15 +241,15 @@ export default async function ArticlePageEN({
           <aside style={{ position: 'sticky', top: 88 }}>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{article!.author}</div>
-              <Badge cat={article!.category} />
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{article.author}</div>
+              <Badge cat={article.category} />
             </div>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Details</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 2.2 }}>
-                <div>📅 {formatDate(article!.published_at)}</div>
-                <div>⏱ {article!.reading_time} min read</div>
-                <div>🏷 {article!.category}</div>
+                <div>📅 {formatDate(article.published_at)}</div>
+                <div>⏱ {article.reading_time} min read</div>
+                <div>🏷 {article.category}</div>
               </div>
             </div>
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>

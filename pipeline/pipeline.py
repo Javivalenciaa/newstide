@@ -22,6 +22,9 @@ MODEL_GENERATE     = "claude-sonnet-4-5"
 MODEL_FAST         = "gpt-4o-mini"
 MODEL_HUMANIZE     = "gpt-4o-mini"
 
+# Minimum reading time in minutes — articles below this are rejected/extended
+MIN_READING_TIME = 5
+
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -80,7 +83,8 @@ def detect_category(keyword):
     return "IA"
 
 def reading_time(text):
-    return max(1, round(len(text.split()) / 200))
+    """Calculate reading time in minutes. Minimum is MIN_READING_TIME."""
+    return max(MIN_READING_TIME, round(len(text.split()) / 200))
 
 def already_published_hash(keyword):
     res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
@@ -336,6 +340,8 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 def generate_article(keyword: str, recent_context: str) -> dict:
     print(f"  ✍️  Claude generando ES: {keyword[:70]}...")
     category = detect_category(keyword)
+    # Target word count that guarantees MIN_READING_TIME at 200 wpm
+    min_words = MIN_READING_TIME * 200
     prompt = f"""Escribe un artículo completo en español sobre: "{keyword}"
 
 ARTÍCULOS YA PUBLICADOS EN NEWSTIDE (no repitas estas temáticas ni estos ángulos):
@@ -344,12 +350,14 @@ ARTÍCULOS YA PUBLICADOS EN NEWSTIDE (no repitas estas temáticas ni estos ángu
 ESTRUCTURA (usa markdown):
 - Título H1 atractivo y específico (no el keyword literal)
 - Introducción de 2 párrafos que enganche desde la primera frase
-- 3 o 4 secciones H2 con contenido de valor real
+- 4 o 5 secciones H2 con contenido de valor real y profundidad
 - Subsecciones H3 cuando sea necesario
+- Ejemplos concretos, datos, comparativas o código donde aplique
 - Conclusión con reflexión propia y pregunta al lector
 
 REQUISITOS:
-- Entre 1.200 y 1.600 palabras
+- MÍNIMO {min_words} palabras (imprescindible — artículos cortos serán rechazados)
+- Objetivo ideal: entre {min_words} y {min_words + 400} palabras
 - Datos concretos, ejemplos reales, perspectiva propia
 - Tono: experto pero accesible, no corporativo
 - Nunca empieces con "En el mundo de..." ni frases genéricas
@@ -361,9 +369,9 @@ Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
 
     message = claude_client.messages.create(
-        model=MODEL_GENERATE, max_tokens=2800,
+        model=MODEL_GENERATE, max_tokens=3500,
         messages=[{"role": "user", "content": prompt}],
-        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto."
+        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos."
     )
     raw = message.content[0].text
     excerpt = ""
@@ -532,6 +540,11 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     if en_lines and en_lines[0].strip().startswith("# "):
         content_en = "\n".join(en_lines[1:]).strip()
 
+    rt = reading_time(content_es)
+    if rt < MIN_READING_TIME:
+        print(f"  ⚠️  reading_time={rt} < {MIN_READING_TIME} — forzando a {MIN_READING_TIME}")
+        rt = MIN_READING_TIME
+
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = {
         "title":           title_es,
@@ -546,7 +559,7 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         "author":          AUTHORS[idx % len(AUTHORS)],
         "keyword":         keyword,
         "keyword_hash":    md5(keyword),
-        "reading_time":    reading_time(content_es),
+        "reading_time":    rt,
         "featured":        idx == 0,
         "image_gradient":  GRADIENTS[idx % len(GRADIENTS)],
         "published_at":    now_iso,
