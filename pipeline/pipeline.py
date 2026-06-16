@@ -54,9 +54,17 @@ AUTHORS = [
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def slugify(text):
+    """Generate a URL-safe slug from Spanish text."""
     text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"[\s]+", "-", text.strip())
+    return text[:80]
+
+def slugify_en(text):
+    """Generate a URL-safe slug from English text."""
+    text = text.lower()
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
     return text[:80]
@@ -388,7 +396,6 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
 # ── TRANSLATE + HUMANIZE EN ───────────────────────────────────────────────────
 def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
     print("  🌐 GPT traduciendo EN...")
-    # TITLE_EN and EXCERPT_EN are requested at the TOP so they are never lost to truncation
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
@@ -407,11 +414,10 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
     )
     raw = response.choices[0].message.content.strip()
 
-    title_en  = es_title
+    title_en   = es_title
     excerpt_en = es_excerpt
     content_en = raw
 
-    # Parse TITLE_EN and EXCERPT_EN from the top of the response
     lines = raw.splitlines()
     body_start = 0
     for i, line in enumerate(lines):
@@ -421,7 +427,6 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
         elif line.startswith("EXCERPT_EN:"):
             excerpt_en = line[len("EXCERPT_EN:"):].strip()[:200]
             body_start = i + 1
-    # Skip leading blank lines after the metadata
     while body_start < len(lines) and not lines[body_start].strip():
         body_start += 1
     content_en = "\n".join(lines[body_start:]).strip()
@@ -429,7 +434,10 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
     # Strip markdown code fences that GPT sometimes wraps around the translation
     content_en = strip_code_fences(content_en)
 
-    return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en}
+    # Generate English slug from the translated title
+    slug_en = slugify_en(title_en)
+
+    return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en, "slug_en": slug_en}
 
 # ── UNSPLASH ──────────────────────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
@@ -510,7 +518,7 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     return "\n".join(lines)
 
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
-def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en, cover_image_url=None):
+def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en, slug_en, cover_image_url=None):
     lines = content_es.strip().split("\n")
     title_es = keyword[:100]
     for line in lines[:5]:
@@ -531,6 +539,7 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         "content":         content_es,
         "excerpt":         excerpt_es or title_es[:150],
         "title_en":        title_en or title_es,
+        "slug_en":         slug_en or slugify_en(title_en or title_es),
         "content_en":      content_en,
         "excerpt_en":      excerpt_en or excerpt_es or title_es[:150],
         "category":        category,
@@ -594,6 +603,7 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
             article_idx, en["content_en"], en["title_en"], en["excerpt_en"],
+            en["slug_en"],
             cover_image_url=cover_image_url,
         )
         return saved_title

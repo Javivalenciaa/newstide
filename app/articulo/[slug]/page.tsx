@@ -39,7 +39,7 @@ export async function generateMetadata(
 
   const { data: article } = await supabase
     .from('articles')
-    .select('title, excerpt, slug, category, published_at, cover_image_url, author')
+    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url, author')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -53,7 +53,9 @@ export async function generateMetadata(
   const title = article.title
   const description = article.excerpt || 'Tecnología, IA y tendencias para founders, developers y profesionales.'
   const url = `https://www.newstide.news/articulo/${article.slug}`
-  const urlEN = `https://www.newstide.news/en/article/${article.slug}`
+  // Use English slug for the EN hreflang — fall back to Spanish slug for legacy articles
+  const enSlug = article.slug_en || article.slug
+  const urlEN = `https://www.newstide.news/en/article/${enSlug}`
   const images = article.cover_image_url
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
     : []
@@ -101,6 +103,8 @@ export default async function ArticuloPage({
   if (!article) notFound()
 
   const url = `https://www.newstide.news/articulo/${article!.slug}`
+  const enSlug = article!.slug_en || article!.slug
+  const urlEN = `https://www.newstide.news/en/article/${enSlug}`
 
   const jsonLd = {
     '@context': 'https://schema.org',

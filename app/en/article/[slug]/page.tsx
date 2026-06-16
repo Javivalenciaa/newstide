@@ -27,25 +27,38 @@ function formatDate(d: string) {
 }
 
 export async function generateStaticParams() {
-  const { data } = await supabase.from('articles').select('slug')
-  return (data || []).map((a) => ({ slug: a.slug }))
+  // Use slug_en when available, fall back to slug for older articles
+  const { data } = await supabase.from('articles').select('slug, slug_en')
+  return (data || []).map((a) => ({ slug: a.slug_en || a.slug }))
 }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-  const { data: article } = await supabase
+
+  // Try matching slug_en first, then fall back to slug for legacy articles
+  let { data: article } = await supabase
     .from('articles')
-    .select('title, title_en, excerpt, excerpt_en, slug, category, published_at, cover_image_url, author')
-    .eq('slug', slug)
+    .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url, author')
+    .eq('slug_en', slug)
     .maybeSingle()
+
+  if (!article) {
+    const fallback = await supabase
+      .from('articles')
+      .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url, author')
+      .eq('slug', slug)
+      .maybeSingle()
+    article = fallback.data
+  }
 
   if (!article) return { title: 'Article not found' }
 
   const title = article.title_en || article.title
   const description = article.excerpt_en || article.excerpt || 'Technology, AI and trends for founders, developers and professionals.'
-  const url = `https://www.newstide.news/en/article/${article.slug}`
+  const enSlug = article.slug_en || article.slug
+  const url = `https://www.newstide.news/en/article/${enSlug}`
   const urlES = `https://www.newstide.news/articulo/${article.slug}`
   const images = article.cover_image_url
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
@@ -78,18 +91,31 @@ export default async function ArticlePageEN({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  const { data: article } = await supabase
+
+  // Try matching slug_en first, then fall back to slug for legacy articles
+  let { data: article } = await supabase
     .from('articles')
     .select('*')
-    .eq('slug', slug)
+    .eq('slug_en', slug)
     .maybeSingle()
+
+  if (!article) {
+    const fallback = await supabase
+      .from('articles')
+      .select('*')
+      .eq('slug', slug)
+      .maybeSingle()
+    article = fallback.data
+  }
 
   if (!article) notFound()
 
   const title   = article!.title_en   || article!.title
   const content = article!.content_en || article!.content
   const excerpt = article!.excerpt_en || article!.excerpt
-  const url = `https://www.newstide.news/en/article/${article!.slug}`
+  const enSlug  = article!.slug_en    || article!.slug
+  const url = `https://www.newstide.news/en/article/${enSlug}`
+  const urlES = `https://www.newstide.news/articulo/${article!.slug}`
 
   const jsonLd = {
     '@context': 'https://schema.org',

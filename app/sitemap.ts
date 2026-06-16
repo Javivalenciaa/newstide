@@ -4,7 +4,7 @@ import { MetadataRoute } from 'next'
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: articles } = await supabase
     .from('articles')
-    .select('slug, published_at')
+    .select('slug, slug_en, published_at')
     .order('published_at', { ascending: false })
 
   const esArticleUrls = (articles || []).map((a) => ({
@@ -14,8 +14,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }))
 
+  // Use slug_en for English URLs — fall back to slug for legacy articles without slug_en
   const enArticleUrls = (articles || []).map((a) => ({
-    url: `https://www.newstide.news/en/article/${a.slug}`,
+    url: `https://www.newstide.news/en/article/${a.slug_en || a.slug}`,
     lastModified: new Date(a.published_at),
     changeFrequency: 'weekly' as const,
     priority: 0.8,
