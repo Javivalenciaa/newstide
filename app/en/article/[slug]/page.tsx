@@ -27,7 +27,6 @@ function formatDate(d: string) {
 }
 
 export async function generateStaticParams() {
-  // Use slug_en when available, fall back to slug for older articles
   const { data } = await supabase.from('articles').select('slug, slug_en')
   return (data || []).map((a) => ({ slug: a.slug_en || a.slug }))
 }
@@ -37,7 +36,6 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { slug } = await params
 
-  // Try matching slug_en first, then fall back to slug for legacy articles
   let { data: article } = await supabase
     .from('articles')
     .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url, author')
@@ -68,8 +66,16 @@ export async function generateMetadata(
     title,
     description,
     alternates: {
+      // Canonical apunta exactamente a esta URL EN
       canonical: url,
-      languages: { 'es': urlES, 'en': url },
+      languages: {
+        // Self-referential hreflang EN (exigido por Google)
+        'en': url,
+        // Alternate hreflang ES
+        'es': urlES,
+        // x-default apunta a la versión EN como principal
+        'x-default': url,
+      },
     },
     openGraph: {
       title, description, url,
@@ -92,7 +98,6 @@ export default async function ArticlePageEN({
 }) {
   const { slug } = await params
 
-  // Try matching slug_en first, then fall back to slug for legacy articles
   let { data: article } = await supabase
     .from('articles')
     .select('*')
@@ -114,12 +119,12 @@ export default async function ArticlePageEN({
   const content = article!.content_en || article!.content
   const excerpt = article!.excerpt_en || article!.excerpt
   const enSlug  = article!.slug_en    || article!.slug
-  const url = `https://www.newstide.news/en/article/${enSlug}`
-  const urlES = `https://www.newstide.news/articulo/${article!.slug}`
+  const url     = `https://www.newstide.news/en/article/${enSlug}`
+  const urlES   = `https://www.newstide.news/articulo/${article!.slug}`
 
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'Article',
+    '@type': 'NewsArticle',
     headline: title,
     description: excerpt || '',
     url,
@@ -154,11 +159,17 @@ export default async function ArticlePageEN({
   }
 
   return (
-    <div className="article-page">
+    <div className="article-page" lang="en">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+
+      {/* Hreflang manual como backup para crawlers que no leen <head> dinámico */}
+      <link rel="alternate" hrefLang="en" href={url} />
+      <link rel="alternate" hrefLang="es" href={urlES} />
+      <link rel="alternate" hrefLang="x-default" href={url} />
+      <link rel="canonical" href={url} />
 
       {/* HERO */}
       <div className="article-hero" style={{ background: article!.image_gradient }}>
