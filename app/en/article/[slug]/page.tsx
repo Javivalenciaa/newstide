@@ -11,14 +11,24 @@ const CAT_COLORS: Record<string, string> = {
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
 
+// Map Spanish category names → English for display on /en pages
+const CAT_EN: Record<string, string> = {
+  'IA': 'AI',
+  'Tutoriales': 'Tutorials',
+  'Herramientas': 'Tools',
+  'Startups': 'Startups',
+  'Noticias': 'News',
+}
+
 function Badge({ cat }: { cat: string }) {
   const color = CAT_COLORS[cat] || '#6ecfca'
+  const label = CAT_EN[cat] || cat
   return (
     <span style={{
       display: 'inline-block', padding: '4px 10px', borderRadius: '6px',
       fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
       background: `${color}18`, color, border: `1px solid ${color}30`
-    }}>{cat}</span>
+    }}>{label}</span>
   )
 }
 
@@ -56,6 +66,7 @@ export async function generateMetadata(
   return {
     title,
     description,
+    // ✅ ONE canonical only — generated here, never duplicated in JSX
     alternates: {
       canonical: url,
       languages: {
@@ -85,14 +96,12 @@ export default async function ArticlePageEN({
 }) {
   const { slug } = await params
 
-  // Only look up by slug_en — no Spanish slug fallback on the EN route
   const { data: article } = await supabase
     .from('articles')
     .select('*')
     .eq('slug_en', slug)
     .maybeSingle()
 
-  // If not found by slug_en, check if it's a Spanish slug and redirect
   if (!article) {
     const { data: bySlugEs } = await supabase
       .from('articles')
@@ -114,6 +123,7 @@ export default async function ArticlePageEN({
   const url     = `https://www.newstide.news/en/article/${enSlug}`
   const urlES   = `https://www.newstide.news/articulo/${article.slug}`
 
+  // ✅ Full NewsArticle schema with all recommended fields for Google News
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -123,6 +133,7 @@ export default async function ArticlePageEN({
     datePublished: article.published_at,
     dateModified: article.published_at,
     inLanguage: 'en',
+    articleSection: CAT_EN[article.category] || article.category,
     author: {
       '@type': 'Person',
       name: article.author,
@@ -134,6 +145,8 @@ export default async function ArticlePageEN({
       logo: {
         '@type': 'ImageObject',
         url: 'https://www.newstide.news/favicon-192x192.png',
+        width: 192,
+        height: 192,
       },
     },
     ...(article.cover_image_url ? {
@@ -151,17 +164,21 @@ export default async function ArticlePageEN({
   }
 
   return (
+    // ✅ lang="en" on the article wrapper for extra clarity to crawlers
     <div className="article-page" lang="en">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      {/* Hreflang manual como backup para crawlers que no leen <head> dinámico */}
+      {/*
+        ✅ hreflang alternate links kept here as backup for crawlers.
+        ❌ <link rel="canonical"> REMOVED — generateMetadata() handles it.
+           Having both causes "more than one canonical" GSC error.
+      */}
       <link rel="alternate" hrefLang="en" href={url} />
       <link rel="alternate" hrefLang="es" href={urlES} />
       <link rel="alternate" hrefLang="x-default" href={url} />
-      <link rel="canonical" href={url} />
 
       {/* HERO */}
       <div className="article-hero" style={{ background: article.image_gradient }}>
@@ -171,7 +188,7 @@ export default async function ArticlePageEN({
             <div className="article-meta-top">
               <Link href="/en" style={{ color: 'var(--muted)' }}>Home</Link>
               <span className="meta-sep">/</span>
-              <span>{article.category}</span>
+              <span>{CAT_EN[article.category] || article.category}</span>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article.category} />
@@ -195,8 +212,8 @@ export default async function ArticlePageEN({
           gap: '64px', alignItems: 'start',
           padding: '60px 0 100px', maxWidth: 1100, margin: '0 auto'
         }}>
-          {/* MARKDOWN CONTENT */}
-          <div className="article-content">
+          {/* MARKDOWN CONTENT — wrapped in semantic <article> for Google News */}
+          <article>
             <ReactMarkdown
               components={{
                 h2: ({ children }) => (
@@ -211,7 +228,7 @@ export default async function ArticlePageEN({
                 img: ({ src, alt }) => (
                   src ? (
                     <span style={{ display: 'block', margin: '32px 0' }}>
-                      <img src={src} alt={alt || ''} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} />
+                      <img src={src} alt={alt || ''} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} loading="lazy" />
                     </span>
                   ) : null
                 ),
@@ -235,7 +252,7 @@ export default async function ArticlePageEN({
                 ← Back to home
               </Link>
             </div>
-          </div>
+          </article>
 
           {/* SIDEBAR */}
           <aside style={{ position: 'sticky', top: 88 }}>
@@ -249,7 +266,7 @@ export default async function ArticlePageEN({
               <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 2.2 }}>
                 <div>📅 {formatDate(article.published_at)}</div>
                 <div>⏱ {article.reading_time} min read</div>
-                <div>🏷 {article.category}</div>
+                <div>🏷 {CAT_EN[article.category] || article.category}</div>
               </div>
             </div>
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
