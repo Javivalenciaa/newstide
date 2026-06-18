@@ -11,7 +11,6 @@ const CAT_COLORS: Record<string, string> = {
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
 }
 
-// Map Spanish category names → English for display on /en pages
 const CAT_EN: Record<string, string> = {
   'IA': 'AI',
   'Tutoriales': 'Tutorials',
@@ -66,7 +65,6 @@ export async function generateMetadata(
   return {
     title,
     description,
-    // ✅ ONE canonical only — generated here, never duplicated in JSX
     alternates: {
       canonical: url,
       languages: {
@@ -123,7 +121,6 @@ export default async function ArticlePageEN({
   const url     = `https://www.newstide.news/en/article/${enSlug}`
   const urlES   = `https://www.newstide.news/articulo/${article.slug}`
 
-  // ✅ Full NewsArticle schema with all recommended fields for Google News
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -133,13 +130,15 @@ export default async function ArticlePageEN({
     datePublished: article.published_at,
     dateModified: article.published_at,
     inLanguage: 'en',
+    isAccessibleForFree: true,
     articleSection: CAT_EN[article.category] || article.category,
     author: {
       '@type': 'Person',
       name: article.author,
+      url: `https://www.newstide.news/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`,
     },
     publisher: {
-      '@type': 'Organization',
+      '@type': 'NewsMediaOrganization',
       name: 'NewsTide',
       url: 'https://www.newstide.news',
       logo: {
@@ -164,18 +163,12 @@ export default async function ArticlePageEN({
   }
 
   return (
-    // ✅ lang="en" on the article wrapper for extra clarity to crawlers
     <div className="article-page" lang="en">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      {/*
-        ✅ hreflang alternate links kept here as backup for crawlers.
-        ❌ <link rel="canonical"> REMOVED — generateMetadata() handles it.
-           Having both causes "more than one canonical" GSC error.
-      */}
       <link rel="alternate" hrefLang="en" href={url} />
       <link rel="alternate" hrefLang="es" href={urlES} />
       <link rel="alternate" hrefLang="x-default" href={url} />
@@ -193,7 +186,7 @@ export default async function ArticlePageEN({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article.category} />
               <span className="meta-sep">·</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article.author}</span>
+              <Link href={`/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article.author}</Link>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -212,7 +205,6 @@ export default async function ArticlePageEN({
           gap: '64px', alignItems: 'start',
           padding: '60px 0 100px', maxWidth: 1100, margin: '0 auto'
         }}>
-          {/* MARKDOWN CONTENT — wrapped in semantic <article> for Google News */}
           <article>
             <ReactMarkdown
               components={{
@@ -247,7 +239,18 @@ export default async function ArticlePageEN({
             >
               {content}
             </ReactMarkdown>
-            <div style={{ marginTop: 64, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
+
+            {/* AI DISCLOSURE */}
+            <div style={{
+              marginTop: 48, padding: '16px 20px',
+              background: 'rgba(110,207,202,0.05)',
+              border: '1px solid rgba(110,207,202,0.15)',
+              borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6
+            }}>
+              <strong style={{ color: 'var(--cyan)' }}>Editorial note:</strong> This article was generated with AI assistance and reviewed by the NewsTide editorial team to ensure accuracy and relevance. <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Read our editorial policy.</Link>
+            </div>
+
+            <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <Link href="/en" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--cyan)', fontSize: 14, fontWeight: 600 }}>
                 ← Back to home
               </Link>
@@ -258,7 +261,9 @@ export default async function ArticlePageEN({
           <aside style={{ position: 'sticky', top: 88 }}>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{article.author}</div>
+              <Link href={`/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ textDecoration: 'none' }}>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>{article.author}</div>
+              </Link>
               <Badge cat={article.category} />
             </div>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>

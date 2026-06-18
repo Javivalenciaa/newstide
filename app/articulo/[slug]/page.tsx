@@ -53,7 +53,6 @@ export async function generateMetadata(
   const title = article.title
   const description = article.excerpt || 'Tecnología, IA y tendencias para founders, developers y profesionales.'
   const url = `https://www.newstide.news/articulo/${article.slug}`
-  // Use English slug for the EN hreflang — fall back to Spanish slug for legacy articles
   const enSlug = article.slug_en || article.slug
   const urlEN = `https://www.newstide.news/en/article/${enSlug}`
   const images = article.cover_image_url
@@ -65,7 +64,7 @@ export async function generateMetadata(
     description,
     alternates: {
       canonical: url,
-      languages: { 'es': url, 'en': urlEN },
+      languages: { 'es': url, 'en': urlEN, 'x-default': urlEN },
     },
     openGraph: {
       title,
@@ -85,6 +84,14 @@ export async function generateMetadata(
       ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
     },
   }
+}
+
+const CAT_SECTION: Record<string, string> = {
+  'IA': 'Inteligencia Artificial',
+  'Startups': 'Startups',
+  'Herramientas': 'Herramientas y Tecnología',
+  'Tutoriales': 'Tutoriales',
+  'Noticias': 'Noticias',
 }
 
 export default async function ArticuloPage({
@@ -108,24 +115,29 @@ export default async function ArticuloPage({
 
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'Article',
+    '@type': 'NewsArticle',
     headline: article!.title,
     description: article!.excerpt || '',
     url,
     datePublished: article!.published_at,
     dateModified: article!.published_at,
     inLanguage: 'es',
+    isAccessibleForFree: true,
+    articleSection: CAT_SECTION[article!.category] || article!.category,
     author: {
       '@type': 'Person',
       name: article!.author,
+      url: `https://www.newstide.news/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`,
     },
     publisher: {
-      '@type': 'Organization',
+      '@type': 'NewsMediaOrganization',
       name: 'NewsTide',
       url: 'https://www.newstide.news',
       logo: {
         '@type': 'ImageObject',
         url: 'https://www.newstide.news/favicon-192x192.png',
+        width: 192,
+        height: 192,
       },
     },
     ...(article!.cover_image_url ? {
@@ -162,7 +174,7 @@ export default async function ArticuloPage({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article!.category} />
               <span className="meta-sep">·</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{article!.author}</span>
+              <Link href={`/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article!.author}</Link>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article!.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -187,7 +199,7 @@ export default async function ArticuloPage({
         }}>
 
           {/* CONTENIDO MARKDOWN */}
-          <div className="article-content">
+          <article lang="es">
             <ReactMarkdown
               components={{
                 h2: ({ children }) => (
@@ -215,6 +227,7 @@ export default async function ArticuloPage({
                       <img
                         src={src}
                         alt={alt || ''}
+                        loading="lazy"
                         style={{
                           width: '100%',
                           borderRadius: 12,
@@ -263,8 +276,18 @@ export default async function ArticuloPage({
               {article!.content}
             </ReactMarkdown>
 
+            {/* AI DISCLOSURE */}
+            <div style={{
+              marginTop: 48, padding: '16px 20px',
+              background: 'rgba(110,207,202,0.05)',
+              border: '1px solid rgba(110,207,202,0.15)',
+              borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6
+            }}>
+              <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido generado con asistencia de inteligencia artificial y revisado por el equipo editorial de NewsTide para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
+            </div>
+
             {/* VOLVER */}
-            <div style={{ marginTop: 64, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
+            <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <Link href="/" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 color: 'var(--cyan)', fontSize: 14, fontWeight: 600
@@ -272,7 +295,7 @@ export default async function ArticuloPage({
                 ← Volver al inicio
               </Link>
             </div>
-          </div>
+          </article>
 
           {/* SIDEBAR */}
           <aside style={{ position: 'sticky', top: 88 }}>
@@ -286,7 +309,12 @@ export default async function ArticuloPage({
                 fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase',
                 color: 'var(--muted)', marginBottom: 12
               }}>Autor</div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{article!.author}</div>
+              <Link
+                href={`/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`}
+                style={{ textDecoration: 'none' }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>{article!.author}</div>
+              </Link>
               <Badge cat={article!.category} />
             </div>
 
