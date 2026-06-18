@@ -49,6 +49,7 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
               <div className="footer-col">
                 <div className="footer-col-title">Empresa</div>
                 <Link href="/sobre-nosotros">Sobre nosotros</Link>
+                <Link href="/politica-editorial">Política editorial</Link>
                 <Link href="/contacto">Contacto</Link>
                 <Link href="/privacidad">Privacidad</Link>
               </div>
