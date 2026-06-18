@@ -109,9 +109,20 @@ export default async function ArticuloPage({
 
   if (!article) notFound()
 
+  // Fetch related articles (same category, excluding current)
+  const { data: related } = await supabase
+    .from('articles')
+    .select('title, slug, category, published_at')
+    .eq('category', article!.category)
+    .neq('slug', article!.slug)
+    .order('published_at', { ascending: false })
+    .limit(4)
+
   const url = `https://www.newstide.news/articulo/${article!.slug}`
   const enSlug = article!.slug_en || article!.slug
   const urlEN = `https://www.newstide.news/en/article/${enSlug}`
+
+  const authorSlug = article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -124,13 +135,18 @@ export default async function ArticuloPage({
     inLanguage: 'es',
     isAccessibleForFree: true,
     articleSection: CAT_SECTION[article!.category] || article!.category,
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.article-main-title', '.article-byline'],
+    },
     author: {
       '@type': 'Person',
       name: article!.author,
-      url: `https://www.newstide.news/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`,
+      url: `https://www.newstide.news/autores/${authorSlug}`,
     },
     publisher: {
       '@type': 'NewsMediaOrganization',
+      '@id': 'https://www.newstide.news/#organization',
       name: 'NewsTide',
       url: 'https://www.newstide.news',
       logo: {
@@ -174,7 +190,7 @@ export default async function ArticuloPage({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article!.category} />
               <span className="meta-sep">·</span>
-              <Link href={`/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article!.author}</Link>
+              <Link href={`/autores/${authorSlug}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article!.author}</Link>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article!.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -286,6 +302,34 @@ export default async function ArticuloPage({
               <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido generado con asistencia de inteligencia artificial y revisado por el equipo editorial de NewsTide para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
             </div>
 
+            {/* ARTÍCULOS RELACIONADOS */}
+            {related && related.length > 0 && (
+              <div style={{ marginTop: 48 }}>
+                <h2 style={{
+                  fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em',
+                  marginBottom: 20, color: 'var(--text)'
+                }}>Más sobre {article!.category}</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {related.map((r) => (
+                    <Link
+                      key={r.slug}
+                      href={`/articulo/${r.slug}`}
+                      style={{
+                        display: 'flex', gap: 12, alignItems: 'center',
+                        padding: '12px 16px',
+                        background: 'var(--surface)', border: '1px solid var(--border)',
+                        borderRadius: 10, textDecoration: 'none',
+                        transition: 'border-color 0.2s'
+                      }}
+                    >
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>→</span>
+                      <span style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500, lineHeight: 1.4 }}>{r.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* VOLVER */}
             <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <Link href="/" style={{
@@ -310,7 +354,7 @@ export default async function ArticuloPage({
                 color: 'var(--muted)', marginBottom: 12
               }}>Autor</div>
               <Link
-                href={`/autores/${article!.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`}
+                href={`/autores/${authorSlug}`}
                 style={{ textDecoration: 'none' }}
               >
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>{article!.author}</div>

@@ -19,6 +19,14 @@ const CAT_EN: Record<string, string> = {
   'Noticias': 'News',
 }
 
+const CAT_SECTION_EN: Record<string, string> = {
+  'IA': 'Artificial Intelligence',
+  'Tutoriales': 'Tutorials',
+  'Herramientas': 'Tools & Technology',
+  'Startups': 'Startups',
+  'Noticias': 'News',
+}
+
 function Badge({ cat }: { cat: string }) {
   const color = CAT_COLORS[cat] || '#6ecfca'
   const label = CAT_EN[cat] || cat
@@ -121,6 +129,18 @@ export default async function ArticlePageEN({
   const url     = `https://www.newstide.news/en/article/${enSlug}`
   const urlES   = `https://www.newstide.news/articulo/${article.slug}`
 
+  const authorSlug = article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+  // Fetch related articles (same category, excluding current)
+  const { data: related } = await supabase
+    .from('articles')
+    .select('title_en, title, slug_en, slug, category, published_at')
+    .eq('category', article.category)
+    .neq('slug', article.slug)
+    .not('slug_en', 'is', null)
+    .order('published_at', { ascending: false })
+    .limit(4)
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -131,14 +151,19 @@ export default async function ArticlePageEN({
     dateModified: article.published_at,
     inLanguage: 'en',
     isAccessibleForFree: true,
-    articleSection: CAT_EN[article.category] || article.category,
+    articleSection: CAT_SECTION_EN[article.category] || article.category,
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.article-main-title', '.article-byline'],
+    },
     author: {
       '@type': 'Person',
       name: article.author,
-      url: `https://www.newstide.news/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`,
+      url: `https://www.newstide.news/en/authors/${authorSlug}`,
     },
     publisher: {
       '@type': 'NewsMediaOrganization',
+      '@id': 'https://www.newstide.news/#organization',
       name: 'NewsTide',
       url: 'https://www.newstide.news',
       logo: {
@@ -186,7 +211,7 @@ export default async function ArticlePageEN({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article.category} />
               <span className="meta-sep">·</span>
-              <Link href={`/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article.author}</Link>
+              <Link href={`/en/authors/${authorSlug}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article.author}</Link>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -250,6 +275,34 @@ export default async function ArticlePageEN({
               <strong style={{ color: 'var(--cyan)' }}>Editorial note:</strong> This article was generated with AI assistance and reviewed by the NewsTide editorial team to ensure accuracy and relevance. <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Read our editorial policy.</Link>
             </div>
 
+            {/* RELATED ARTICLES */}
+            {related && related.length > 0 && (
+              <div style={{ marginTop: 48 }}>
+                <h2 style={{
+                  fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em',
+                  marginBottom: 20, color: 'var(--text)'
+                }}>More on {CAT_EN[article.category] || article.category}</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {related.map((r) => (
+                    <Link
+                      key={r.slug_en || r.slug}
+                      href={`/en/article/${r.slug_en || r.slug}`}
+                      style={{
+                        display: 'flex', gap: 12, alignItems: 'center',
+                        padding: '12px 16px',
+                        background: 'var(--surface)', border: '1px solid var(--border)',
+                        borderRadius: 10, textDecoration: 'none',
+                        transition: 'border-color 0.2s'
+                      }}
+                    >
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>→</span>
+                      <span style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500, lineHeight: 1.4 }}>{r.title_en || r.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <Link href="/en" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--cyan)', fontSize: 14, fontWeight: 600 }}>
                 ← Back to home
@@ -261,7 +314,7 @@ export default async function ArticlePageEN({
           <aside style={{ position: 'sticky', top: 88 }}>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
-              <Link href={`/en/authors/${article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')}`} style={{ textDecoration: 'none' }}>
+              <Link href={`/en/authors/${authorSlug}`} style={{ textDecoration: 'none' }}>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>{article.author}</div>
               </Link>
               <Badge cat={article.category} />

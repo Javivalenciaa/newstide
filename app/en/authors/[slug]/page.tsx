@@ -8,21 +8,24 @@ const CAT_EN: Record<string, string> = {
   'Herramientas': 'Tools', 'Startups': 'Startups', 'Noticias': 'News',
 }
 
-const AUTHOR_MAP: Record<string, { name: string; bio: string; title: string }> = {
+const AUTHOR_MAP: Record<string, { name: string; bio: string; title: string; sameAs?: string[] }> = {
   'maria-lopez': {
     name: 'María López',
     title: 'AI & Technology Editor',
     bio: 'María López covers artificial intelligence, language models and developer tools. With over 8 years of experience in tech journalism, she has followed the evolution of AI from early transformers to today\'s multimodal models.',
+    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
   },
   'carlos-ruiz': {
     name: 'Carlos Ruiz',
     title: 'Finance & Markets Editor',
     bio: 'Carlos Ruiz specializes in financial markets, cryptocurrencies and the digital economy. Before joining NewsTide, he worked as a financial analyst and as an economics correspondent for specialized digital media.',
+    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
   },
   'ana-martinez': {
     name: 'Ana Martínez',
     title: 'Startups & Business Editor',
     bio: 'Ana Martínez covers the entrepreneurial ecosystem, funding rounds and the impact of technology on business models. She has interviewed over 200 founders and written about some of the most relevant startups in Europe and Latin America.',
+    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
   },
 }
 
@@ -37,10 +40,14 @@ export async function generateMetadata(
   const author = AUTHOR_MAP[slug]
   if (!author) return { title: 'Author not found' }
   const url = `https://www.newstide.news/en/authors/${slug}`
+  const esUrl = `https://www.newstide.news/autores/${slug}`
   return {
     title: `${author.name} — ${author.title} | NewsTide`,
     description: author.bio,
-    alternates: { canonical: url },
+    alternates: {
+      canonical: url,
+      languages: { 'en': url, 'es': esUrl },
+    },
     openGraph: {
       title: `${author.name} — NewsTide`,
       description: author.bio,
@@ -74,14 +81,18 @@ export default async function AuthorPageEN({
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'ProfilePage',
+    url,
     mainEntity: {
       '@type': 'Person',
+      '@id': url,
       name: author.name,
       jobTitle: author.title,
       description: author.bio,
       url,
+      ...(author.sameAs ? { sameAs: author.sameAs } : {}),
       worksFor: {
         '@type': 'NewsMediaOrganization',
+        '@id': 'https://www.newstide.news/#organization',
         name: 'NewsTide',
         url: 'https://www.newstide.news',
       },

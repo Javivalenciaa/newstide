@@ -6,7 +6,7 @@ export const revalidate = 3600
 export async function GET() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('title, slug, excerpt, category, author, published_at')
+    .select('title, slug, excerpt, category, author, published_at, cover_image_url')
     .order('published_at', { ascending: false })
     .limit(50)
 
@@ -17,11 +17,12 @@ export async function GET() {
     <description>${escapeXml(a.excerpt || '')}</description>
     <category>${escapeXml(a.category)}</category>
     <author>hola@newstide.news (${escapeXml(a.author)})</author>
-    <pubDate>${new Date(a.published_at).toUTCString()}</pubDate>
+    <pubDate>${new Date(a.published_at).toUTCString()}</pubDate>${a.cover_image_url ? `
+    <enclosure url="${escapeXml(a.cover_image_url)}" type="image/jpeg" length="0" />` : ''}
   </item>`).join('\n')
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>NewsTide — Tecnología e IA</title>
     <link>https://www.newstide.news</link>
@@ -51,6 +52,7 @@ ${items}
 }
 
 function escapeXml(str: string): string {
+  if (!str) return ''
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

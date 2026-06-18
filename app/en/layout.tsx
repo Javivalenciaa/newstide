@@ -15,13 +15,14 @@ export const metadata: Metadata = {
     default: 'NewsTide — The intelligence shaping the future',
     template: '%s | NewsTide',
   },
-  description: 'Technology, AI and trends for founders, developers and professionals.',
+  description: 'Technology, AI and trends for founders, developers and professionals. Daily news on artificial intelligence, startups and tech tools.',
   metadataBase: new URL('https://www.newstide.news'),
   alternates: {
     canonical: 'https://www.newstide.news/en',
     languages: {
       'es': 'https://www.newstide.news',
       'en': 'https://www.newstide.news/en',
+      'x-default': 'https://www.newstide.news/en',
     },
   },
   openGraph: {
@@ -29,11 +30,17 @@ export const metadata: Metadata = {
     locale: 'en_US',
     type: 'website',
     url: 'https://www.newstide.news/en',
+    title: 'NewsTide — The intelligence shaping the future',
+    description: 'Technology, AI and trends for founders, developers and professionals.',
+    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }],
   },
   twitter: {
     card: 'summary_large_image',
     site: '@newstide',
     creator: '@newstide',
+    title: 'NewsTide — The intelligence shaping the future',
+    description: 'Technology, AI and trends for founders, developers and professionals.',
+    images: ['https://www.newstide.news/og-image.png'],
   },
   robots: {
     index: true,
@@ -48,12 +55,69 @@ export const metadata: Metadata = {
   },
 }
 
-// ⚠️ Este layout ES el root para /en — sobreescribe el html lang="es" del root layout
-// Next.js App Router: el layout más cercano gana en el árbol de segmentos
+const websiteSchemaEN = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': 'https://www.newstide.news/en#website',
+      url: 'https://www.newstide.news/en',
+      name: 'NewsTide',
+      description: 'Technology, AI and trends for founders, developers and professionals.',
+      inLanguage: 'en',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: 'https://www.newstide.news/en/articles?q={search_term_string}',
+        },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@type': 'NewsMediaOrganization',
+      '@id': 'https://www.newstide.news/#organization',
+      name: 'NewsTide',
+      alternateName: 'NewsTide News',
+      url: 'https://www.newstide.news',
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://www.newstide.news/favicon-192x192.png',
+        width: 192,
+        height: 192,
+      },
+      sameAs: [
+        'https://twitter.com/newstide',
+        'https://linkedin.com/company/newstide',
+      ],
+      foundingDate: '2026',
+      description: 'NewsTide is a news outlet specialized in technology, artificial intelligence, startups and tech finance. We publish articles crafted by journalists and experts with AI assistance.',
+      publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
+      ownershipFundingInfo: 'https://www.newstide.news/en/about',
+      actionableFeedbackPolicy: 'https://www.newstide.news/en/editorial-policy#corrections',
+      correctionsPolicy: 'https://www.newstide.news/en/editorial-policy#corrections',
+      ethicsPolicy: 'https://www.newstide.news/en/editorial-policy#ethics',
+      masthead: 'https://www.newstide.news/en/about#team',
+      verificationFactCheckingPolicy: 'https://www.newstide.news/en/editorial-policy#verification',
+      contactPoint: {
+        '@type': 'ContactPoint',
+        email: 'hello@newstide.news',
+        contactType: 'editorial',
+        availableLanguage: ['English', 'Spanish'],
+      },
+    },
+  ],
+}
+
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${mono.variable}`}>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
+        />
+        <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
@@ -107,8 +171,15 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                 <div className="footer-col">
                   <div className="footer-col-title">Company</div>
                   <Link href="/en/about">About us</Link>
+                  <Link href="/en/editorial-policy">Editorial Policy</Link>
                   <Link href="/en/contact">Contact</Link>
                   <Link href="/en/privacy">Privacy</Link>
+                </div>
+                <div className="footer-col">
+                  <div className="footer-col-title">Feeds</div>
+                  <Link href="/en/rss.xml">RSS Feed</Link>
+                  <Link href="/rss.xml">RSS Español</Link>
+                  <Link href="/news-sitemap.xml">News Sitemap</Link>
                 </div>
               </div>
             </div>

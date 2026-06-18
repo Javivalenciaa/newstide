@@ -8,7 +8,7 @@ export async function GET() {
 
   const { data: articles } = await supabase
     .from('articles')
-    .select('title, slug, slug_en, published_at')
+    .select('title, title_en, slug, slug_en, published_at')
     .gte('published_at', twoDaysAgo)
     .order('published_at', { ascending: false })
     .limit(1000)
@@ -25,17 +25,19 @@ export async function GET() {
       <news:title>${escapeXml(a.title)}</news:title>
     </news:news>
   </url>`,
-    `  <url>
-    <loc>https://www.newstide.news/en/article/${a.slug_en || a.slug}</loc>
+    ...(a.slug_en ? [
+      `  <url>
+    <loc>https://www.newstide.news/en/article/${a.slug_en}</loc>
     <news:news>
       <news:publication>
         <news:name>NewsTide</news:name>
         <news:language>en</news:language>
       </news:publication>
       <news:publication_date>${new Date(a.published_at).toISOString()}</news:publication_date>
-      <news:title>${escapeXml(a.title)}</news:title>
+      <news:title>${escapeXml(a.title_en || a.title)}</news:title>
     </news:news>
-  </url>`,
+  </url>`
+    ] : []),
   ])
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -54,6 +56,7 @@ ${items.join('\n')}
 }
 
 function escapeXml(str: string): string {
+  if (!str) return ''
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
