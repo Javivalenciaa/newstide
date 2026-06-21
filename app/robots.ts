@@ -13,6 +13,5 @@ export default function robots(): MetadataRoute.Robots {
       'https://www.newstide.news/sitemap.xml',
       'https://www.newstide.news/news-sitemap.xml',
     ],
-    host: 'https://www.newstide.news',
   }
 }

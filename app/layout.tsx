@@ -62,7 +62,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: 'pending-add-your-gsc-token-here',
+    google: '3vsTOEg0poOd6Waol-lATdTKyfxLUkWoqxHZuL0q774',
   },
   category: 'technology',
 }
