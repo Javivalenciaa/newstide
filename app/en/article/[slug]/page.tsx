@@ -131,7 +131,6 @@ export default async function ArticlePageEN({
 
   const authorSlug = article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
-  // Fetch related articles (same category, excluding current)
   const { data: related } = await supabase
     .from('articles')
     .select('title_en, title, slug_en, slug, category, published_at')
@@ -193,10 +192,7 @@ export default async function ArticlePageEN({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <link rel="alternate" hrefLang="en" href={url} />
-      <link rel="alternate" hrefLang="es" href={urlES} />
-      <link rel="alternate" hrefLang="x-default" href={url} />
+      {/* hreflang links managed via generateMetadata alternates — no duplicates here */}
 
       {/* HERO */}
       <div className="article-hero" style={{ background: article.image_gradient }}>
@@ -261,7 +257,6 @@ export default async function ArticlePageEN({
               {content}
             </ReactMarkdown>
 
-            {/* AI DISCLOSURE */}
             <div style={{
               marginTop: 48, padding: '16px 20px',
               background: 'rgba(110,207,202,0.05)',
@@ -271,13 +266,9 @@ export default async function ArticlePageEN({
               <strong style={{ color: 'var(--cyan)' }}>Editorial note:</strong> This article was generated with AI assistance and reviewed by the NewsTide editorial team to ensure accuracy and relevance. <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Read our editorial policy.</Link>
             </div>
 
-            {/* RELATED ARTICLES */}
             {related && related.length > 0 && (
               <div style={{ marginTop: 48 }}>
-                <h2 style={{
-                  fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em',
-                  marginBottom: 20, color: 'var(--text)'
-                }}>More on {CAT_EN[article.category] || article.category}</h2>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 20, color: 'var(--text)' }}>More on {CAT_EN[article.category] || article.category}</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {related.map((r) => (
                     <Link
@@ -306,7 +297,6 @@ export default async function ArticlePageEN({
             </div>
           </article>
 
-          {/* SIDEBAR */}
           <aside>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
