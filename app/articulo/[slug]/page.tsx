@@ -204,15 +204,7 @@ export default async function ArticuloPage({
 
       {/* CUERPO + SIDEBAR */}
       <div className="container">
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 280px',
-          gap: '64px',
-          alignItems: 'start',
-          padding: '60px 0 100px',
-          maxWidth: 1100,
-          margin: '0 auto'
-        }}>
+        <div className="article-body-grid">
 
           {/* CONTENIDO MARKDOWN */}
           <article lang="es">
@@ -342,7 +334,7 @@ export default async function ArticuloPage({
           </article>
 
           {/* SIDEBAR */}
-          <aside style={{ position: 'sticky', top: 88 }}>
+          <aside>
 
             {/* AUTOR */}
             <div style={{

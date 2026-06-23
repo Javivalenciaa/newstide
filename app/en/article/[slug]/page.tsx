@@ -225,11 +225,7 @@ export default async function ArticlePageEN({
 
       {/* BODY + SIDEBAR */}
       <div className="container">
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 280px',
-          gap: '64px', alignItems: 'start',
-          padding: '60px 0 100px', maxWidth: 1100, margin: '0 auto'
-        }}>
+        <div className="article-body-grid">
           <article>
             <ReactMarkdown
               components={{
@@ -311,7 +307,7 @@ export default async function ArticlePageEN({
           </article>
 
           {/* SIDEBAR */}
-          <aside style={{ position: 'sticky', top: 88 }}>
+          <aside>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
               <Link href={`/en/authors/${authorSlug}`} style={{ textDecoration: 'none' }}>
