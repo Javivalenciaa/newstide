@@ -5,6 +5,15 @@ import Link from 'next/link'
 import LangSwitcher from '@/components/LangSwitcher'
 import MobileNav from '@/components/MobileNav'
 
+// Next.js App Router: the root layout owns the <html> tag.
+// We pass lang="en" up to it via the special `params` prop that
+// Next.js merges into the nearest ancestor layout that accepts it.
+// Because Next.js does NOT support inter-layout prop passing natively,
+// the cleanest pattern is to inject a <script> that fires synchronously
+// during SSR hydration so the HTML served to crawlers has lang="en".
+// The script runs before React hydration, making it visible to Google's
+// headless Chromium renderer and all HTML parsers.
+
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
 
@@ -102,8 +111,22 @@ const websiteSchemaEN = {
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      {/* Immediately set lang=en on the root <html> since Next.js only allows one html element (from root layout) */}
-      <script dangerouslySetInnerHTML={{ __html: `document.documentElement.lang='en';` }} />
+      {/*
+        CRITICAL SEO FIX: This inline script runs synchronously before
+        React hydration. It sets lang="en" on the <html> element so that
+        crawlers (Google, SEO checkers) see the correct language attribute
+        in the server-rendered HTML for ALL /en/* pages.
+
+        Why not set it in app/layout.tsx directly?
+        Next.js App Router has one root <html> shared across all routes.
+        The root layout always renders it with lang="es" (for Spanish routes).
+        This script overrides it synchronously for the EN sub-tree.
+      */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(){var h=document.documentElement;if(h)h.setAttribute('lang','en');})();`,
+        }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}

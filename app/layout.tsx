@@ -122,9 +122,20 @@ const websiteSchema = {
   ],
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+  params,
+}: {
+  children: React.ReactNode
+  params?: { lang?: string }
+}) {
+  // Next.js App Router only renders ONE <html> element (this root layout).
+  // The /en sub-tree passes lang="en" via the segment convention below.
+  // For all other routes (Spanish) we default to "es".
+  const lang = (params as any)?.lang ?? 'es'
+
   return (
-    <html lang="es" className={`${inter.variable} ${mono.variable}`}>
+    <html lang={lang} className={`${inter.variable} ${mono.variable}`}>
       <head>
         <script
           type="application/ld+json"
