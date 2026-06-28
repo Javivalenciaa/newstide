@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
 import Link from 'next/link'
 
-export const revalidate = 3600
+export const revalidate = 300
 
 interface Article {
   id: string
@@ -144,7 +144,7 @@ export default async function Home() {
                 <h2 className="featured-title">{featured.title}</h2>
                 <p className="featured-desc">{featured.excerpt}</p>
                 <div className="featured-footer">
-                  <strong>{featured.author}</strong>
+                  <strong>NewsTide Editorial</strong>
                   <span>·</span>
                   <span>{formatDate(featured.published_at)}</span>
                   <span>·</span>
@@ -194,7 +194,7 @@ export default async function Home() {
                     <h3 className="article-title">{a.title}</h3>
                     <p className="article-excerpt">{a.excerpt}</p>
                     <div className="article-footer">
-                      <span className="article-author">{a.author}</span>
+                      <span className="article-author">NewsTide Editorial</span>
                       <span className="article-dot">·</span>
                       <span>{formatDate(a.published_at)}</span>
                     </div>
