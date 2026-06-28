@@ -46,7 +46,7 @@ export default function PoliticaEditorial() {
             Si un artículo contiene un error factual, NewsTide se compromete a corregirlo en un plazo máximo de
             48 horas tras ser notificado. Las correcciones se realizarán de forma transparente, indicando en el
             artículo la naturaleza del cambio y la fecha de la corrección. Para reportar un error, contacta con
-            nosotros en <a href="mailto:editorial@newstide.news" style={{ color: 'var(--cyan)' }}>editorial@newstide.news</a>.
+            nosotros en <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>.
           </p>
 
           <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: 12, marginTop: 40 }}>4. Independencia editorial</h2>

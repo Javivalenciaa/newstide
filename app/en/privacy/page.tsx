@@ -38,7 +38,7 @@ export default function PrivacyEN() {
           <p>This site uses technical cookies necessary for its operation and analytical cookies from Google Analytics. You can disable analytical cookies from your browser settings.</p>
 
           <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: 12, marginTop: 40 }}>5. Your rights</h2>
-          <p>You have the right to access, rectify, erase, restrict and port your data. To exercise any right, contact us at <a href="mailto:privacy@newstide.news" style={{ color: 'var(--cyan)' }}>privacy@newstide.news</a>.</p>
+          <p>You have the right to access, rectify, erase, restrict and port your data. To exercise any right, contact us at <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>.</p>
 
           <div style={{ marginTop: 48 }}>
             <Link href="/en" style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: 14 }}>← Back to home</Link>

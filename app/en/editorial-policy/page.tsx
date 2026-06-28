@@ -45,7 +45,7 @@ export default function EditorialPolicyEN() {
             If an article contains a factual error, NewsTide commits to correcting it within 48 hours of being
             notified. Corrections are made transparently, indicating the nature of the change and the correction
             date within the article. To report an error, contact us at{' '}
-            <a href="mailto:editorial@newstide.news" style={{ color: 'var(--cyan)' }}>editorial@newstide.news</a>.
+            <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>.
           </p>
 
           <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: 12, marginTop: 40 }}>4. Editorial independence</h2>

@@ -38,7 +38,7 @@ export default function Privacidad() {
           <p>Este sitio utiliza cookies técnicas necesarias para su funcionamiento y cookies analíticas de Google Analytics. Puedes desactivar las cookies analíticas desde la configuración de tu navegador.</p>
 
           <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: 12, marginTop: 40 }}>5. Tus derechos</h2>
-          <p>Tienes derecho a acceder, rectificar, suprimir, limitar y portabilizar tus datos. Para ejercer cualquier derecho, contacta con nosotros en <a href="mailto:privacidad@newstide.news" style={{ color: 'var(--cyan)' }}>privacidad@newstide.news</a>.</p>
+          <p>Tienes derecho a acceder, rectificar, suprimir, limitar y portabilizar tus datos. Para ejercer cualquier derecho, contacta con nosotros en <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>.</p>
 
           <div style={{ marginTop: 48 }}>
             <Link href="/" style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: 14 }}>← Volver al inicio</Link>
