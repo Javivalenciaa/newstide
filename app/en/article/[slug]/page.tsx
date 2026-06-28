@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 
-export const revalidate = 3600
+export const revalidate = 300
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
@@ -80,7 +80,7 @@ export async function generateMetadata(
       title, description, url,
       siteName: 'NewsTide', locale: 'en_US', type: 'article',
       publishedTime: article.published_at,
-      authors: [article.author],
+      authors: ['NewsTide Editorial'],
       images,
     },
     twitter: {
@@ -127,8 +127,6 @@ export default async function ArticlePageEN({
   const urlES   = `https://www.newstide.news/articulo/${article.slug}`
   const catSlug = CAT_SLUG_EN[article.category] || article.category.toLowerCase()
 
-  const authorSlug = article.author?.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-
   // Related articles — same category (8 for more dofollow inlinks)
   const { data: related } = await supabase
     .from('articles')
@@ -155,12 +153,16 @@ export default async function ArticlePageEN({
     description: excerpt || '',
     url,
     datePublished: article.published_at,
-    dateModified: article.published_at,
+    dateModified: article.updated_at || article.published_at,
     inLanguage: 'en',
     isAccessibleForFree: true,
     articleSection: CAT_SECTION_EN[article.category] || article.category,
     speakable: { '@type': 'SpeakableSpecification', cssSelector: ['.article-main-title', '.article-byline'] },
-    author: { '@type': 'Person', name: article.author, url: `https://www.newstide.news/en/authors/${authorSlug}` },
+    author: {
+      '@type': 'Organization',
+      name: 'NewsTide Editorial',
+      url: 'https://www.newstide.news/en/editorial-team',
+    },
     publisher: {
       '@type': 'NewsMediaOrganization',
       '@id': 'https://www.newstide.news/#organization',
@@ -194,7 +196,7 @@ export default async function ArticlePageEN({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article.category} />
               <span className="meta-sep">·</span>
-              <Link href={`/en/authors/${authorSlug}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>{article.author}</Link>
+              <Link href="/en/editorial-team" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>NewsTide Editorial</Link>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -217,7 +219,7 @@ export default async function ArticlePageEN({
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
-                img: ({ src, alt }) => (src ? (<span style={{ display: 'block', margin: '32px 0' }}><img src={src} alt={alt || ''} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} loading="lazy" /></span>) : null),
+                img: ({ src, alt }) => (src ? (<span style={{ display: 'block', margin: '32px 0' }}><img src={src} alt={alt || ''} style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} loading="lazy" /></span>) : null),
                 ul: ({ children }) => <ul style={{ margin: '16px 0 20px 24px' }}>{children}</ul>,
                 ol: ({ children }) => <ol style={{ margin: '16px 0 20px 24px' }}>{children}</ol>,
                 li: ({ children }) => <li style={{ fontSize: 16, lineHeight: 1.7, color: 'rgba(240,240,238,0.8)', marginBottom: 8 }}>{children}</li>,
@@ -258,11 +260,12 @@ export default async function ArticlePageEN({
 
           <aside>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
-              <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
-              <Link href={`/en/authors/${authorSlug}`} style={{ textDecoration: 'none' }}>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>{article.author}</div>
+              <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Published by</div>
+              <Link href="/en/editorial-team" style={{ textDecoration: 'none' }}>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6, color: 'var(--text)' }}>NewsTide Editorial</div>
               </Link>
-              <Badge cat={article.category} />
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 10 }}>AI-assisted content reviewed by our editorial team.</div>
+              <Link href="/en/editorial-policy" style={{ fontSize: 12, color: 'var(--cyan)' }}>Editorial policy →</Link>
             </div>
 
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>

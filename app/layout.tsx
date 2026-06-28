@@ -11,10 +11,10 @@ const GA_ID = 'G-C0Z8YQC18J'
 
 export const metadata: Metadata = {
   title: {
-    default: 'NewsTide — La inteligencia que transforma el futuro',
+    default: 'NewsTide — Noticias de IA, Startups y Tech en Español',
     template: '%s | NewsTide',
   },
-  description: 'Tecnología, IA y tendencias para founders, developers y profesionales. Noticias diarias sobre inteligencia artificial, startups y herramientas tech.',
+  description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales. Actualizado cada día.',
   metadataBase: new URL('https://www.newstide.news'),
   alternates: {
     canonical: 'https://www.newstide.news',
@@ -29,16 +29,16 @@ export const metadata: Metadata = {
     locale: 'es_ES',
     type: 'website',
     url: 'https://www.newstide.news',
-    title: 'NewsTide — La inteligencia que transforma el futuro',
-    description: 'Tecnología, IA y tendencias para founders, developers y profesionales.',
+    title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
+    description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
     images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }],
   },
   twitter: {
     card: 'summary_large_image',
     site: '@newstide',
     creator: '@newstide',
-    title: 'NewsTide — La inteligencia que transforma el futuro',
-    description: 'Tecnología, IA y tendencias para founders, developers y profesionales.',
+    title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
+    description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
     images: ['https://www.newstide.news/og-image.png'],
   },
   icons: {
@@ -75,14 +75,12 @@ const websiteSchema = {
       '@id': 'https://www.newstide.news/#website',
       url: 'https://www.newstide.news',
       name: 'NewsTide',
-      description: 'Tecnología, IA y tendencias para founders, developers y profesionales.',
+      description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech.',
       inLanguage: 'es',
+      publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
         '@type': 'SearchAction',
-        target: {
-          '@type': 'EntryPoint',
-          urlTemplate: 'https://www.newstide.news/articulos?q={search_term_string}',
-        },
+        target: { '@type': 'EntryPoint', urlTemplate: 'https://www.newstide.news/?q={search_term_string}' },
         'query-input': 'required name=search_term_string',
       },
     },
@@ -90,67 +88,43 @@ const websiteSchema = {
       '@type': 'NewsMediaOrganization',
       '@id': 'https://www.newstide.news/#organization',
       name: 'NewsTide',
-      alternateName: 'NewsTide News',
       url: 'https://www.newstide.news',
-      logo: {
-        '@type': 'ImageObject',
-        url: 'https://www.newstide.news/favicon-192x192.png',
-        width: 192,
-        height: 192,
-      },
-      sameAs: [
-        'https://twitter.com/newstide',
-        'https://linkedin.com/company/newstide',
-      ],
-      foundingDate: '2026',
-      description: 'NewsTide es un medio de noticias especializado en tecnología, inteligencia artificial, startups y finanzas tech. Publicamos artículos elaborados por periodistas y expertos con asistencia de inteligencia artificial.',
+      logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
+      sameAs: ['https://twitter.com/newstide'],
       publishingPrinciples: 'https://www.newstide.news/politica-editorial',
-      ownershipFundingInfo: 'https://www.newstide.news/sobre-nosotros',
-      actionableFeedbackPolicy: 'https://www.newstide.news/politica-editorial#correcciones',
       correctionsPolicy: 'https://www.newstide.news/politica-editorial#correcciones',
-      ethicsPolicy: 'https://www.newstide.news/politica-editorial#etica',
-      masthead: 'https://www.newstide.news/sobre-nosotros#equipo',
-      diversityPolicy: 'https://www.newstide.news/sobre-nosotros',
+      actionableFeedbackPolicy: 'https://www.newstide.news/politica-editorial#feedback',
       verificationFactCheckingPolicy: 'https://www.newstide.news/politica-editorial#verificacion',
-      contactPoint: {
-        '@type': 'ContactPoint',
-        email: 'hola@newstide.news',
-        contactType: 'editorial',
-        availableLanguage: ['Spanish', 'English'],
-      },
+      masthead: 'https://www.newstide.news/equipo-editorial',
     },
   ],
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <html lang="es" className={`${inter.variable} ${mono.variable}`}>
+    <html lang="es">
       <head>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
         />
-        <link rel="alternate" type="application/rss+xml" title="NewsTide RSS" href="https://www.newstide.news/rss.xml" />
-        {/* Google Analytics */}
+      </head>
+      <body className={`${inter.variable} ${mono.variable}`}>
+        <SpanishShell>{children}</SpanishShell>
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
         />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', '${GA_ID}', {
-              page_path: window.location.pathname,
-            });
-          `}
-        </Script>
-      </head>
-      <body>
-        <SpanishShell>
-          {children}
-        </SpanishShell>
+        <Script id="ga4" strategy="afterInteractive">{`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', '${GA_ID}', { page_path: window.location.pathname });
+        `}</Script>
       </body>
     </html>
   )

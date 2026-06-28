@@ -8,8 +8,8 @@
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
-/* NO aplicar width/height 100% a imgs normales — Next.js Image maneja su propio tamaño */
-img:not([data-nimg]){display:block;width:100%;height:100%;object-fit:cover}
+/* FIX CLS: height:auto prevents layout shift on images without explicit dimensions */
+img:not([data-nimg]){display:block;width:100%;height:auto;object-fit:cover}
 button{cursor:pointer;border:none;background:none;font-family:var(--font)}
 
 /* SCROLLBAR */
