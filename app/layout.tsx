@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
+import { headers } from 'next/headers'
 import './globals.css'
 import SpanishShell from '@/components/SpanishShell'
 
@@ -100,13 +101,21 @@ const websiteSchema = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Detect language from the incoming request path at SSR time.
+  // next/headers gives us access to request headers in Server Components.
+  // The 'next-url' header contains the matched pathname (e.g. /en/article/...).
+  const headersList = await headers()
+  const nextUrl = headersList.get('next-url') ?? ''
+  const isEnglish = nextUrl.startsWith('/en')
+  const lang = isEnglish ? 'en' : 'es'
+
   return (
-    <html lang="es">
+    <html lang={lang}>
       <head>
         <script
           type="application/ld+json"
