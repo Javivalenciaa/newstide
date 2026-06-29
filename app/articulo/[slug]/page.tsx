@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import NewsletterForm from '@/components/NewsletterForm'
+import ShareButtons from '@/components/ShareButtons'
 
 export const revalidate = 300
 
@@ -94,7 +96,6 @@ export default async function ArticuloPage({
 }) {
   const { slug } = await params
 
-  // 1. Try canonical Spanish slug
   const { data: article } = await supabase
     .from('articles')
     .select('*')
@@ -102,7 +103,6 @@ export default async function ArticuloPage({
     .maybeSingle()
 
   if (!article) {
-    // 2. Maybe someone hit /articulo/{english-slug} — 308-redirect to the Spanish slug
     const { data: bySlugEn } = await supabase
       .from('articles')
       .select('slug')
@@ -121,7 +121,6 @@ export default async function ArticuloPage({
   const url = `https://www.newstide.news/articulo/${article.slug}`
   const urlEN = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
 
-  // Related articles — same category (8 for more dofollow inlinks)
   const { data: related } = await supabase
     .from('articles')
     .select('title, slug, category, published_at')
@@ -130,7 +129,6 @@ export default async function ArticuloPage({
     .order('published_at', { ascending: false })
     .limit(8)
 
-  // Latest articles for sidebar (boosts dofollow inlinks to recent articles)
   const { data: latest } = await supabase
     .from('articles')
     .select('title, slug')
@@ -175,7 +173,6 @@ export default async function ArticuloPage({
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
-            {/* Breadcrumb — dofollow links to home + category */}
             <nav aria-label="Miga de pan" style={{ marginBottom: 16 }}>
               <ol style={{ display: 'flex', alignItems: 'center', gap: 6, listStyle: 'none', padding: 0, margin: 0, flexWrap: 'wrap' }}>
                 <li><Link href="/" style={{ fontSize: 13, color: 'var(--muted)' }}>Inicio</Link></li>
@@ -230,7 +227,6 @@ export default async function ArticuloPage({
               <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido generado con asistencia de inteligencia artificial y revisado por el equipo editorial de NewsTide para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
             </div>
 
-            {/* ARTÍCULOS RELACIONADOS — dofollow links */}
             {related && related.length > 0 && (
               <div style={{ marginTop: 48 }}>
                 <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 20, color: 'var(--text)' }}>Más sobre {article.category}</h2>
@@ -271,7 +267,6 @@ export default async function ArticuloPage({
               </div>
             </div>
 
-            {/* ÚLTIMAS NOTICIAS SIDEBAR — adds dofollow inlinks to recent articles */}
             {latest && latest.length > 0 && (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
                 <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Últimas noticias</div>
@@ -286,20 +281,17 @@ export default async function ArticuloPage({
               </div>
             )}
 
+            {/* NEWSLETTER — real */}
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>✉️ Newsletter</div>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>Las mejores historias de la semana en tu inbox.</p>
-              <input type="email" placeholder="tu@email.com" className="sidebar-email" />
-              <button className="sidebar-sub-btn">Suscribirse gratis</button>
+              <NewsletterForm />
             </div>
 
+            {/* COMPARTIR — real */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Compartir</div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                {['𝕏', 'in', '🔗'].map((icon, i) => (
-                  <button key={i} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--muted)', fontSize: i === 2 ? 14 : 13, fontWeight: 600, cursor: 'pointer', transition: 'border-color 0.2s, color 0.2s' }}>{icon}</button>
-                ))}
-              </div>
+              <ShareButtons url={url} title={article.title} />
             </div>
           </aside>
         </div>
