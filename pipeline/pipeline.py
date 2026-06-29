@@ -24,6 +24,10 @@ MODEL_HUMANIZE     = "gpt-4o-mini"
 
 # Minimum reading time in minutes — articles below this are rejected/extended
 MIN_READING_TIME = 5
+# Minimum word count derived from reading time (200 wpm)
+MIN_WORD_COUNT   = MIN_READING_TIME * 200  # 1000 words
+# Minimum number of H2 sections an article must contain
+MIN_H2_SECTIONS  = 3
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -99,6 +103,39 @@ def strip_code_fences(text: str) -> str:
     text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
     text = re.sub(r'\n```\s*$', '', text)
     return text.strip()
+
+# ── CONTENT VALIDATION ────────────────────────────────────────────────────────
+def validate_article_content(content: str, label: str = "article") -> bool:
+    """
+    Returns True if the content meets minimum quality standards.
+    Logs specific failures so they are visible in CI/CD logs.
+    """
+    words = len(content.split())
+    h2_count = len(re.findall(r'^## ', content, re.MULTILINE))
+    h1_count = len(re.findall(r'^# ', content, re.MULTILINE))
+
+    ok = True
+
+    if words < MIN_WORD_COUNT:
+        print(f"  ❌ VALIDATION FAIL [{label}]: {words} words < {MIN_WORD_COUNT} minimum")
+        ok = False
+
+    if h2_count < MIN_H2_SECTIONS:
+        print(f"  ❌ VALIDATION FAIL [{label}]: only {h2_count} H2 sections (need >= {MIN_H2_SECTIONS})")
+        ok = False
+
+    # Detect truncated articles: content that starts mid-sentence (no H1 and no paragraph opener)
+    stripped = content.strip()
+    if not stripped.startswith("#") and len(stripped) > 0:
+        first_char = stripped[0]
+        # If it starts with a lowercase letter it was almost certainly truncated
+        if first_char.islower():
+            print(f"  ❌ VALIDATION FAIL [{label}]: content starts mid-sentence (truncation detected)")
+            ok = False
+
+    if ok:
+        print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2 sections")
+    return ok
 
 # ── LOAD RECENT ARTICLES ──────────────────────────────────────────────────────
 def get_recent_articles() -> list[dict]:
@@ -340,8 +377,7 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 def generate_article(keyword: str, recent_context: str) -> dict:
     print(f"  ✍️  Claude generando ES: {keyword[:70]}...")
     category = detect_category(keyword)
-    # Target word count that guarantees MIN_READING_TIME at 200 wpm
-    min_words = MIN_READING_TIME * 200
+    min_words = MIN_WORD_COUNT
     prompt = f"""Escribe un artículo completo en español sobre: "{keyword}"
 
 ARTÍCULOS YA PUBLICADOS EN NEWSTIDE (no repitas estas temáticas ni estos ángulos):
@@ -368,8 +404,9 @@ REQUISITOS:
 Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
 
+    # Use 6000 tokens to ensure the full article is never truncated
     message = claude_client.messages.create(
-        model=MODEL_GENERATE, max_tokens=3500,
+        model=MODEL_GENERATE, max_tokens=6000,
         messages=[{"role": "user", "content": prompt}],
         system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos."
     )
@@ -397,7 +434,8 @@ Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los da
 Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
-        temperature=0.88, max_tokens=4096
+        # Increased from 4096 to 6000 to prevent mid-article truncation
+        temperature=0.88, max_tokens=6000
     )
     return response.choices[0].message.content
 
@@ -418,7 +456,8 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
             )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
         ],
-        temperature=0.75, max_tokens=4096
+        # Increased from 4096 to 6000 to prevent translation truncation
+        temperature=0.75, max_tokens=6000
     )
     raw = response.choices[0].message.content.strip()
 
@@ -595,7 +634,19 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
 
     try:
         result    = generate_article(candidate, recent_context)
-        humanized = humanize(result["content"])
+        raw_content = result["content"]
+
+        # ── VALIDATE RAW CONTENT BEFORE HUMANIZING ────────────────────────────
+        if not validate_article_content(raw_content, label="claude-raw"):
+            print(f"  ❌ Artículo descartado (Claude output inválido) — saltando topic")
+            return None
+
+        humanized = humanize(raw_content)
+
+        # ── VALIDATE HUMANIZED CONTENT ────────────────────────────────────────
+        if not validate_article_content(humanized, label="humanized-es"):
+            print(f"  ⚠️  Humanizado inválido — usando contenido original de Claude")
+            humanized = raw_content
 
         title_preview = candidate[:100]
         for line in humanized.strip().split("\n")[:5]:
@@ -612,6 +663,10 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         cover_image_url = cover_img["url"] if cover_img else None
 
         en = translate_to_english(content_es, result["excerpt"], title_preview)
+
+        # ── VALIDATE ENGLISH TRANSLATION ──────────────────────────────────────
+        if not validate_article_content(en["content_en"], label="translated-en"):
+            print(f"  ⚠️  Traducción EN inválida — se guardará igualmente pero revisa manualmente")
 
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
