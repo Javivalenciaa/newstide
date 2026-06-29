@@ -20,7 +20,8 @@ UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 ARTICLES_PER_RUN   = 3
 MODEL_GENERATE     = "claude-sonnet-4-5"
 MODEL_FAST         = "gpt-4o-mini"
-MODEL_HUMANIZE     = "gpt-4o-mini"
+# gpt-4o supports up to 16K output tokens — prevents truncation on long articles
+MODEL_HUMANIZE     = "gpt-4o"
 
 # Minimum reading time in minutes — articles below this are rejected/extended
 MIN_READING_TIME = 5
@@ -103,6 +104,24 @@ def strip_code_fences(text: str) -> str:
     text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
     text = re.sub(r'\n```\s*$', '', text)
     return text.strip()
+
+def is_truncated(content_en: str, content_es: str) -> bool:
+    """
+    Detect if the English translation was truncated.
+    Two signals:
+      1. Content starts with a lowercase letter (mid-sentence start).
+      2. EN word count is less than 60% of the ES word count (major content loss).
+    """
+    stripped = content_en.strip()
+    if not stripped:
+        return True
+    if stripped[0].islower():
+        return True
+    words_en = len(stripped.split())
+    words_es = len(content_es.split())
+    if words_es > 0 and words_en < words_es * 0.60:
+        return True
+    return False
 
 # ── CONTENT VALIDATION ────────────────────────────────────────────────────────
 def validate_article_content(content: str, label: str = "article") -> bool:
@@ -434,14 +453,13 @@ Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los da
 Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
-        # Increased from 4096 to 6000 to prevent mid-article truncation
         temperature=0.88, max_tokens=6000
     )
     return response.choices[0].message.content
 
 # ── TRANSLATE + HUMANIZE EN ───────────────────────────────────────────────────
-def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
-    print("  🌐 GPT traduciendo EN...")
+def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
+    """Single translation attempt. Returns parsed dict with title_en, content_en, excerpt_en, slug_en."""
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
@@ -456,7 +474,6 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
             )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
         ],
-        # Increased from 4096 to 6000 to prevent translation truncation
         temperature=0.75, max_tokens=6000
     )
     raw = response.choices[0].message.content.strip()
@@ -477,14 +494,31 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
     while body_start < len(lines) and not lines[body_start].strip():
         body_start += 1
     content_en = "\n".join(lines[body_start:]).strip()
-
-    # Strip markdown code fences that GPT sometimes wraps around the translation
     content_en = strip_code_fences(content_en)
-
-    # Generate English slug from the translated title
     slug_en = slugify_en(title_en)
 
     return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en, "slug_en": slug_en}
+
+
+def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
+    """
+    Translate ES → EN with automatic truncation detection and retry.
+    Retries up to 2 extra times if the output appears truncated.
+    """
+    print("  🌐 GPT traduciendo EN...")
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        result = _run_translation(es_content, es_excerpt, es_title)
+        if not is_truncated(result["content_en"], es_content):
+            if attempt > 0:
+                print(f"  ✅ Traducción correcta en intento {attempt + 1}")
+            return result
+        print(f"  ⚠️  Traducción truncada detectada (intento {attempt + 1}/{max_attempts}) — reintentando...")
+        time.sleep(2)
+
+    # All retries exhausted — return last attempt and let validation handle it
+    print(f"  ❌ Traducción truncada tras {max_attempts} intentos — guardando último intento")
+    return result
 
 # ── UNSPLASH ──────────────────────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
@@ -666,7 +700,7 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
 
         # ── VALIDATE ENGLISH TRANSLATION ──────────────────────────────────────
         if not validate_article_content(en["content_en"], label="translated-en"):
-            print(f"  ⚠️  Traducción EN inválida — se guardará igualmente pero revisa manualmente")
+            print(f"  ⚠️  Traducción EN inválida tras reintentos — se guardará igualmente pero revisa manualmente")
 
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
