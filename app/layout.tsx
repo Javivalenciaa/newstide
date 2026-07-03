@@ -106,9 +106,6 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Detect language from the incoming request path at SSR time.
-  // next/headers gives us access to request headers in Server Components.
-  // The 'next-url' header contains the matched pathname (e.g. /en/article/...).
   const headersList = await headers()
   const nextUrl = headersList.get('next-url') ?? ''
   const isEnglish = nextUrl.startsWith('/en')
@@ -120,6 +117,19 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+        />
+        {/* RSS autodiscovery — allows Google, Feedly and aggregators to detect feeds automatically */}
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title="NewsTide ES RSS"
+          href="https://www.newstide.news/rss.xml"
+        />
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title="NewsTide EN RSS"
+          href="https://www.newstide.news/en/rss.xml"
         />
       </head>
       <body className={`${inter.variable} ${mono.variable}`}>
