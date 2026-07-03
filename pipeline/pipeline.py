@@ -61,21 +61,42 @@ AUTHORS = [
 ]
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
+def smart_trim(text: str, limit: int) -> str:
+    """Trim text to limit chars at a word boundary, stripping trailing punctuation."""
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit + 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.strip(" -:;,.")
+
+def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
+    """Normalize an excerpt to fit within [min_len, max_len] characters."""
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    text = text.strip(' "\'')
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len + 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.strip(" -:;,.") + "."
+
 def slugify(text):
     """Generate a URL-safe slug from Spanish text."""
-    text = text.lower()
+    text = smart_trim(text, 60).lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
-    return text[:80]
+    return text[:60].strip("-")
 
 def slugify_en(text):
     """Generate a URL-safe slug from English text."""
-    text = text.lower()
+    text = smart_trim(text, 60).lower()
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
-    return text[:80]
+    return text[:60].strip("-")
 
 def md5(text):
     return hashlib.md5(text.lower().strip().encode()).hexdigest()
@@ -420,8 +441,15 @@ REQUISITOS:
 - El año actual es 2026. Actualiza referencias de años anteriores a 2026 salvo contexto histórico imprescindible.
 - El artículo DEBE ofrecer un ángulo diferente a los ya publicados — profundiza en lo específico
 
+SEO / CTR:
+- El H1 DEBE medir entre 45 y 60 caracteres
+- Debe ser extremadamente clicable, específico y emocional, incluso agresivo/clickbait, pero SIN mentir
+- Usa contraste, sorpresa, conflicto, números o una promesa clara cuando encaje
+- Evita títulos vagos o largos
+- No uses comillas en el título
+
 Al final, en línea separada escribe exactamente:
-EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
+EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y apto como meta description]"""
 
     # Use 6000 tokens to ensure the full article is never truncated
     message = claude_client.messages.create(
@@ -434,7 +462,7 @@ EXCERPT: [resumen de 1 frase, máximo 150 caracteres]"""
     if "EXCERPT:" in raw:
         parts = raw.split("EXCERPT:")
         raw = parts[0].strip()
-        excerpt = parts[1].strip()[:200]
+        excerpt = normalize_excerpt(parts[1].strip(), 120, 155)
     return {"content": raw, "excerpt": excerpt, "category": category}
 
 # ── HUMANIZE WITH GPT ─────────────────────────────────────────────────────────
@@ -468,8 +496,8 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
                 "Translate the following Spanish tech article to natural, fluent American English. "
                 "Keep all markdown formatting. Adapt idioms naturally. "
                 "IMPORTANT: Start your response with exactly these two lines before the article body:\n"
-                "TITLE_EN: [translated H1 title]\n"
-                "EXCERPT_EN: [one sentence summary, max 150 chars]\n"
+                "TITLE_EN: [translated H1 title, 45 to 60 characters, highly clickable, specific, no quotes]\n"
+                "EXCERPT_EN: [one sentence summary, 120 to 155 characters, strong click-through appeal, suitable as a meta description]\n"
                 "Then a blank line, then the full translated article body (without the H1 title line)."
             )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
@@ -486,10 +514,10 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
     body_start = 0
     for i, line in enumerate(lines):
         if line.startswith("TITLE_EN:"):
-            title_en = line[len("TITLE_EN:"):].strip()[:150]
+            title_en = smart_trim(line[len("TITLE_EN:"):].strip(), 60)
             body_start = i + 1
         elif line.startswith("EXCERPT_EN:"):
-            excerpt_en = line[len("EXCERPT_EN:"):].strip()[:200]
+            excerpt_en = normalize_excerpt(line[len("EXCERPT_EN:"):].strip(), 120, 155)
             body_start = i + 1
     while body_start < len(lines) and not lines[body_start].strip():
         body_start += 1
@@ -613,6 +641,12 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     if en_lines and en_lines[0].strip().startswith("# "):
         content_en = "\n".join(en_lines[1:]).strip()
 
+    # Enforce metadata length limits for SEO / CTR
+    title_es  = smart_trim(title_es, 60)
+    title_en  = smart_trim(title_en or title_es, 60)
+    excerpt_es = normalize_excerpt(excerpt_es or title_es[:150], 120, 155)
+    excerpt_en = normalize_excerpt(excerpt_en or excerpt_es or title_es[:150], 120, 155)
+
     rt = reading_time(content_es)
     if rt < MIN_READING_TIME:
         print(f"  ⚠️  reading_time={rt} < {MIN_READING_TIME} — forzando a {MIN_READING_TIME}")
@@ -623,11 +657,11 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         "title":           title_es,
         "slug":            slugify(title_es),
         "content":         content_es,
-        "excerpt":         excerpt_es or title_es[:150],
-        "title_en":        title_en or title_es,
-        "slug_en":         slug_en or slugify_en(title_en or title_es),
+        "excerpt":         excerpt_es,
+        "title_en":        title_en,
+        "slug_en":         slug_en or slugify_en(title_en),
         "content_en":      content_en,
-        "excerpt_en":      excerpt_en or excerpt_es or title_es[:150],
+        "excerpt_en":      excerpt_en,
         "category":        category,
         "author":          AUTHORS[idx % len(AUTHORS)],
         "keyword":         keyword,
