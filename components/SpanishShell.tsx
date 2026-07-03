@@ -41,10 +41,11 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
             <div className="footer-links">
               <div className="footer-col">
                 <div className="footer-col-title">Categorías</div>
-                <Link href="/articulos">IA & Modelos</Link>
-                <Link href="/articulos">Startups</Link>
-                <Link href="/articulos">Herramientas</Link>
-                <Link href="/articulos">Tutoriales</Link>
+                <Link href="/articulos/ia">IA &amp; Modelos</Link>
+                <Link href="/articulos/startups">Startups</Link>
+                <Link href="/articulos/herramientas">Herramientas</Link>
+                <Link href="/articulos/tutoriales">Tutoriales</Link>
+                <Link href="/articulos/noticias">Noticias</Link>
               </div>
               <div className="footer-col">
                 <div className="footer-col-title">Empresa</div>
@@ -52,6 +53,12 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
                 <Link href="/politica-editorial">Política editorial</Link>
                 <Link href="/contacto">Contacto</Link>
                 <Link href="/privacidad">Privacidad</Link>
+              </div>
+              <div className="footer-col">
+                <div className="footer-col-title">Feeds</div>
+                <Link href="/rss.xml">RSS Feed</Link>
+                <Link href="/en/rss.xml">RSS English</Link>
+                <Link href="/news-sitemap.xml">News Sitemap</Link>
               </div>
             </div>
           </div>

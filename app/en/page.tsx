@@ -2,15 +2,16 @@ import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import NewsletterForm from '@/components/NewsletterForm'
 
-export const revalidate = 3600
+export const revalidate = 300
 
 export const metadata: Metadata = {
   title: 'NewsTide — The intelligence shaping the future',
   description: 'Technology, AI and trends for founders, developers and professionals.',
   alternates: {
     canonical: 'https://www.newstide.news/en',
-    languages: { 'es': 'https://www.newstide.news', 'en': 'https://www.newstide.news/en' },
+    languages: { 'es': 'https://www.newstide.news', 'en': 'https://www.newstide.news/en', 'x-default': 'https://www.newstide.news/en' },
   },
   openGraph: { siteName: 'NewsTide', locale: 'en_US', type: 'website' },
 }
@@ -18,10 +19,11 @@ export const metadata: Metadata = {
 interface Article {
   id: string
   title: string
-  title_en: string
+  title_en: string | null
   slug: string
+  slug_en: string | null
   excerpt: string
-  excerpt_en: string
+  excerpt_en: string | null
   category: string
   author: string
   published_at: string
@@ -55,16 +57,17 @@ function Badge({ cat }: { cat: string }) {
 export default async function HomeEN() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,cover_image_url')
+    .select('id,title,title_en,slug,slug_en,excerpt,excerpt_en,category,author,published_at,reading_time,featured,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(7)
 
-  const featured = articles?.find(a => a.featured) || articles?.[0]
-  const rest = articles?.filter(a => a.id !== featured?.id) || []
+  const featured = articles?.find((a: Article) => a.featured) || articles?.[0]
+  const rest = articles?.filter((a: Article) => a.id !== featured?.id) || []
 
   const t = (a: Article) => ({
     title: a.title_en || a.title,
     excerpt: a.excerpt_en || a.excerpt,
+    href: `/en/article/${a.slug_en || a.slug}`,
   })
 
   return (
@@ -105,7 +108,7 @@ export default async function HomeEN() {
       {featured && (
         <section id="featured">
           <div className="container">
-            <Link href={`/en/article/${featured.slug}`} className="featured-card">
+            <Link href={t(featured).href} className="featured-card">
               <div className="featured-img" style={!featured.cover_image_url ? { background: FALLBACK_GRADIENT } : undefined}>
                 {featured.cover_image_url && (
                   <Image
@@ -126,7 +129,7 @@ export default async function HomeEN() {
                 <h2 className="featured-title">{t(featured).title}</h2>
                 <p className="featured-desc">{t(featured).excerpt}</p>
                 <div className="featured-footer">
-                  <strong>{featured.author}</strong>
+                  <strong>NewsTide Editorial</strong>
                   <span>·</span>
                   <span>{formatDate(featured.published_at)}</span>
                   <span>·</span>
@@ -148,9 +151,9 @@ export default async function HomeEN() {
           </div>
           <div className="articles-layout">
             <div className="articles-grid">
-              {rest.slice(0, 6).map((a, i) => (
+              {rest.slice(0, 6).map((a: Article, i: number) => (
                 <Link
-                  href={`/en/article/${a.slug}`}
+                  href={t(a).href}
                   key={a.id}
                   className="article-card"
                   style={{ '--delay': `${i * 0.1}s` } as React.CSSProperties}
@@ -176,7 +179,7 @@ export default async function HomeEN() {
                     <h3 className="article-title">{t(a).title}</h3>
                     <p className="article-excerpt">{t(a).excerpt}</p>
                     <div className="article-footer">
-                      <span className="article-author">{a.author}</span>
+                      <span className="article-author">NewsTide Editorial</span>
                       <span className="article-dot">·</span>
                       <span>{formatDate(a.published_at)}</span>
                     </div>
@@ -188,11 +191,11 @@ export default async function HomeEN() {
               <div className="sidebar-widget">
                 <div className="widget-title">🔥 Trending</div>
                 <ol className="trending-list">
-                  {rest.slice(0, 5).map((a, i) => (
+                  {rest.slice(0, 5).map((a: Article, i: number) => (
                     <li key={a.id} className="trending-item">
                       <span className="trending-num">0{i + 1}</span>
                       <div>
-                        <Link href={`/en/article/${a.slug}`} className="trending-text">{t(a).title}</Link>
+                        <Link href={t(a).href} className="trending-text">{t(a).title}</Link>
                         <div style={{ marginTop: 4 }}><Badge cat={a.category} /></div>
                       </div>
                     </li>
@@ -204,8 +207,7 @@ export default async function HomeEN() {
                 <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
                   The best stories of the week in your inbox.
                 </p>
-                <input type="email" placeholder="you@email.com" className="sidebar-email" />
-                <button className="sidebar-sub-btn">Subscribe for free</button>
+                <NewsletterForm compact lang="en" />
               </div>
             </aside>
           </div>
@@ -233,10 +235,7 @@ export default async function HomeEN() {
               <div className="nl-badge">✉️ Newsletter</div>
               <h2 className="nl-title">The best of the week,<br />in your inbox.</h2>
               <p className="nl-sub">Over 8,400 founders and developers already receive our weekly digest.</p>
-              <div className="nl-form">
-                <input type="email" placeholder="you@email.com" className="nl-input" />
-                <button className="nl-btn">Subscribe for free</button>
-              </div>
+              <NewsletterForm lang="en" />
             </div>
             <div className="nl-stats">
               {[['8.4k', 'Subscribers'], ['97%', 'Open rate'], ['0', 'Spam']].map(([n, l]) => (

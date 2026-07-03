@@ -1,12 +1,8 @@
 import type { Metadata } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
 import Link from 'next/link'
 import LangSwitcher from '@/components/LangSwitcher'
 import MobileNav from '@/components/MobileNav'
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
 
 const GA_ID = 'G-C0Z8YQC18J'
 
@@ -102,13 +98,6 @@ const websiteSchemaEN = {
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      {/*
-        SEO FIX: Next.js App Router shares a single <html> tag across all routes,
-        owned by app/layout.tsx. Nested layouts cannot override it directly.
-        This synchronous inline script sets lang="en" on <html> before any JS
-        executes, so Google's crawler and SEO checkers see the correct value
-        in the SSR-rendered HTML for every /en/* page.
-      */}
       <script
         dangerouslySetInnerHTML={{
           __html: `(function(){var h=document.documentElement;if(h)h.setAttribute('lang','en');})();`,
@@ -155,10 +144,11 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
             <div className="footer-links">
               <div className="footer-col">
                 <div className="footer-col-title">Categories</div>
-                <Link href="/en/articles">AI &amp; Models</Link>
-                <Link href="/en/articles">Startups</Link>
-                <Link href="/en/articles">Tools</Link>
-                <Link href="/en/articles">Tutorials</Link>
+                <Link href="/en/articles/ai">AI &amp; Models</Link>
+                <Link href="/en/articles/startups">Startups</Link>
+                <Link href="/en/articles/tools">Tools</Link>
+                <Link href="/en/articles/tutorials">Tutorials</Link>
+                <Link href="/en/articles/news">News</Link>
               </div>
               <div className="footer-col">
                 <div className="footer-col-title">Company</div>

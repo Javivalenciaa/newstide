@@ -3,20 +3,25 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
-export const revalidate = 3600
+export const revalidate = 300
 
 export const metadata: Metadata = {
   title: 'All Articles — NewsTide',
   description: 'All NewsTide articles on AI, startups, tools and technology.',
   alternates: {
     canonical: 'https://www.newstide.news/en/articles',
-    languages: { 'es': 'https://www.newstide.news/articulos', 'en': 'https://www.newstide.news/en/articles' },
+    languages: { 'es': 'https://www.newstide.news/articulos', 'en': 'https://www.newstide.news/en/articles', 'x-default': 'https://www.newstide.news/en/articles' },
   },
 }
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
+}
+
+const CAT_EN: Record<string, string> = {
+  'IA': 'AI', 'Tutoriales': 'Tutorials',
+  'Herramientas': 'Tools', 'Startups': 'Startups', 'Noticias': 'News',
 }
 
 const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
@@ -27,28 +32,31 @@ function formatDate(d: string) {
 
 function Badge({ cat }: { cat: string }) {
   const color = CAT_COLORS[cat] || '#6ecfca'
+  const label = CAT_EN[cat] || cat
   return (
     <span style={{
       display: 'inline-block', padding: '3px 10px', borderRadius: '6px',
       fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
       background: `${color}18`, color, border: `1px solid ${color}30`
-    }}>{cat}</span>
+    }}>{label}</span>
   )
 }
 
 export default async function ArticlesPageEN() {
   const { data: articles } = await supabase
     .from('articles')
-    .select('id,title,title_en,slug,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient,cover_image_url')
+    .select('id,title,title_en,slug,slug_en,excerpt,excerpt_en,category,author,published_at,reading_time,featured,image_gradient,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(100)
 
-  const t = (a: { title_en?: string | null; title: string; excerpt_en?: string | null; excerpt: string }) => ({
+  const t = (a: { title_en?: string | null; title: string; excerpt_en?: string | null; excerpt: string; slug_en?: string | null; slug: string }) => ({
     title: a.title_en || a.title,
     excerpt: a.excerpt_en || a.excerpt,
+    href: `/en/article/${a.slug_en || a.slug}`,
   })
 
-  const cats = ['All', ...Array.from(new Set(articles?.map(a => a.category) || []))]
+  const rawCats = Array.from(new Set(articles?.map(a => a.category) || []))
+  const cats = ['All', ...rawCats]
 
   return (
     <main style={{ minHeight: '100vh', paddingTop: '90px' }}>
@@ -80,7 +88,7 @@ export default async function ArticlesPageEN() {
                 background: c === 'All' ? 'var(--accent)' : 'var(--surface)',
                 color: c === 'All' ? 'var(--bg)' : 'var(--muted)',
                 border: '1px solid var(--border)', cursor: 'pointer'
-              }}>{c}</span>
+              }}>{CAT_EN[c] || c}</span>
             ))}
           </div>
         </div>
@@ -96,7 +104,7 @@ export default async function ArticlesPageEN() {
           }}>
             {articles?.map((a, i) => (
               <Link
-                href={`/en/article/${a.slug}`}
+                href={t(a).href}
                 key={a.id}
                 className="article-card"
                 style={{ '--delay': `${i * 0.04}s` } as React.CSSProperties}
@@ -122,7 +130,7 @@ export default async function ArticlesPageEN() {
                   <h3 className="article-title">{t(a).title}</h3>
                   <p className="article-excerpt">{t(a).excerpt}</p>
                   <div className="article-footer">
-                    <span className="article-author">{a.author}</span>
+                    <span className="article-author">NewsTide Editorial</span>
                     <span className="article-dot">·</span>
                     <span>{formatDate(a.published_at)}</span>
                   </div>

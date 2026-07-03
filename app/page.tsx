@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import Image from 'next/image'
 import Link from 'next/link'
+import NewsletterForm from '@/components/NewsletterForm'
 
 export const revalidate = 300
 
@@ -20,6 +21,11 @@ interface Article {
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
+}
+
+const CAT_SLUG_ES: Record<string, string> = {
+  'IA': 'ia', 'Tutoriales': 'tutoriales',
+  'Herramientas': 'herramientas', 'Startups': 'startups', 'Noticias': 'noticias',
 }
 
 const FALLBACK_GRADIENT = 'linear-gradient(135deg, #1a1f2e 0%, #0f1623 100%)'
@@ -74,8 +80,8 @@ export default async function Home() {
     .order('published_at', { ascending: false })
     .limit(7)
 
-  const featured = articles?.find(a => a.featured) || articles?.[0]
-  const rest = articles?.filter(a => a.id !== featured?.id) || []
+  const featured = articles?.find((a: Article) => a.featured) || articles?.[0]
+  const rest = articles?.filter((a: Article) => a.id !== featured?.id) || []
 
   return (
     <main>
@@ -166,7 +172,7 @@ export default async function Home() {
           </div>
           <div className="articles-layout">
             <div className="articles-grid">
-              {rest.slice(0, 6).map((a, i) => (
+              {rest.slice(0, 6).map((a: Article, i: number) => (
                 <Link
                   href={`/articulo/${a.slug}`}
                   key={a.id}
@@ -206,7 +212,7 @@ export default async function Home() {
               <div className="sidebar-widget">
                 <div className="widget-title">🔥 Trending</div>
                 <ol className="trending-list">
-                  {rest.slice(0, 5).map((a, i) => (
+                  {rest.slice(0, 5).map((a: Article, i: number) => (
                     <li key={a.id} className="trending-item">
                       <span className="trending-num">0{i + 1}</span>
                       <div>
@@ -222,8 +228,7 @@ export default async function Home() {
                 <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
                   Las mejores historias de la semana en tu inbox.
                 </p>
-                <input type="email" placeholder="tu@email.com" className="sidebar-email" />
-                <button className="sidebar-sub-btn">Suscribirse gratis</button>
+                <NewsletterForm compact lang="es" />
               </div>
             </aside>
           </div>
@@ -251,10 +256,7 @@ export default async function Home() {
               <div className="nl-badge">✉️ Newsletter</div>
               <h2 className="nl-title">Lo mejor de la semana,<br />en tu inbox.</h2>
               <p className="nl-sub">Más de 8.400 founders y developers ya reciben nuestro resumen semanal.</p>
-              <div className="nl-form">
-                <input type="email" placeholder="tu@email.com" className="nl-input" />
-                <button className="nl-btn">Suscribirme gratis</button>
-              </div>
+              <NewsletterForm lang="es" />
             </div>
             <div className="nl-stats">
               {[['8.4k', 'Suscriptores'], ['97%', 'Tasa apertura'], ['0', 'Spam']].map(([n, l]) => (

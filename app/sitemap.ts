@@ -1,8 +1,23 @@
 import { supabase } from '@/lib/supabase'
 import { MetadataRoute } from 'next'
 
-// Always fresh — never serve a stale cached build version
 export const dynamic = 'force-dynamic'
+
+const ES_CATS = [
+  { slug: 'ia',           label: 'IA' },
+  { slug: 'startups',     label: 'Startups' },
+  { slug: 'herramientas', label: 'Herramientas' },
+  { slug: 'tutoriales',   label: 'Tutoriales' },
+  { slug: 'noticias',     label: 'Noticias' },
+]
+
+const EN_CATS = [
+  { slug: 'ai',        label: 'AI' },
+  { slug: 'startups',  label: 'Startups' },
+  { slug: 'tools',     label: 'Tools' },
+  { slug: 'tutorials', label: 'Tutorials' },
+  { slug: 'news',      label: 'News' },
+]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: articles } = await supabase
@@ -12,7 +27,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const allArticles = articles || []
 
-  // ES: every article has a Spanish slug
   const esArticleUrls = allArticles.map((a) => ({
     url: `https://www.newstide.news/articulo/${a.slug}`,
     lastModified: new Date(a.published_at),
@@ -20,7 +34,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }))
 
-  // EN: ONLY articles that have a real slug_en — never fall back to ES slug
   const enArticleUrls = allArticles
     .filter((a) => !!a.slug_en)
     .map((a) => ({
@@ -30,25 +43,41 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     }))
 
+  const esCatUrls = ES_CATS.map((c) => ({
+    url: `https://www.newstide.news/articulos/${c.slug}`,
+    lastModified: new Date(),
+    changeFrequency: 'daily' as const,
+    priority: 0.75,
+  }))
+
+  const enCatUrls = EN_CATS.map((c) => ({
+    url: `https://www.newstide.news/en/articles/${c.slug}`,
+    lastModified: new Date(),
+    changeFrequency: 'daily' as const,
+    priority: 0.75,
+  }))
+
   return [
-    { url: 'https://www.newstide.news',          lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
-    { url: 'https://www.newstide.news/en',        lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
-    { url: 'https://www.newstide.news/articulos', lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 0.9 },
-    { url: 'https://www.newstide.news/en/articles', lastModified: new Date(), changeFrequency: 'hourly' as const, priority: 0.9 },
-    { url: 'https://www.newstide.news/sobre-nosotros',       lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/en/about',             lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/politica-editorial',   lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
-    { url: 'https://www.newstide.news/en/editorial-policy',  lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
-    { url: 'https://www.newstide.news/contacto',             lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
-    { url: 'https://www.newstide.news/en/contact',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
-    { url: 'https://www.newstide.news/privacidad',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
-    { url: 'https://www.newstide.news/en/privacy',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
-    { url: 'https://www.newstide.news/autores/maria-lopez',       lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/autores/carlos-ruiz',       lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/autores/ana-martinez',      lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/en/authors/maria-lopez',    lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/en/authors/carlos-ruiz',    lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
-    { url: 'https://www.newstide.news/en/authors/ana-martinez',   lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news',            lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
+    { url: 'https://www.newstide.news/en',          lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
+    { url: 'https://www.newstide.news/articulos',   lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 0.9 },
+    { url: 'https://www.newstide.news/en/articles', lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 0.9 },
+    ...esCatUrls,
+    ...enCatUrls,
+    { url: 'https://www.newstide.news/sobre-nosotros',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/en/about',            lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/politica-editorial',  lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
+    { url: 'https://www.newstide.news/en/editorial-policy', lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
+    { url: 'https://www.newstide.news/contacto',            lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
+    { url: 'https://www.newstide.news/en/contact',          lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
+    { url: 'https://www.newstide.news/privacidad',          lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/en/privacy',          lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/autores/maria-lopez',    lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/autores/carlos-ruiz',    lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/autores/ana-martinez',   lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/en/authors/maria-lopez',  lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/en/authors/carlos-ruiz',  lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: 'https://www.newstide.news/en/authors/ana-martinez', lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
     ...esArticleUrls,
     ...enArticleUrls,
   ]
