@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import NewsletterForm from '@/components/NewsletterForm'
+import ShareButtons from '@/components/ShareButtons'
 
 export const revalidate = 300
 
@@ -292,20 +294,17 @@ export default async function ArticlePageEN({
               </div>
             )}
 
+            {/* NEWSLETTER — functional component */}
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>✉️ Newsletter</div>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>The best stories of the week in your inbox.</p>
-              <input type="email" placeholder="you@email.com" className="sidebar-email" />
-              <button className="sidebar-sub-btn">Subscribe for free</button>
+              <NewsletterForm compact />
             </div>
 
+            {/* SHARE — functional component */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Share</div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                {['𝕏', 'in', '🔗'].map((icon, i) => (
-                  <button key={i} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--muted)', fontSize: i === 2 ? 14 : 13, fontWeight: 600, cursor: 'pointer', transition: 'border-color 0.2s, color 0.2s' }}>{icon}</button>
-                ))}
-              </div>
+              <ShareButtons url={url} title={title} />
             </div>
           </aside>
         </div>
