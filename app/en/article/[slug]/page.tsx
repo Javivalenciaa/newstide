@@ -44,6 +44,24 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Truncate to 60 chars max, keeping whole words
+function seoTitle(title: string, siteName = 'NewsTide'): string {
+  const max = 60 - siteName.length - 3
+  if (title.length <= max) return `${title} | ${siteName}`
+  const cut = title.substring(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${cut.substring(0, lastSpace > 20 ? lastSpace : max)} | ${siteName}`
+}
+
+// 150-155 chars max
+function seoDescription(excerpt: string, fallback: string): string {
+  const text = excerpt || fallback
+  if (text.length <= 155) return text
+  const cut = text.substring(0, 152)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${cut.substring(0, lastSpace > 50 ? lastSpace : 152)}...`
+}
+
 export async function generateStaticParams() {
   const { data } = await supabase.from('articles').select('slug_en').not('slug_en', 'is', null)
   return (data || []).map((a) => ({ slug: a.slug_en }))
@@ -60,15 +78,22 @@ export async function generateMetadata(
     .eq('slug_en', slug)
     .maybeSingle()
 
-  if (!article) return { title: 'Article not found' }
+  if (!article) return {
+    title: 'Article not found | NewsTide',
+    description: 'This content is not available on NewsTide — AI, startups and tech news.'
+  }
 
-  const title = article.title_en || article.title
-  const description = article.excerpt_en || article.excerpt || 'Technology, AI and trends for founders, developers and professionals.'
+  const rawTitle   = article.title_en || article.title
+  const title      = seoTitle(rawTitle)
+  const description = seoDescription(
+    article.excerpt_en || article.excerpt,
+    'Technology, AI and trends for founders, developers and professionals. Updated daily on NewsTide.'
+  )
   const enSlug = article.slug_en
-  const url = `https://www.newstide.news/en/article/${enSlug}`
-  const urlES = `https://www.newstide.news/articulo/${article.slug}`
+  const url    = `https://www.newstide.news/en/article/${enSlug}`
+  const urlES  = `https://www.newstide.news/articulo/${article.slug}`
   const images = article.cover_image_url
-    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
+    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: rawTitle }]
     : []
 
   return {
@@ -79,14 +104,20 @@ export async function generateMetadata(
       languages: { 'en': url, 'es': urlES, 'x-default': url },
     },
     openGraph: {
-      title, description, url,
-      siteName: 'NewsTide', locale: 'en_US', type: 'article',
+      title: rawTitle,
+      description,
+      url,
+      siteName: 'NewsTide',
+      locale: 'en_US',
+      type: 'article',
       publishedTime: article.published_at,
       authors: ['NewsTide Editorial'],
       images,
     },
     twitter: {
-      card: 'summary_large_image', title, description,
+      card: 'summary_large_image',
+      title: rawTitle,
+      description,
       ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
     },
   }
@@ -99,7 +130,6 @@ export default async function ArticlePageEN({
 }) {
   const { slug } = await params
 
-  // 1. Try to find by slug_en (the canonical EN slug)
   const { data: article } = await supabase
     .from('articles')
     .select('*')
@@ -107,17 +137,13 @@ export default async function ArticlePageEN({
     .maybeSingle()
 
   if (!article) {
-    // 2. Maybe someone hit /en/article/{spanish-slug} — look it up and 308-redirect
     const { data: bySlugEs } = await supabase
       .from('articles')
       .select('slug_en')
       .eq('slug', slug)
       .maybeSingle()
 
-    if (bySlugEs?.slug_en) {
-      permanentRedirect(`/en/article/${bySlugEs.slug_en}`)
-    }
-
+    if (bySlugEs?.slug_en) permanentRedirect(`/en/article/${bySlugEs.slug_en}`)
     notFound()
   }
 
@@ -129,7 +155,6 @@ export default async function ArticlePageEN({
   const urlES   = `https://www.newstide.news/articulo/${article.slug}`
   const catSlug = CAT_SLUG_EN[article.category] || article.category.toLowerCase()
 
-  // Related articles — same category (8 for more dofollow inlinks)
   const { data: related } = await supabase
     .from('articles')
     .select('title_en, title, slug_en, slug, category, published_at')
@@ -139,7 +164,6 @@ export default async function ArticlePageEN({
     .order('published_at', { ascending: false })
     .limit(8)
 
-  // Latest articles for sidebar (different from related, boosts inlinks)
   const { data: latest } = await supabase
     .from('articles')
     .select('title_en, title, slug_en, slug')
@@ -180,12 +204,10 @@ export default async function ArticlePageEN({
     <div className="article-page" lang="en">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      {/* HERO */}
       <div className="article-hero" style={{ background: article.image_gradient }}>
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
-            {/* Breadcrumb — dofollow links to home + category */}
             <nav aria-label="Breadcrumb" style={{ marginBottom: 16 }}>
               <ol style={{ display: 'flex', alignItems: 'center', gap: 6, listStyle: 'none', padding: 0, margin: 0, flexWrap: 'wrap' }}>
                 <li><Link href="/en" style={{ fontSize: 13, color: 'var(--muted)' }}>Home</Link></li>
@@ -212,7 +234,6 @@ export default async function ArticlePageEN({
         </div>
       </div>
 
-      {/* BODY + SIDEBAR */}
       <div className="container">
         <div className="article-body-grid">
           <article>
@@ -221,7 +242,16 @@ export default async function ArticlePageEN({
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
-                img: ({ src, alt }) => (src ? (<span style={{ display: 'block', margin: '32px 0' }}><img src={src} alt={alt || ''} style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} loading="lazy" /></span>) : null),
+                img: ({ src, alt }) => {
+                  const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
+                    ? alt
+                    : `${title} — NewsTide`
+                  return src ? (
+                    <span style={{ display: 'block', margin: '32px 0' }}>
+                      <img src={src} alt={cleanAlt} loading="lazy" style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} />
+                    </span>
+                  ) : null
+                },
                 ul: ({ children }) => <ul style={{ margin: '16px 0 20px 24px' }}>{children}</ul>,
                 ol: ({ children }) => <ol style={{ margin: '16px 0 20px 24px' }}>{children}</ol>,
                 li: ({ children }) => <li style={{ fontSize: 16, lineHeight: 1.7, color: 'rgba(240,240,238,0.8)', marginBottom: 8 }}>{children}</li>,
@@ -238,7 +268,6 @@ export default async function ArticlePageEN({
               <strong style={{ color: 'var(--cyan)' }}>Editorial note:</strong> This article was generated with AI assistance and reviewed by the NewsTide editorial team to ensure accuracy and relevance. <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Read our editorial policy.</Link>
             </div>
 
-            {/* RELATED ARTICLES — dofollow links */}
             {related && related.length > 0 && (
               <div style={{ marginTop: 48 }}>
                 <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 20, color: 'var(--text)' }}>More on {CAT_EN[article.category] || article.category}</h2>
@@ -279,7 +308,6 @@ export default async function ArticlePageEN({
               </div>
             </div>
 
-            {/* LATEST ARTICLES SIDEBAR — adds dofollow inlinks to recent articles */}
             {latest && latest.length > 0 && (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
                 <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Latest</div>
@@ -294,14 +322,12 @@ export default async function ArticlePageEN({
               </div>
             )}
 
-            {/* NEWSLETTER — functional component */}
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>✉️ Newsletter</div>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>The best stories of the week in your inbox.</p>
               <NewsletterForm compact />
             </div>
 
-            {/* SHARE — functional component */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Share</div>
               <ShareButtons url={url} title={title} />

@@ -33,6 +33,24 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Truncate to 60 chars max, keeping whole words — ideal for <title> tag
+function seoTitle(title: string, siteName = 'NewsTide'): string {
+  const max = 60 - siteName.length - 3 // 3 = " | "
+  if (title.length <= max) return `${title} | ${siteName}`
+  const cut = title.substring(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${cut.substring(0, lastSpace > 20 ? lastSpace : max)} | ${siteName}`
+}
+
+// 150-155 chars max, ends with site context
+function seoDescription(excerpt: string, fallback: string): string {
+  const text = excerpt || fallback
+  if (text.length <= 155) return text
+  const cut = text.substring(0, 152)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${cut.substring(0, lastSpace > 50 ? lastSpace : 152)}...`
+}
+
 export async function generateStaticParams() {
   const { data } = await supabase.from('articles').select('slug')
   return (data || []).map((a) => ({ slug: a.slug }))
@@ -49,15 +67,20 @@ export async function generateMetadata(
     .eq('slug', slug)
     .maybeSingle()
 
-  if (!article) return { title: 'Artículo no encontrado', description: 'Este contenido no está disponible en NewsTide.' }
+  if (!article) return {
+    title: 'Artículo no encontrado | NewsTide',
+    description: 'Este contenido no está disponible en NewsTide — noticias de IA, startups y tecnología.'
+  }
 
-  const title = article.title
-  const description = article.excerpt || 'Tecnología, IA y tendencias para founders, developers y profesionales.'
-  const url = `https://www.newstide.news/articulo/${article.slug}`
-  const enSlug = article.slug_en
-  const urlEN = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : undefined
+  const title       = seoTitle(article.title)
+  const description = seoDescription(
+    article.excerpt,
+    'Tecnología, IA y tendencias para founders, developers y profesionales. Actualizado cada día en NewsTide.'
+  )
+  const url   = `https://www.newstide.news/articulo/${article.slug}`
+  const urlEN = article.slug_en ? `https://www.newstide.news/en/article/${article.slug_en}` : undefined
   const images = article.cover_image_url
-    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: title }]
+    ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: article.title }]
     : []
 
   return {
@@ -71,14 +94,20 @@ export async function generateMetadata(
       },
     },
     openGraph: {
-      title, description, url,
-      siteName: 'NewsTide', locale: 'es_ES', type: 'article',
+      title: article.title, // OG title = full title without truncation
+      description,
+      url,
+      siteName: 'NewsTide',
+      locale: 'es_ES',
+      type: 'article',
       publishedTime: article.published_at,
       authors: ['NewsTide Editorial'],
       images,
     },
     twitter: {
-      card: 'summary_large_image', title, description,
+      card: 'summary_large_image',
+      title: article.title,
+      description,
       ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
     },
   }
@@ -109,17 +138,14 @@ export default async function ArticuloPage({
       .eq('slug_en', slug)
       .maybeSingle()
 
-    if (bySlugEn?.slug) {
-      permanentRedirect(`/articulo/${bySlugEn.slug}`)
-    }
-
+    if (bySlugEn?.slug) permanentRedirect(`/articulo/${bySlugEn.slug}`)
     notFound()
   }
 
   const catSlug = CAT_SLUG_ES[article.category] || article.category.toLowerCase()
-  const enSlug = article.slug_en
-  const url = `https://www.newstide.news/articulo/${article.slug}`
-  const urlEN = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
+  const enSlug  = article.slug_en
+  const url     = `https://www.newstide.news/articulo/${article.slug}`
+  const urlEN   = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
 
   const { data: related } = await supabase
     .from('articles')
@@ -168,7 +194,6 @@ export default async function ArticuloPage({
     <div className="article-page">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      {/* HERO */}
       <div className="article-hero" style={{ background: article.image_gradient }}>
         <div className="article-hero-overlay" />
         <div className="container">
@@ -201,7 +226,6 @@ export default async function ArticuloPage({
         </div>
       </div>
 
-      {/* CUERPO + SIDEBAR */}
       <div className="container">
         <div className="article-body-grid">
           <article lang="es">
@@ -210,7 +234,17 @@ export default async function ArticuloPage({
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
-                img: ({ src, alt }) => (src ? (<span style={{ display: 'block', margin: '32px 0' }}><img src={src} alt={alt || ''} loading="lazy" style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} /></span>) : null),
+                img: ({ src, alt }) => {
+                  // Use meaningful alt text — strip Unsplash generic descriptions
+                  const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
+                    ? alt
+                    : `${article.title} — NewsTide`
+                  return src ? (
+                    <span style={{ display: 'block', margin: '32px 0' }}>
+                      <img src={src} alt={cleanAlt} loading="lazy" style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} />
+                    </span>
+                  ) : null
+                },
                 ul: ({ children }) => <ul style={{ margin: '16px 0 20px 24px' }}>{children}</ul>,
                 ol: ({ children }) => <ol style={{ margin: '16px 0 20px 24px' }}>{children}</ol>,
                 li: ({ children }) => <li style={{ fontSize: 16, lineHeight: 1.7, color: 'rgba(240,240,238,0.8)', marginBottom: 8 }}>{children}</li>,
@@ -281,14 +315,12 @@ export default async function ArticuloPage({
               </div>
             )}
 
-            {/* NEWSLETTER — real */}
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>✉️ Newsletter</div>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>Las mejores historias de la semana en tu inbox.</p>
               <NewsletterForm />
             </div>
 
-            {/* COMPARTIR — real */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Compartir</div>
               <ShareButtons url={url} title={article.title} />
