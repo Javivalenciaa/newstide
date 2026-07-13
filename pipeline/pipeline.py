@@ -30,6 +30,12 @@ MIN_WORD_COUNT   = MIN_READING_TIME * 200  # 1000 words
 # Minimum number of H2 sections an article must contain
 MIN_H2_SECTIONS  = 3
 
+# Title length constants — TITLE_MAX_CHARS is the hard cut applied before saving.
+# Prompts must target TITLE_SOFT_MAX so the model never reaches the hard limit.
+TITLE_MAX_CHARS    = 60   # hard trim in save_article — safety net only
+TITLE_SOFT_MIN     = 45   # minimum title length instructed to LLMs
+TITLE_SOFT_MAX     = 58   # maximum title length instructed to LLMs (2-char buffer before hard cut)
+
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -441,12 +447,15 @@ REQUISITOS:
 - El año actual es 2026. Actualiza referencias de años anteriores a 2026 salvo contexto histórico imprescindible.
 - El artículo DEBE ofrecer un ángulo diferente a los ya publicados — profundiza en lo específico
 
-SEO / CTR:
-- El H1 DEBE medir entre 45 y 60 caracteres
+SEO / CTR — TÍTULO H1 (CRÍTICO):
+- El H1 DEBE medir entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres (contando espacios)
+- LÍMITE ABSOLUTO: nunca superes los {TITLE_MAX_CHARS} caracteres en el título, ni en español ni en inglés
+- Si dudas entre dos versiones del título, elige siempre la más corta
 - Debe ser extremadamente clicable, específico y emocional, incluso agresivo/clickbait, pero SIN mentir
 - Usa contraste, sorpresa, conflicto, números o una promesa clara cuando encaje
 - Evita títulos vagos o largos
 - No uses comillas en el título
+- Cuenta los caracteres del título antes de escribirlo — si supera {TITLE_SOFT_MAX} caracteres, acórtalo
 
 Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y apto como meta description]"""
@@ -455,7 +464,7 @@ EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y apto como meta de
     message = claude_client.messages.create(
         model=MODEL_GENERATE, max_tokens=6000,
         messages=[{"role": "user", "content": prompt}],
-        system="Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos."
+        system=f"Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos. IMPORTANTE: los títulos H1 deben tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres, nunca más de {TITLE_MAX_CHARS}."
     )
     raw = message.content[0].text
     excerpt = ""
@@ -495,9 +504,11 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
                 "You are a professional tech journalist and translator. "
                 "Translate the following Spanish tech article to natural, fluent American English. "
                 "Keep all markdown formatting. Adapt idioms naturally. "
-                "IMPORTANT: Start your response with exactly these two lines before the article body:\n"
-                "TITLE_EN: [translated H1 title, 45 to 60 characters, highly clickable, specific, no quotes]\n"
-                "EXCERPT_EN: [one sentence summary, 120 to 155 characters, strong click-through appeal, suitable as a meta description]\n"
+                f"IMPORTANT: Start your response with exactly these two lines before the article body:\n"
+                f"TITLE_EN: [translated H1 title, between {TITLE_SOFT_MIN} and {TITLE_SOFT_MAX} characters, "
+                f"NEVER more than {TITLE_MAX_CHARS} characters including spaces, highly clickable, specific, no quotes — "
+                f"count the characters before writing, if it exceeds {TITLE_SOFT_MAX} characters shorten it]\n"
+                f"EXCERPT_EN: [one sentence summary, 120 to 155 characters, strong click-through appeal, suitable as a meta description]\n"
                 "Then a blank line, then the full translated article body (without the H1 title line)."
             )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
@@ -514,7 +525,7 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
     body_start = 0
     for i, line in enumerate(lines):
         if line.startswith("TITLE_EN:"):
-            title_en = smart_trim(line[len("TITLE_EN:"):].strip(), 60)
+            title_en = smart_trim(line[len("TITLE_EN:"):].strip(), TITLE_MAX_CHARS)
             body_start = i + 1
         elif line.startswith("EXCERPT_EN:"):
             excerpt_en = normalize_excerpt(line[len("EXCERPT_EN:"):].strip(), 120, 155)
@@ -641,11 +652,18 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     if en_lines and en_lines[0].strip().startswith("# "):
         content_en = "\n".join(en_lines[1:]).strip()
 
-    # Enforce metadata length limits for SEO / CTR
-    title_es  = smart_trim(title_es, 60)
-    title_en  = smart_trim(title_en or title_es, 60)
+    # Hard trim as last-resort safety net — prompts already enforce TITLE_SOFT_MAX
+    title_es  = smart_trim(title_es, TITLE_MAX_CHARS)
+    title_en  = smart_trim(title_en or title_es, TITLE_MAX_CHARS)
     excerpt_es = normalize_excerpt(excerpt_es or title_es[:150], 120, 155)
     excerpt_en = normalize_excerpt(excerpt_en or excerpt_es or title_es[:150], 120, 155)
+
+    # Warn if a title was actually trimmed (means the model ignored the soft limit)
+    raw_title_es = content_es.strip().split("\n")[0].strip().lstrip("# ") if content_es else title_es
+    if len(title_es) < len(raw_title_es):
+        print(f"  ⚠️  TITLE TRIMMED (ES): modelo generó título de {len(raw_title_es)} chars — recortado a {len(title_es)}")
+    if title_en and len(smart_trim(title_en, 999)) > TITLE_MAX_CHARS:
+        print(f"  ⚠️  TITLE TRIMMED (EN): modelo generó título de {len(title_en)} chars — recortado a {TITLE_MAX_CHARS}")
 
     rt = reading_time(content_es)
     if rt < MIN_READING_TIME:
