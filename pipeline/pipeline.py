@@ -20,21 +20,31 @@ UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 ARTICLES_PER_RUN   = 3
 MODEL_GENERATE     = "claude-sonnet-4-5"
 MODEL_FAST         = "gpt-4o-mini"
-# gpt-4o supports up to 16K output tokens — prevents truncation on long articles
 MODEL_HUMANIZE     = "gpt-4o"
 
-# Minimum reading time in minutes — articles below this are rejected/extended
+# ── SAFETY LIMITS (prevent runaway API costs) ─────────────────────────────────
+# Maximum Claude API calls allowed in a single pipeline run.
+# Normal run = 3 articles × 1 call = 3. Hard cap at 6 to allow 1 retry per article.
+MAX_CLAUDE_CALLS_PER_RUN   = 6
+# Maximum output tokens Claude can generate across the entire run.
+# Normal run ~= 3 articles × ~13 000 tokens = ~39 000. Cap at 80 000 (2× safety margin).
+MAX_CLAUDE_TOKENS_PER_RUN  = 80_000
+# Maximum number of pool-exhaustion loops before aborting the run entirely.
+MAX_POOL_EXPANSIONS        = 2   # was 4 — reduced to avoid infinite topic-generation loops
+
+# Counters reset every run — mutated inside generate_article()
+_claude_calls_this_run   = 0
+_claude_tokens_this_run  = 0
+
+# ── CONTENT QUALITY LIMITS ────────────────────────────────────────────────────
 MIN_READING_TIME = 5
-# Minimum word count derived from reading time (200 wpm)
 MIN_WORD_COUNT   = MIN_READING_TIME * 200  # 1000 words
-# Minimum number of H2 sections an article must contain
 MIN_H2_SECTIONS  = 3
 
-# Title length constants — TITLE_MAX_CHARS is the hard cut applied before saving.
-# Prompts must target TITLE_SOFT_MAX so the model never reaches the hard limit.
-TITLE_MAX_CHARS    = 60   # hard trim in save_article — safety net only
-TITLE_SOFT_MIN     = 45   # minimum title length instructed to LLMs
-TITLE_SOFT_MAX     = 58   # maximum title length instructed to LLMs (2-char buffer before hard cut)
+# ── TITLE LENGTH CONSTANTS ───────────────────────────────────────────────────
+TITLE_MAX_CHARS    = 60
+TITLE_SOFT_MIN     = 45
+TITLE_SOFT_MAX     = 58
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -68,7 +78,6 @@ AUTHORS = [
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def smart_trim(text: str, limit: int) -> str:
-    """Trim text to limit chars at a word boundary, stripping trailing punctuation."""
     text = re.sub(r"\s+", " ", (text or "").strip())
     if len(text) <= limit:
         return text
@@ -78,7 +87,6 @@ def smart_trim(text: str, limit: int) -> str:
     return cut.strip(" -:;,.")
 
 def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
-    """Normalize an excerpt to fit within [min_len, max_len] characters."""
     text = re.sub(r"\s+", " ", (text or "").strip())
     text = text.strip(' "\'')
     if len(text) <= max_len:
@@ -89,7 +97,6 @@ def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
     return cut.strip(" -:;,.") + "."
 
 def slugify(text):
-    """Generate a URL-safe slug from Spanish text."""
     text = smart_trim(text, 60).lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
@@ -98,7 +105,6 @@ def slugify(text):
     return text[:60].strip("-")
 
 def slugify_en(text):
-    """Generate a URL-safe slug from English text."""
     text = smart_trim(text, 60).lower()
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
@@ -115,7 +121,6 @@ def detect_category(keyword):
     return "IA"
 
 def reading_time(text):
-    """Calculate reading time in minutes. Minimum is MIN_READING_TIME."""
     return max(MIN_READING_TIME, round(len(text.split()) / 200))
 
 def already_published_hash(keyword):
@@ -126,19 +131,12 @@ def normalize_year(text: str) -> str:
     return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
 
 def strip_code_fences(text: str) -> str:
-    """Remove wrapping ```markdown ... ``` or ``` ... ``` that GPT sometimes adds."""
     text = text.strip()
     text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
     text = re.sub(r'\n```\s*$', '', text)
     return text.strip()
 
 def is_truncated(content_en: str, content_es: str) -> bool:
-    """
-    Detect if the English translation was truncated.
-    Two signals:
-      1. Content starts with a lowercase letter (mid-sentence start).
-      2. EN word count is less than 60% of the ES word count (major content loss).
-    """
     stripped = content_en.strip()
     if not stripped:
         return True
@@ -150,35 +148,52 @@ def is_truncated(content_en: str, content_es: str) -> bool:
         return True
     return False
 
+# ── COST GUARD ────────────────────────────────────────────────────────────────
+class CostLimitExceeded(Exception):
+    """Raised when a hard cost limit is hit — aborts the pipeline cleanly."""
+    pass
+
+def _check_claude_budget(output_tokens: int = 0) -> None:
+    """
+    Call BEFORE every Claude API call.
+    Raises CostLimitExceeded if any hard limit would be breached.
+    """
+    global _claude_calls_this_run, _claude_tokens_this_run
+    if _claude_calls_this_run >= MAX_CLAUDE_CALLS_PER_RUN:
+        raise CostLimitExceeded(
+            f"🛑 COST LIMIT: reached {MAX_CLAUDE_CALLS_PER_RUN} Claude calls this run — aborting."
+        )
+    if _claude_tokens_this_run + output_tokens > MAX_CLAUDE_TOKENS_PER_RUN:
+        raise CostLimitExceeded(
+            f"🛑 COST LIMIT: projected output tokens ({_claude_tokens_this_run + output_tokens:,}) "
+            f"would exceed {MAX_CLAUDE_TOKENS_PER_RUN:,} — aborting."
+        )
+
+def _register_claude_call(output_tokens: int) -> None:
+    """Call AFTER every Claude API call to track usage."""
+    global _claude_calls_this_run, _claude_tokens_this_run
+    _claude_calls_this_run  += 1
+    _claude_tokens_this_run += output_tokens
+    print(
+        f"  📊 Claude usage this run: {_claude_calls_this_run}/{MAX_CLAUDE_CALLS_PER_RUN} calls, "
+        f"{_claude_tokens_this_run:,}/{MAX_CLAUDE_TOKENS_PER_RUN:,} output tokens"
+    )
+
 # ── CONTENT VALIDATION ────────────────────────────────────────────────────────
 def validate_article_content(content: str, label: str = "article") -> bool:
-    """
-    Returns True if the content meets minimum quality standards.
-    Logs specific failures so they are visible in CI/CD logs.
-    """
     words = len(content.split())
     h2_count = len(re.findall(r'^## ', content, re.MULTILINE))
-    h1_count = len(re.findall(r'^# ', content, re.MULTILINE))
-
     ok = True
-
     if words < MIN_WORD_COUNT:
         print(f"  ❌ VALIDATION FAIL [{label}]: {words} words < {MIN_WORD_COUNT} minimum")
         ok = False
-
     if h2_count < MIN_H2_SECTIONS:
         print(f"  ❌ VALIDATION FAIL [{label}]: only {h2_count} H2 sections (need >= {MIN_H2_SECTIONS})")
         ok = False
-
-    # Detect truncated articles: content that starts mid-sentence (no H1 and no paragraph opener)
     stripped = content.strip()
-    if not stripped.startswith("#") and len(stripped) > 0:
-        first_char = stripped[0]
-        # If it starts with a lowercase letter it was almost certainly truncated
-        if first_char.islower():
-            print(f"  ❌ VALIDATION FAIL [{label}]: content starts mid-sentence (truncation detected)")
-            ok = False
-
+    if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
+        print(f"  ❌ VALIDATION FAIL [{label}]: content starts mid-sentence (truncation detected)")
+        ok = False
     if ok:
         print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2 sections")
     return ok
@@ -235,7 +250,7 @@ def fetch_serpapi_news() -> list[str]:
 # ── SOURCE 2: SERPAPI TRENDING SEARCHES ──────────────────────────────────────
 def fetch_serpapi_trends() -> list[str]:
     queries = [
-        "inteligencia artificial novedades junio 2026",
+        "inteligencia artificial novedades julio 2026",
         "mejores herramientas IA developers 2026",
         "startups tecnología inversión 2026",
         "automatización empresas IA casos de uso",
@@ -320,7 +335,6 @@ def is_duplicate_topic(candidate: str, recent_articles: list[dict], published_th
     all_existing = [a["title"] for a in recent_articles] + published_this_run
     if not all_existing:
         return False
-
     existing_str = "\n".join(f"- {t}" for t in all_existing[:40])
     prompt = f"""Artículo candidato: "{candidate}"
 
@@ -332,7 +346,6 @@ Artículos existentes:
 Criterio: solo es duplicado si trata literalmente el mismo tema principal (misma herramienta + mismo contexto, o mismo caso de uso exacto). Diferentes herramientas, diferentes audiencias, o diferentes ángulos NO son duplicados aunque pertenezcan a la misma categoría general.
 
 Responde ÚNICAMENTE: YES o NO"""
-
     try:
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
@@ -370,7 +383,6 @@ El nuevo tema debe:
 - Tener un título atractivo para developers o founders
 
 Responde ÚNICAMENTE con el nuevo título/ángulo (1 línea, máximo 120 caracteres)."""
-
     try:
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
@@ -389,25 +401,20 @@ Responde ÚNICAMENTE con el nuevo título/ángulo (1 línea, máximo 120 caracte
 def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     print("🔍 Construyendo pool de candidatos (4 fuentes)...")
     pool = []
-
     print("  📰 Fuente 1: Noticias del día (SerpAPI news)...")
     news = fetch_serpapi_news()
     print(f"     → {len(news)} titulares obtenidos")
     pool.extend(news)
-
     print("  📈 Fuente 2: Búsquedas trending (SerpAPI organic)...")
     trends = fetch_serpapi_trends()
     print(f"     → {len(trends)} tendencias obtenidas")
     pool.extend(trends)
-
     print("  🧠 Fuente 3: Ideas de nicho (GPT-4o-mini)...")
     niche = generate_niche_topics(recent_articles, n=15)
     print(f"     → {len(niche)} ideas de nicho generadas")
     pool.extend(niche)
-
     fallback = get_fallback_topics()
     pool.extend(fallback)
-
     seen = set()
     unique = []
     for p in pool:
@@ -415,15 +422,19 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
         if key not in seen and len(p) > 20:
             seen.add(key)
             unique.append(normalize_year(p))
-
     print(f"  ✅ Pool total: {len(unique)} candidatos únicos")
     return unique
 
 # ── GENERATE ARTICLE WITH CLAUDE ─────────────────────────────────────────────
 def generate_article(keyword: str, recent_context: str) -> dict:
+    global _claude_calls_this_run, _claude_tokens_this_run
     print(f"  ✍️  Claude generando ES: {keyword[:70]}...")
     category = detect_category(keyword)
     min_words = MIN_WORD_COUNT
+
+    # Guard: abort before calling Claude if limits would be exceeded
+    _check_claude_budget(output_tokens=6000)
+
     prompt = f"""Escribe un artículo completo en español sobre: "{keyword}"
 
 ARTÍCULOS YA PUBLICADOS EN NEWSTIDE (no repitas estas temáticas ni estos ángulos):
@@ -460,12 +471,22 @@ SEO / CTR — TÍTULO H1 (CRÍTICO):
 Al final, en línea separada escribe exactamente:
 EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y apto como meta description]"""
 
-    # Use 6000 tokens to ensure the full article is never truncated
     message = claude_client.messages.create(
         model=MODEL_GENERATE, max_tokens=6000,
         messages=[{"role": "user", "content": prompt}],
-        system=f"Eres un periodista tech senior especializado en IA, startups y herramientas digitales. Escribes para NewsTide, un medio tech premium en español para founders y developers. Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos. IMPORTANTE: los títulos H1 deben tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres, nunca más de {TITLE_MAX_CHARS}."
+        system=(
+            f"Eres un periodista tech senior especializado en IA, startups y herramientas digitales. "
+            f"Escribes para NewsTide, un medio tech premium en español para founders y developers. "
+            f"Tu estilo es claro, directo y con perspectiva propia. La fecha actual es 2026. "
+            f"Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos "
+            f"y bien desarrollados — nunca cortos. "
+            f"IMPORTANTE: los títulos H1 deben tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres, "
+            f"nunca más de {TITLE_MAX_CHARS}."
+        )
     )
+    output_tokens = message.usage.output_tokens if hasattr(message, 'usage') else 6000
+    _register_claude_call(output_tokens)
+
     raw = message.content[0].text
     excerpt = ""
     if "EXCERPT:" in raw:
@@ -496,7 +517,6 @@ Mantén todos los encabezados markdown. Devuelve SOLO el artículo, sin explicac
 
 # ── TRANSLATE + HUMANIZE EN ───────────────────────────────────────────────────
 def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
-    """Single translation attempt. Returns parsed dict with title_en, content_en, excerpt_en, slug_en."""
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
@@ -516,11 +536,9 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
         temperature=0.75, max_tokens=6000
     )
     raw = response.choices[0].message.content.strip()
-
     title_en   = es_title
     excerpt_en = es_excerpt
     content_en = raw
-
     lines = raw.splitlines()
     body_start = 0
     for i, line in enumerate(lines):
@@ -535,17 +553,12 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
     content_en = "\n".join(lines[body_start:]).strip()
     content_en = strip_code_fences(content_en)
     slug_en = slugify_en(title_en)
-
     return {"title_en": title_en, "content_en": content_en, "excerpt_en": excerpt_en, "slug_en": slug_en}
 
-
 def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dict:
-    """
-    Translate ES → EN with automatic truncation detection and retry.
-    Retries up to 2 extra times if the output appears truncated.
-    """
     print("  🌐 GPT traduciendo EN...")
     max_attempts = 3
+    result = None
     for attempt in range(max_attempts):
         result = _run_translation(es_content, es_excerpt, es_title)
         if not is_truncated(result["content_en"], es_content):
@@ -554,8 +567,6 @@ def translate_to_english(es_content: str, es_excerpt: str, es_title: str) -> dic
             return result
         print(f"  ⚠️  Traducción truncada detectada (intento {attempt + 1}/{max_attempts}) — reintentando...")
         time.sleep(2)
-
-    # All retries exhausted — return last attempt and let validation handle it
     print(f"  ❌ Traducción truncada tras {max_attempts} intentos — guardando último intento")
     return result
 
@@ -613,7 +624,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     def img_md(img: dict) -> str:
         alt = img["alt"].replace('"', "'")
         return f"![{alt}]({img['url']})\n*Photo: [{img['author']}]({img['author_url']}) on Unsplash*\n"
-
     lines = content.split("\n")
     if cover:
         new_lines, inserted, blank = [], False, False
@@ -647,29 +657,17 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
             break
     if lines and lines[0].strip().startswith("# "):
         content_es = "\n".join(lines[1:]).strip()
-
     en_lines = content_en.strip().split("\n")
     if en_lines and en_lines[0].strip().startswith("# "):
         content_en = "\n".join(en_lines[1:]).strip()
-
-    # Hard trim as last-resort safety net — prompts already enforce TITLE_SOFT_MAX
-    title_es  = smart_trim(title_es, TITLE_MAX_CHARS)
-    title_en  = smart_trim(title_en or title_es, TITLE_MAX_CHARS)
+    title_es   = smart_trim(title_es, TITLE_MAX_CHARS)
+    title_en   = smart_trim(title_en or title_es, TITLE_MAX_CHARS)
     excerpt_es = normalize_excerpt(excerpt_es or title_es[:150], 120, 155)
     excerpt_en = normalize_excerpt(excerpt_en or excerpt_es or title_es[:150], 120, 155)
-
-    # Warn if a title was actually trimmed (means the model ignored the soft limit)
-    raw_title_es = content_es.strip().split("\n")[0].strip().lstrip("# ") if content_es else title_es
-    if len(title_es) < len(raw_title_es):
-        print(f"  ⚠️  TITLE TRIMMED (ES): modelo generó título de {len(raw_title_es)} chars — recortado a {len(title_es)}")
-    if title_en and len(smart_trim(title_en, 999)) > TITLE_MAX_CHARS:
-        print(f"  ⚠️  TITLE TRIMMED (EN): modelo generó título de {len(title_en)} chars — recortado a {TITLE_MAX_CHARS}")
-
     rt = reading_time(content_es)
     if rt < MIN_READING_TIME:
         print(f"  ⚠️  reading_time={rt} < {MIN_READING_TIME} — forzando a {MIN_READING_TIME}")
         rt = MIN_READING_TIME
-
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = {
         "title":           title_es,
@@ -701,7 +699,6 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
 # ── PROCESS ONE TOPIC → ARTICLE ───────────────────────────────────────────────
 def process_topic(topic: str, recent_articles: list[dict], published_this_run: list[str], article_idx: int) -> str | None:
     recent_context = format_recent_context(recent_articles)
-
     candidate = topic
     for attempt in range(5):
         if not is_duplicate_topic(candidate, recent_articles, published_this_run):
@@ -711,49 +708,34 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
     else:
         print(f"  ❌ No se pudo encontrar ángulo único para: {topic[:50]} — saltando")
         return None
-
     if already_published_hash(candidate):
         print(f"  ⏭️  Hash exacto ya existe — saltando")
         return None
-
     print(f"  🎯 Topic aprobado: {candidate[:80]}")
-
     try:
-        result    = generate_article(candidate, recent_context)
+        result      = generate_article(candidate, recent_context)
         raw_content = result["content"]
-
-        # ── VALIDATE RAW CONTENT BEFORE HUMANIZING ────────────────────────────
         if not validate_article_content(raw_content, label="claude-raw"):
             print(f"  ❌ Artículo descartado (Claude output inválido) — saltando topic")
             return None
-
         humanized = humanize(raw_content)
-
-        # ── VALIDATE HUMANIZED CONTENT ────────────────────────────────────────
         if not validate_article_content(humanized, label="humanized-es"):
             print(f"  ⚠️  Humanizado inválido — usando contenido original de Claude")
             humanized = raw_content
-
         title_preview = candidate[:100]
         for line in humanized.strip().split("\n")[:5]:
             if line.strip().startswith("# "):
                 title_preview = line.strip()[2:].strip()
                 break
-
         print("  🔍 Buscando imágenes Unsplash...")
         queries    = get_image_queries(title_preview, result["excerpt"])
         cover_img  = fetch_best_image(queries, title_preview, idx=0)
         inline_img = fetch_best_image(queries, title_preview, idx=1)
         content_es = inject_images(humanized, cover_img, inline_img)
-
         cover_image_url = cover_img["url"] if cover_img else None
-
         en = translate_to_english(content_es, result["excerpt"], title_preview)
-
-        # ── VALIDATE ENGLISH TRANSLATION ──────────────────────────────────────
         if not validate_article_content(en["content_en"], label="translated-en"):
             print(f"  ⚠️  Traducción EN inválida tras reintentos — se guardará igualmente pero revisa manualmente")
-
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
             article_idx, en["content_en"], en["title_en"], en["excerpt_en"],
@@ -761,7 +743,9 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
             cover_image_url=cover_image_url,
         )
         return saved_title
-
+    except CostLimitExceeded as e:
+        # Re-raise so main() can catch it and abort the entire run
+        raise
     except Exception as e:
         print(f"  ❌ Error procesando '{candidate[:50]}': {e}")
         return None
@@ -770,6 +754,12 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
 def main():
     print(f"\n🚀 NewsTide Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
+    print(
+        f"🔒 Safety limits: "
+        f"max {MAX_CLAUDE_CALLS_PER_RUN} Claude calls, "
+        f"max {MAX_CLAUDE_TOKENS_PER_RUN:,} output tokens, "
+        f"max {MAX_POOL_EXPANSIONS} pool expansions"
+    )
 
     print("📚 Cargando artículos recientes de Supabase...")
     recent_articles = get_recent_articles()
@@ -783,54 +773,56 @@ def main():
 
     print(f"\n🎯 Objetivo: {ARTICLES_PER_RUN} artículos\n")
 
-    while len(published_titles) < ARTICLES_PER_RUN:
+    try:
+        while len(published_titles) < ARTICLES_PER_RUN:
 
-        if pool_index >= len(candidate_pool):
-            extra_niche_attempts += 1
-            if extra_niche_attempts > 4:
-                print("⚠️  Pool agotado tras múltiples expansiones — forzando fallbacks directos")
-                ts = datetime.now().strftime("%H:%M:%S")
-                forced_topics = [
-                    f"Cómo Claude 3.5 Sonnet supera a GPT-4o en tareas de código ({ts})",
-                    f"El estado del mercado de IA en Europa en junio 2026: datos reales ({ts})",
-                    f"Por qué los developers están abandonando ChatGPT por alternativas ({ts})",
-                ]
-                candidate_pool.extend(forced_topics)
-            else:
-                print(f"\n♻️  Pool agotado — generando más temas de nicho (expansión {extra_niche_attempts})...")
-                extra = generate_niche_topics(recent_articles + [{"title": t, "category": "IA", "keyword": t, "excerpt": ""} for t in published_titles], n=10)
+            if pool_index >= len(candidate_pool):
+                extra_niche_attempts += 1
+                if extra_niche_attempts > MAX_POOL_EXPANSIONS:
+                    print(f"⛔ Pool agotado tras {MAX_POOL_EXPANSIONS} expansiones — abortando para evitar costes extra.")
+                    break
+                print(f"\n♻️  Pool agotado — generando más temas de nicho (expansión {extra_niche_attempts}/{MAX_POOL_EXPANSIONS})...")
+                extra = generate_niche_topics(
+                    recent_articles + [{"title": t, "category": "IA", "keyword": t, "excerpt": ""} for t in published_titles],
+                    n=10
+                )
                 candidate_pool.extend(extra)
                 if not extra:
                     candidate_pool.extend(get_fallback_topics())
-            continue
+                continue
 
-        topic = candidate_pool[pool_index]
-        pool_index += 1
+            topic = candidate_pool[pool_index]
+            pool_index += 1
 
-        print(f"\n📝 [{len(published_titles)+1}/{ARTICLES_PER_RUN}] Procesando: {topic[:70]}")
+            print(f"\n📝 [{len(published_titles)+1}/{ARTICLES_PER_RUN}] Procesando: {topic[:70]}")
 
-        saved = process_topic(
-            topic,
-            recent_articles,
-            published_titles,
-            article_idx=len(published_titles)
-        )
+            saved = process_topic(
+                topic,
+                recent_articles,
+                published_titles,
+                article_idx=len(published_titles)
+            )
 
-        if saved:
-            published_titles.append(saved)
-            recent_articles.insert(0, {
-                "title": saved,
-                "keyword": topic,
-                "category": detect_category(topic),
-                "excerpt": ""
-            })
-            print(f"\n✅ Artículo {len(published_titles)}/{ARTICLES_PER_RUN} publicado: {saved[:60]}")
-            if len(published_titles) < ARTICLES_PER_RUN:
-                print("   Continuando con el siguiente...\n")
-            time.sleep(2)
+            if saved:
+                published_titles.append(saved)
+                recent_articles.insert(0, {
+                    "title": saved,
+                    "keyword": topic,
+                    "category": detect_category(topic),
+                    "excerpt": ""
+                })
+                print(f"\n✅ Artículo {len(published_titles)}/{ARTICLES_PER_RUN} publicado: {saved[:60]}")
+                if len(published_titles) < ARTICLES_PER_RUN:
+                    print("   Continuando con el siguiente...\n")
+                time.sleep(2)
+
+    except CostLimitExceeded as e:
+        print(f"\n{e}")
+        print(f"   Artículos publicados antes del corte: {len(published_titles)}")
 
     print(f"\n{'='*60}")
-    print(f"🎉 Pipeline completado: {len(published_titles)} artículos publicados")
+    print(f"🎉 Pipeline finalizado: {len(published_titles)} artículos publicados")
+    print(f"📊 Claude calls totales: {_claude_calls_this_run} | Output tokens: {_claude_tokens_this_run:,}")
     for i, t in enumerate(published_titles, 1):
         print(f"   {i}. {t[:80]}")
 
