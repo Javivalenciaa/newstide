@@ -37,8 +37,6 @@ SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 MODEL_GENERATE  = "gpt-4o"
 MODEL_FAST      = "gpt-4o-mini"
 
-# Lowered from 900 → 800: GPT-4o reliably produces 820-870 words per article.
-# 800 words is still substantial, well above thin-content threshold for Google.
 MIN_WORD_COUNT   = 800
 MIN_H2_SECTIONS  = 4
 TITLE_MAX        = 62
@@ -60,7 +58,9 @@ GRADIENTS = [
 
 # ── KEYWORD UNIVERSE ──────────────────────────────────────────────────────────
 # Tools grouped by CATEGORY so comparisons are always meaningful.
-# "Suno vs Qdrant" is useless. "Suno vs Udio" is a real search query.
+# Categories are intentionally tight — only tools that users actually compare.
+# FIX: databases_backend split into two logical groups so we never get
+#      "PlanetScale vs Netlify" (database vs hosting — nobody searches that).
 
 TOOL_CATEGORIES = {
     "llm_chatbots": [
@@ -76,24 +76,29 @@ TOOL_CATEGORIES = {
         "Tray.io", "Workato",
     ],
     "ai_writing": [
-        "Jasper", "Copy.ai", "Writesonic", "Rytr", "Notion AI",
+        "Jasper", "Copy.ai", "Writesonic", "Rytr",
         "Grammarly", "Sudowrite", "Anyword",
     ],
-    "databases_backend": [
-        "Supabase", "PlanetScale", "Neon", "Railway", "Render",
-        "Vercel", "Netlify", "Fly.io",
+    # ✅ SPLIT: databases vs hosting — never mix these two
+    "databases": [
+        "Supabase", "PlanetScale", "Neon", "Firebase", "Xata", "Turso",
+    ],
+    "hosting_deployment": [
+        "Vercel", "Netlify", "Railway", "Render", "Fly.io", "Coolify",
     ],
     "image_generation": [
         "Midjourney", "DALL-E 3", "Stable Diffusion", "Ideogram", "Flux",
         "Adobe Firefly", "Leonardo AI", "Playground AI",
     ],
-    "ai_video_audio": [
-        "ElevenLabs", "Suno", "Udio", "HeyGen", "Synthesia",
-        "Descript", "CapCut AI", "Runway", "Pika", "Luma AI",
+    "ai_video": [
+        "HeyGen", "Synthesia", "Descript", "CapCut AI", "Runway", "Pika", "Luma AI",
+    ],
+    "ai_audio_music": [
+        "ElevenLabs", "Suno", "Udio", "Mubert", "Soundraw",
     ],
     "project_management": [
         "Linear", "Height", "Jira", "Asana", "ClickUp",
-        "Notion", "Monday.com", "Basecamp",
+        "Monday.com", "Basecamp", "Plane",
     ],
     "design_nocode": [
         "Figma AI", "Framer", "Webflow", "Wix AI", "Squarespace AI",
@@ -113,7 +118,6 @@ TOOL_CATEGORIES = {
     ],
 }
 
-# Flat list for alternatives / guides / for-profession (categories don't matter there)
 ALL_TOOLS = [tool for tools in TOOL_CATEGORIES.values() for tool in tools]
 
 PROFESSIONS = [
@@ -132,12 +136,37 @@ USE_CASES = [
     "saving money", "replacing employees", "scaling fast",
 ]
 
+# ── LIVE DEDUPLICATION CACHE ──────────────────────────────────────────────────
+# FIX: load all existing entity pairs from Supabase at startup.
+# This prevents regenerating "Cursor vs Copilot" if it was done in a previous batch.
+
+def load_existing_pairs() -> set:
+    """
+    Returns a set of frozensets like {frozenset({'cursor', 'github copilot'})}
+    covering every comparison already in pseo_pages.
+    Also returns all existing slugs and keyword_hashes for dedup.
+    """
+    existing = set()
+    try:
+        res = supabase_client.table("pseo_pages") \
+            .select("entity_a,entity_b,slug,keyword_hash") \
+            .execute()
+        for row in res.data:
+            a = (row.get("entity_a") or "").lower().strip()
+            b = (row.get("entity_b") or "").lower().strip()
+            if a and b:
+                existing.add(frozenset([a, b]))
+    except Exception as e:
+        print(f"  ⚠️  Could not load existing pairs: {e}")
+    return existing
+
+
 # ── TEMPLATE ENGINES ──────────────────────────────────────────────────────────
 
-def generate_comparison_candidates(n: int) -> list[dict]:
+def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
     """
     X vs Y — only pairs tools within the SAME category.
-    This ensures comparisons are semantically valid and searchable.
+    Skips pairs already in Supabase (live dedup).
     """
     candidates = []
     seen_pairs = set()
@@ -150,30 +179,35 @@ def generate_comparison_candidates(n: int) -> list[dict]:
         for i in range(len(tools_shuffled)):
             for j in range(i + 1, len(tools_shuffled)):
                 a, b = tools_shuffled[i], tools_shuffled[j]
-                pair = tuple(sorted([a.lower(), b.lower()]))
-                if pair in seen_pairs:
+                pair_key  = tuple(sorted([a.lower(), b.lower()]))
+                pair_frozen = frozenset([a.lower(), b.lower()])
+                if pair_key in seen_pairs:
                     continue
-                seen_pairs.add(pair)
+                if pair_frozen in existing_pairs:
+                    continue  # already generated in a previous run
+                seen_pairs.add(pair_key)
                 slug = f"{slugify(a)}-vs-{slugify(b)}"
                 candidates.append({
-                    "template":  "comparisons",
-                    "slug":      slug,
-                    "keyword":   f"{a} vs {b}",
-                    "entity_a":  a,
-                    "entity_b":  b,
-                    "category":  category,
+                    "template": "comparisons",
+                    "slug":     slug,
+                    "keyword":  f"{a} vs {b}",
+                    "entity_a": a,
+                    "entity_b": b,
+                    "category": category,
                 })
 
     random.shuffle(candidates)
-    return candidates[:n * 4]  # return 4× pool so we have headroom for skips
+    return candidates[:n * 4]
 
 
-def generate_alternatives_candidates(n: int) -> list[dict]:
-    """Best alternatives to X — captures users who want to switch"""
+def generate_alternatives_candidates(n: int, existing_pairs: set) -> list[dict]:
     tools = ALL_TOOLS.copy()
     random.shuffle(tools)
     candidates = []
     for tool in tools:
+        pair = frozenset([tool.lower(), "__alternatives__"])
+        if pair in existing_pairs:
+            continue
         candidates.append({
             "template": "alternatives",
             "slug":     f"best-alternatives-to-{slugify(tool)}",
@@ -184,12 +218,14 @@ def generate_alternatives_candidates(n: int) -> list[dict]:
     return candidates[:n * 3]
 
 
-def generate_guides_candidates(n: int) -> list[dict]:
-    """How to use X for Y — tutorial/guide intent with high long-tail volume"""
+def generate_guides_candidates(n: int, existing_pairs: set) -> list[dict]:
     combos = [(tool, use) for tool in ALL_TOOLS for use in USE_CASES]
     random.shuffle(combos)
     candidates = []
-    for tool, use_case in combos[:n * 4]:
+    for tool, use_case in combos:
+        pair = frozenset([tool.lower(), use_case.lower()])
+        if pair in existing_pairs:
+            continue
         candidates.append({
             "template": "guides",
             "slug":     f"how-to-use-{slugify(tool)}-for-{slugify(use_case)}",
@@ -197,22 +233,28 @@ def generate_guides_candidates(n: int) -> list[dict]:
             "entity_a": tool,
             "entity_b": use_case,
         })
+        if len(candidates) >= n * 4:
+            break
     return candidates[:n * 3]
 
 
-def generate_for_profession_candidates(n: int) -> list[dict]:
-    """Best AI tools for [profession] — high commercial intent, easy to rank"""
+def generate_for_profession_candidates(n: int, existing_pairs: set) -> list[dict]:
     candidates = []
     for profession in PROFESSIONS:
-        candidates.append({
-            "template": "for-profession",
-            "slug":     f"best-ai-tools-for-{slugify(profession)}",
-            "keyword":  f"best AI tools for {profession}",
-            "entity_a": profession,
-            "entity_b": None,
-        })
+        pair = frozenset([profession.lower(), "__best_tools__"])
+        if pair not in existing_pairs:
+            candidates.append({
+                "template": "for-profession",
+                "slug":     f"best-ai-tools-for-{slugify(profession)}",
+                "keyword":  f"best AI tools for {profession}",
+                "entity_a": profession,
+                "entity_b": None,
+            })
     for tool in random.sample(ALL_TOOLS, min(25, len(ALL_TOOLS))):
         for profession in random.sample(PROFESSIONS, 3):
+            pair = frozenset([tool.lower(), profession.lower()])
+            if pair in existing_pairs:
+                continue
             candidates.append({
                 "template": "for-profession",
                 "slug":     f"{slugify(tool)}-for-{slugify(profession)}",
@@ -283,7 +325,7 @@ def validate_content(content: str, label: str = "") -> bool:
         print(f"  ✅ [{label}] {words} words, {h2s} H2 sections")
     return ok
 
-# ── DEDUPLICATION ─────────────────────────────────────────────────────────────
+# ── SLUG/HASH DEDUPLICATION ───────────────────────────────────────────────────
 
 def already_exists(slug: str) -> bool:
     res = supabase_client.table("pseo_pages").select("id").eq("slug", slug).execute()
@@ -294,8 +336,6 @@ def already_exists_hash(keyword: str) -> bool:
     return len(res.data) > 0
 
 # ── TITLE PATTERNS ────────────────────────────────────────────────────────────
-# CTR-optimised for low-authority domains: numbers, year, parenthetical proof,
-# tension/contrast, audience specificity.
 
 CTR_TITLE_PATTERNS = {
     "comparisons": [
@@ -339,20 +379,32 @@ def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
 
 # ── CONTENT GENERATION ────────────────────────────────────────────────────────
 
-def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None) -> str:
+def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None, category: str = "") -> str:
     year = "2026"
+
+    # FIX: explicit pricing honesty rules injected into every prompt.
+    # GPT-4o must hedge unknown prices instead of fabricating exact numbers.
+    pricing_rules = """
+PRICING RULES (critical — violations will be rejected):
+- Only state prices you are confident are accurate as of 2026.
+- If you are NOT sure of the exact price, write: "pricing starts around $X/month" or "check their website for current pricing" — never invent specific numbers.
+- For tools with public free tiers, mention them. For enterprise-only tools, say "custom pricing".
+- Never write a price table with made-up numbers. Only include prices you know.
+"""
 
     base_rules = f"""You are a senior tech journalist writing for NewsTide, a premium English-language tech media.
 Audience: founders, developers, indie hackers. Smart, busy, skeptical of hype.
 Tone: direct, opinionated, slightly informal — like a smart friend who tested this stuff.
 Year: {year}. Never reference years before {year} unless historically essential.
 
+{pricing_rules}
+
 STRUCTURE (markdown):
 - NO H1 — title is handled separately
 - Introduction (no H2 header): lead with real tension or key insight. No "In today's digital world" openers.
 - Minimum {MIN_H2_SECTIONS} H2 sections, each 120+ words
 - H3 subsections where helpful
-- Concrete examples, real pricing, personal takes
+- Concrete examples, real pricing (hedged if uncertain), personal takes
 - End with "## Verdict" or "## Bottom Line" with a clear recommendation
 - "## FAQ" at the end with 3 questions in H3 format (for FAQPage schema)
 
@@ -368,10 +420,12 @@ EXCERPT: [one punchy sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, suitable as Go
 
     if template == "comparisons":
         b = entity_b or "competitor"
+        category_hint = f"\nNote: both tools are in the '{category}' category — make sure the comparison is relevant and makes sense for users choosing between them." if category else ""
         return f"""{base_rules}
 
 ARTICLE: "{title}"
 Keyword: {keyword}
+{category_hint}
 
 Write a genuine, opinionated comparison of {entity_a} vs {b}.
 
@@ -379,13 +433,13 @@ REQUIRED SECTIONS (use exactly these H2 titles):
 ## {entity_a} — What It Actually Does Well
 ## {b} — What It Actually Does Well
 ## Head-to-Head: Features, Pricing, Speed
-(include a markdown comparison table here)
+(include a markdown comparison table — only use prices you are confident about, otherwise write "check website")
 ## Who Should Choose {entity_a}
 ## Who Should Choose {b}
 ## Verdict: Which One Wins in {year}?
 ## FAQ
 
-Be HONEST. Pick a winner for each use case. Include real {year} pricing."""
+Be HONEST. Pick a winner for each use case. Use hedged pricing if uncertain."""
 
     elif template == "alternatives":
         return f"""{base_rules}
@@ -399,12 +453,12 @@ REQUIRED SECTIONS:
 ## The 7 Best Alternatives to {entity_a} in {year}
 (for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)
 ## Quick Comparison Table
-(markdown table: Tool | Best For | Free Plan | Starting Price)
+(markdown table: Tool | Best For | Free Plan | Starting Price — use "check website" if unsure of price)
 ## How to Choose the Right {entity_a} Alternative
 ## Bottom Line
 ## FAQ
 
-Real pricing. Real use cases. No fluff."""
+Real use cases. No fluff. Hedge pricing you're unsure about."""
 
     elif template == "guides":
         b = entity_b or "this task"
@@ -456,7 +510,7 @@ List and review the best AI tools for {entity_a}.
 REQUIRED SECTIONS:
 ## How AI Is Changing the Game for {entity_a}
 ## The 10 Best AI Tools for {entity_a} in {year}
-(for each: H3 with tool name, 2 paragraphs: what it does, why great for {entity_a}, pricing)
+(for each: H3 with tool name, 2 paragraphs: what it does, why great for {entity_a}, pricing — hedge if unsure)
 ## Tools That Didn't Make the Cut (and Why)
 ## How to Build Your AI Stack as a {entity_a}
 ## Bottom Line
@@ -468,11 +522,12 @@ def generate_page(candidate: dict) -> dict | None:
     entity_a = candidate["entity_a"]
     entity_b = candidate.get("entity_b")
     keyword  = candidate["keyword"]
+    category = candidate.get("category", "")
 
     title  = pick_title(template, entity_a, entity_b)
     print(f"  📝 Title: {title} ({len(title)} chars)")
 
-    prompt = build_prompt(template, title, keyword, entity_a, entity_b)
+    prompt = build_prompt(template, title, keyword, entity_a, entity_b, category)
 
     try:
         resp = openai_client.chat.completions.create(
@@ -482,11 +537,13 @@ def generate_page(candidate: dict) -> dict | None:
                     "You are a senior tech journalist and SEO expert. "
                     "Write authoritative, opinionated, deeply useful content. "
                     "Never write filler. Every sentence adds value. "
-                    f"Current year is 2026. Minimum {MIN_WORD_COUNT} words required."
+                    f"Current year is 2026. Minimum {MIN_WORD_COUNT} words required. "
+                    "IMPORTANT: Never invent specific pricing numbers you are not confident about. "
+                    "Use hedged language like 'around $X/month' or 'check their website' instead."
                 )},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.80,
+            temperature=0.78,
             max_tokens=3800,
         )
         raw = resp.choices[0].message.content.strip()
@@ -524,19 +581,19 @@ def save_page(candidate: dict, generated: dict, page_index: int, spread_days: in
         slug = f"{slug}-{md5(candidate['keyword'])[:6]}"
 
     data = {
-        "slug":          slug,
-        "template":      candidate["template"],
-        "entity_a":      candidate["entity_a"],
-        "entity_b":      candidate.get("entity_b"),
-        "keyword":       generated["keyword"],
-        "keyword_hash":  md5(generated["keyword"]),
-        "title":         generated["title"],
-        "content":       generated["content"],
-        "excerpt":       generated["excerpt"],
-        "reading_time":  reading_time(generated["content"]),
+        "slug":           slug,
+        "template":       candidate["template"],
+        "entity_a":       candidate["entity_a"],
+        "entity_b":       candidate.get("entity_b"),
+        "keyword":        generated["keyword"],
+        "keyword_hash":   md5(generated["keyword"]),
+        "title":          generated["title"],
+        "content":        generated["content"],
+        "excerpt":        generated["excerpt"],
+        "reading_time":   reading_time(generated["content"]),
         "image_gradient": GRADIENTS[page_index % len(GRADIENTS)],
-        "published_at":  published_at,
-        "lang":          "en",
+        "published_at":   published_at,
+        "lang":           "en",
     }
 
     try:
@@ -564,9 +621,14 @@ def main():
     print(f"   Spread   : over {args.spread_days} days")
     print("=" * 60)
 
+    # Load existing pairs ONCE at startup — avoids duplicate API calls per candidate
+    print("\n🔍 Loading existing pages from Supabase for dedup...")
+    existing_pairs = load_existing_pairs()
+    print(f"   {len(existing_pairs)} existing entity pairs found — will skip these")
+
     generator  = TEMPLATE_GENERATORS[args.template]
-    candidates = generator(args.batch)
-    print(f"\n📋 Candidate pool: {len(candidates)} items")
+    candidates = generator(args.batch, existing_pairs)
+    print(f"\n📋 Candidate pool: {len(candidates)} items (already-done pairs excluded)")
 
     published = []
     pool_idx  = 0
