@@ -45,34 +45,6 @@ function Badge({ cat }: { cat: string }) {
   )
 }
 
-const websiteJsonLd = {
-  '@context': 'https://schema.org',
-  '@type': 'WebSite',
-  name: 'NewsTide',
-  url: 'https://www.newstide.news',
-  description: 'Tecnología, IA y tendencias para founders, developers y profesionales.',
-  inLanguage: 'es',
-  potentialAction: {
-    '@type': 'SearchAction',
-    target: {
-      '@type': 'EntryPoint',
-      urlTemplate: 'https://www.newstide.news/articulos?q={search_term_string}',
-    },
-    'query-input': 'required name=search_term_string',
-  },
-  publisher: {
-    '@type': 'Organization',
-    name: 'NewsTide',
-    url: 'https://www.newstide.news',
-    logo: {
-      '@type': 'ImageObject',
-      url: 'https://www.newstide.news/favicon-192x192.png',
-      width: 192,
-      height: 192,
-    },
-  },
-}
-
 export default async function Home() {
   const { data: articles } = await supabase
     .from('articles')
@@ -85,11 +57,6 @@ export default async function Home() {
 
   return (
     <main>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
-      />
-
       {/* HERO */}
       <section id="hero">
         <div className="hero-bg" />
@@ -151,7 +118,8 @@ export default async function Home() {
                 <h2 className="featured-title">{featured.title}</h2>
                 <p className="featured-desc">{featured.excerpt}</p>
                 <div className="featured-footer">
-                  <strong>NewsTide Editorial</strong>
+                  {/* Dynamic author — consistent with E-E-A-T signals */}
+                  <strong>{featured.author || 'Javier Valencia'}</strong>
                   <span>·</span>
                   <span>{formatDate(featured.published_at)}</span>
                   <span>·</span>
@@ -201,7 +169,8 @@ export default async function Home() {
                     <h3 className="article-title">{a.title}</h3>
                     <p className="article-excerpt">{a.excerpt}</p>
                     <div className="article-footer">
-                      <span className="article-author">NewsTide Editorial</span>
+                      {/* Dynamic author from Supabase — E-E-A-T consistent */}
+                      <span className="article-author">{a.author || 'Javier Valencia'}</span>
                       <span className="article-dot">·</span>
                       <span>{formatDate(a.published_at)}</span>
                     </div>

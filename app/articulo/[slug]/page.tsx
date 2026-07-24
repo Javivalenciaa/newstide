@@ -20,6 +20,11 @@ const CAT_SLUG_ES: Record<string, string> = {
   'Herramientas': 'herramientas', 'Startups': 'startups', 'Noticias': 'noticias',
 }
 
+const CAT_SECTION: Record<string, string> = {
+  'IA': 'Inteligencia Artificial', 'Startups': 'Startups',
+  'Herramientas': 'Herramientas y Tecnología', 'Tutoriales': 'Tutoriales', 'Noticias': 'Noticias',
+}
+
 const AUTHOR_SLUG = 'javier-valencia'
 
 function Badge({ cat }: { cat: string }) {
@@ -69,6 +74,21 @@ function pickRelatedArticles(
     })
     .sort((a, b) => (b as RelatedArticle & { score: number }).score - (a as RelatedArticle & { score: number }).score)
     .map(({ score: _score, ...r }) => r as RelatedArticle)
+}
+
+// Extract FAQ pairs from markdown content (## sections that look like Q&A)
+// Looks for H3 headings followed by a paragraph — common AI-generated article pattern
+function extractFAQs(content: string): Array<{ question: string; answer: string }> {
+  const faqs: Array<{ question: string; answer: string }> = []
+  // Match "### Question?" or "**Question?**" patterns
+  const h3Regex = /^###\s+(.+\?)\s*\n+([^#]+)/gm
+  let match
+  while ((match = h3Regex.exec(content)) !== null && faqs.length < 5) {
+    const question = match[1].trim()
+    const answer = match[2].replace(/\*\*/g, '').trim().substring(0, 300)
+    if (question && answer) faqs.push({ question, answer })
+  }
+  return faqs
 }
 
 export async function generateStaticParams() {
@@ -134,11 +154,6 @@ export async function generateMetadata(
   }
 }
 
-const CAT_SECTION: Record<string, string> = {
-  'IA': 'Inteligencia Artificial', 'Startups': 'Startups',
-  'Herramientas': 'Herramientas y Tecnología', 'Tutoriales': 'Tutoriales', 'Noticias': 'Noticias',
-}
-
 export default async function ArticuloPage({
   params,
 }: {
@@ -159,10 +174,11 @@ export default async function ArticuloPage({
     notFound()
   }
 
-  const catSlug = CAT_SLUG_ES[article.category] || article.category.toLowerCase()
-  const enSlug  = article.slug_en
-  const url     = `https://www.newstide.news/articulo/${article.slug}`
-  const urlEN   = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
+  const catSlug     = CAT_SLUG_ES[article.category] || article.category.toLowerCase()
+  const enSlug      = article.slug_en
+  const url         = `https://www.newstide.news/articulo/${article.slug}`
+  const urlEN       = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
+  const authorPageUrl = `https://www.newstide.news/autores/${AUTHOR_SLUG}`
 
   const { data: related } = await supabase
     .from('articles')
@@ -181,9 +197,11 @@ export default async function ArticuloPage({
     .order('published_at', { ascending: false })
     .limit(5)
 
-  const authorPageUrl = `https://www.newstide.news/autores/${AUTHOR_SLUG}`
+  // Extract FAQs for structured data (boosts rich results in Google)
+  const faqs = extractFAQs(article.content || '')
 
-  const jsonLd = {
+  // ---- JSON-LD: NewsArticle ----
+  const articleSchema = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
     headline: article.title,
@@ -200,28 +218,51 @@ export default async function ArticuloPage({
       name: 'Javier Valencia',
       url: authorPageUrl,
       jobTitle: 'Fundador y Editor en Jefe',
+      worksFor: { '@id': 'https://www.newstide.news/#organization' },
     },
-    publisher: {
-      '@type': 'NewsMediaOrganization',
-      '@id': 'https://www.newstide.news/#organization',
-      name: 'NewsTide',
-      url: 'https://www.newstide.news',
-      logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
-    },
+    publisher: { '@id': 'https://www.newstide.news/#organization' },
     image: article.cover_image_url
       ? { '@type': 'ImageObject', url: article.cover_image_url, width: 1200, height: 630 }
       : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    isPartOf: { '@id': 'https://www.newstide.news/#website' },
   }
+
+  // ---- JSON-LD: BreadcrumbList ----
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Inicio', item: 'https://www.newstide.news' },
+      { '@type': 'ListItem', position: 2, name: article.category, item: `https://www.newstide.news/articulos/${catSlug}` },
+      { '@type': 'ListItem', position: 3, name: article.title },
+    ],
+  }
+
+  // ---- JSON-LD: FAQPage (only injected when FAQs are found) ----
+  const faqSchema = faqs.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqs.map(({ question, answer }) => ({
+      '@type': 'Question',
+      name: question,
+      acceptedAnswer: { '@type': 'Answer', text: answer },
+    })),
+  } : null
 
   return (
     <div className="article-page">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+      {faqSchema && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      )}
 
       <div className="article-hero" style={{ background: article.image_gradient }}>
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
+            {/* Breadcrumb nav — matches BreadcrumbList JSON-LD above */}
             <nav aria-label="Miga de pan" style={{ marginBottom: 16 }}>
               <ol style={{ display: 'flex', alignItems: 'center', gap: 6, listStyle: 'none', padding: 0, margin: 0, flexWrap: 'wrap' }}>
                 <li><Link href="/" style={{ fontSize: 13, color: 'var(--muted)' }}>Inicio</Link></li>

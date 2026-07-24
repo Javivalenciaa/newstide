@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     url: 'https://www.newstide.news',
     title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
     description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
-    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }],
+    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide — Noticias de IA y Tech' }],
   },
   twitter: {
     card: 'summary_large_image',
@@ -68,7 +68,9 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-const websiteSchema = {
+// Single authoritative @graph schema — WebSite + NewsMediaOrganization
+// Only declared here in layout, NOT duplicated in page.tsx
+const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
     {
@@ -91,12 +93,25 @@ const websiteSchema = {
       name: 'NewsTide',
       url: 'https://www.newstide.news',
       logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
-      sameAs: ['https://twitter.com/newstide'],
+      // Extended sameAs for Knowledge Graph entity building
+      sameAs: [
+        'https://twitter.com/newstide',
+        'https://linkedin.com/company/newstide',
+        'https://www.newstide.news',
+      ],
       publishingPrinciples: 'https://www.newstide.news/politica-editorial',
       correctionsPolicy: 'https://www.newstide.news/politica-editorial#correcciones',
       actionableFeedbackPolicy: 'https://www.newstide.news/politica-editorial#feedback',
       verificationFactCheckingPolicy: 'https://www.newstide.news/politica-editorial#verificacion',
       masthead: 'https://www.newstide.news/equipo-editorial',
+      foundingDate: '2024',
+      knowsAbout: [
+        'Inteligencia Artificial',
+        'Startups',
+        'Tecnología',
+        'Machine Learning',
+        'Herramientas digitales',
+      ],
     },
   ],
 }
@@ -116,21 +131,11 @@ export default async function RootLayout({
       <head>
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(siteSchema) }}
         />
-        {/* RSS autodiscovery — allows Google, Feedly and aggregators to detect feeds automatically */}
-        <link
-          rel="alternate"
-          type="application/rss+xml"
-          title="NewsTide ES RSS"
-          href="https://www.newstide.news/rss.xml"
-        />
-        <link
-          rel="alternate"
-          type="application/rss+xml"
-          title="NewsTide EN RSS"
-          href="https://www.newstide.news/en/rss.xml"
-        />
+        {/* RSS autodiscovery */}
+        <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
+        <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
       </head>
       <body className={`${inter.variable} ${mono.variable}`}>
         <SpanishShell>{children}</SpanishShell>
