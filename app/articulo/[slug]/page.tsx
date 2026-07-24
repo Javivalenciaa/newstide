@@ -8,6 +8,8 @@ import ShareButtons from '@/components/ShareButtons'
 
 export const revalidate = 300
 
+type RelatedArticle = { title: string; slug: string; category: string; published_at: string }
+
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
   'Herramientas': '#e8d5a3', 'Tutoriales': '#7ecf9b', 'Noticias': '#ef6c6c'
@@ -49,6 +51,29 @@ function seoDescription(excerpt: string, fallback: string): string {
   const cut = text.substring(0, 152)
   const lastSpace = cut.lastIndexOf(' ')
   return `${cut.substring(0, lastSpace > 50 ? lastSpace : 152)}...`
+}
+
+function pickRelatedArticles(
+  article: { title: string; keyword?: string; category: string },
+  candidates: RelatedArticle[]
+): RelatedArticle[] {
+  const titleTokens = (article.title + ' ' + (article.keyword || ''))
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 3)
+
+  return candidates
+    .map((r) => {
+      let score = 0
+      if (r.category === article.category) score += 3
+      const rTokens = r.title.toLowerCase().split(/\s+/)
+      for (const token of titleTokens) {
+        if (rTokens.includes(token)) score += 1
+      }
+      return { ...r, score }
+    })
+    .sort((a, b) => (b as RelatedArticle & { score: number }).score - (a as RelatedArticle & { score: number }).score)
+    .map(({ score: _score, ...r }) => r as RelatedArticle)
 }
 
 export async function generateStaticParams() {
@@ -153,7 +178,9 @@ export default async function ArticuloPage({
     .eq('category', article.category)
     .neq('slug', article.slug)
     .order('published_at', { ascending: false })
-    .limit(8)
+    .limit(12)
+
+  const relatedSmart = pickRelatedArticles(article, related || []).slice(0, 4)
 
   const { data: latest } = await supabase
     .from('articles')
@@ -261,11 +288,25 @@ export default async function ArticuloPage({
               <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido generado con asistencia de inteligencia artificial y revisado por el equipo editorial de NewsTide para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
             </div>
 
-            {related && related.length > 0 && (
+            {(article.source_url || article.source_name) && (
+              <div style={{ marginTop: 32, padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>Sources</div>
+                {article.source_url && (
+                  <div style={{ marginBottom: 4 }}>
+                    <a href={article.source_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan)', wordBreak: 'break-all' }}>{article.source_url}</a>
+                  </div>
+                )}
+                {article.source_name && <div style={{ marginBottom: 4 }}><strong style={{ color: 'var(--text)' }}>{article.source_name}</strong></div>}
+                {article.source_date && <div style={{ marginBottom: 4 }}>{formatDate(article.source_date)}</div>}
+                {article.source_excerpt && <div style={{ fontStyle: 'italic' }}>{article.source_excerpt}</div>}
+              </div>
+            )}
+
+            {relatedSmart.length > 0 && (
               <div style={{ marginTop: 48 }}>
                 <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 20, color: 'var(--text)' }}>Más sobre {article.category}</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {related.map((r) => (
+                  {relatedSmart.map((r: RelatedArticle) => (
                     <Link key={r.slug} href={`/articulo/${r.slug}`}
                       style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, textDecoration: 'none', transition: 'border-color 0.2s' }}>
                       <span style={{ fontSize: 18, flexShrink: 0 }}>→</span>

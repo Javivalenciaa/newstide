@@ -1,17 +1,26 @@
 import { supabase } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
 
-export const revalidate = 3600 // refresh each hour
+export const revalidate = 1800
+
+function xmlEscape(value: string): string {
+  if (!value) return ''
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
 
 export async function GET() {
-  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
 
   const { data: articles } = await supabase
     .from('articles')
-    .select('title, title_en, slug, slug_en, published_at')
-    .gte('published_at', twoDaysAgo)
+    .select('slug, slug_en, title, title_en, published_at')
+    .gte('published_at', since)
     .order('published_at', { ascending: false })
-    .limit(1000)
+    .limit(100)
 
   const items = (articles || []).flatMap((a) => [
     `  <url>
@@ -22,10 +31,10 @@ export async function GET() {
         <news:language>es</news:language>
       </news:publication>
       <news:publication_date>${new Date(a.published_at).toISOString()}</news:publication_date>
-      <news:title>${escapeXml(a.title)}</news:title>
+      <news:title>${xmlEscape(a.title)}</news:title>
     </news:news>
   </url>`,
-    ...(a.slug_en ? [
+    ...(a.slug_en && a.title_en ? [
       `  <url>
     <loc>https://www.newstide.news/en/article/${a.slug_en}</loc>
     <news:news>
@@ -34,7 +43,7 @@ export async function GET() {
         <news:language>en</news:language>
       </news:publication>
       <news:publication_date>${new Date(a.published_at).toISOString()}</news:publication_date>
-      <news:title>${escapeXml(a.title_en || a.title)}</news:title>
+      <news:title>${xmlEscape(a.title_en)}</news:title>
     </news:news>
   </url>`
     ] : []),
@@ -47,20 +56,10 @@ export async function GET() {
 ${items.join('\n')}
 </urlset>`
 
-  return new NextResponse(xml, {
+  return new Response(xml, {
     headers: {
       'Content-Type': 'application/xml; charset=utf-8',
-      'Cache-Control': 's-maxage=3600, stale-while-revalidate',
+      'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
     },
   })
-}
-
-function escapeXml(str: string): string {
-  if (!str) return ''
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
 }
