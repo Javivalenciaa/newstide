@@ -25,12 +25,12 @@ MODEL_HUMANIZE     = "gpt-4o"
 # ── SAFETY LIMITS (prevent runaway API costs) ─────────────────────────────────
 # Maximum Claude API calls allowed in a single pipeline run.
 # Normal run = 3 articles × 1 call = 3. Hard cap at 6 to allow 1 retry per article.
-MAX_CLAUDE_CALLS_PER_RUN   = 6
+MAX_CLAUDE_CALLS_PER_RUN   = 12
 # Maximum output tokens Claude can generate across the entire run.
 # Normal run ~= 3 articles × ~13 000 tokens = ~39 000. Cap at 80 000 (2× safety margin).
 MAX_CLAUDE_TOKENS_PER_RUN  = 80_000
 # Maximum number of pool-exhaustion loops before aborting the run entirely.
-MAX_POOL_EXPANSIONS        = 2   # was 4 — reduced to avoid infinite topic-generation loops
+MAX_POOL_EXPANSIONS        = 4 #was 4 — reduced to avoid infinite topic-generation loops
 
 # Counters reset every run — mutated inside generate_article()
 _claude_calls_this_run   = 0
