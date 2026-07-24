@@ -20,28 +20,37 @@ const EN_CATS = [
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const { data: articles } = await supabase
-    .from('articles')
-    .select('slug, slug_en, published_at')
-    .order('published_at', { ascending: false })
+  const [articlesRes, pseoRes] = await Promise.all([
+    supabase.from('articles').select('slug, slug_en, published_at').order('published_at', { ascending: false }),
+    supabase.from('pseo_pages').select('slug, published_at').lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }),
+  ])
 
-  const allArticles = articles || []
+  const allArticles = articlesRes.data || []
+  const allPseo     = pseoRes.data     || []
 
   const esArticleUrls = allArticles.map((a) => ({
-    url: `https://www.newstide.news/articulo/${a.slug}`,
-    lastModified: new Date(a.published_at),
+    url:             `https://www.newstide.news/articulo/${a.slug}`,
+    lastModified:    new Date(a.published_at),
     changeFrequency: 'weekly' as const,
-    priority: 0.8,
+    priority:        0.8,
   }))
 
   const enArticleUrls = allArticles
     .filter((a) => !!a.slug_en)
     .map((a) => ({
-      url: `https://www.newstide.news/en/article/${a.slug_en}`,
-      lastModified: new Date(a.published_at),
+      url:             `https://www.newstide.news/en/article/${a.slug_en}`,
+      lastModified:    new Date(a.published_at),
       changeFrequency: 'weekly' as const,
-      priority: 0.8,
+      priority:        0.8,
     }))
+
+  // pSEO pages — evergreen, lower changeFrequency
+  const pseoUrls = allPseo.map((p) => ({
+    url:             `https://www.newstide.news/en/compare/${p.slug}`,
+    lastModified:    new Date(p.published_at),
+    changeFrequency: 'monthly' as const,
+    priority:        0.75,
+  }))
 
   const esCatUrls = ES_CATS.map((c) => ({
     url: `https://www.newstide.news/articulos/${c.slug}`,
@@ -58,10 +67,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }))
 
   return [
-    { url: 'https://www.newstide.news',            lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
-    { url: 'https://www.newstide.news/en',          lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 1.0 },
-    { url: 'https://www.newstide.news/articulos',   lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 0.9 },
-    { url: 'https://www.newstide.news/en/articles', lastModified: new Date(), changeFrequency: 'hourly' as const,  priority: 0.9 },
+    { url: 'https://www.newstide.news',            lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
+    { url: 'https://www.newstide.news/en',          lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
+    { url: 'https://www.newstide.news/articulos',   lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
+    { url: 'https://www.newstide.news/en/articles', lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
+    { url: 'https://www.newstide.news/en/compare',  lastModified: new Date(), changeFrequency: 'weekly'  as const, priority: 0.85 },
     ...esCatUrls,
     ...enCatUrls,
     { url: 'https://www.newstide.news/sobre-nosotros',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
@@ -76,5 +86,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: 'https://www.newstide.news/en/authors/javier-valencia', lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 },
     ...esArticleUrls,
     ...enArticleUrls,
+    ...pseoUrls,
   ]
 }

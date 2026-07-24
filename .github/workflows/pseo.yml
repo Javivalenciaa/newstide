@@ -1,0 +1,53 @@
+name: NewsTide pSEO Pipeline
+
+# Manual trigger only — you decide when and how many pages to generate.
+# Does NOT interfere with the daily news pipeline (daily.yml).
+on:
+  workflow_dispatch:
+    inputs:
+      template:
+        description: 'pSEO template to run'
+        required: true
+        default: 'comparisons'
+        type: choice
+        options:
+          - comparisons
+          - alternatives
+          - guides
+          - for-profession
+      batch_size:
+        description: 'Number of pages to generate (recommended: 5-15)'
+        required: true
+        default: '10'
+        type: string
+      spread_days:
+        description: 'Spread publication over N days (anti-spam signal)'
+        required: true
+        default: '7'
+        type: string
+
+jobs:
+  pseo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Run pSEO pipeline
+        run: |
+          python pipeline/pseo_pipeline.py \
+            --template ${{ github.event.inputs.template }} \
+            --batch ${{ github.event.inputs.batch_size }} \
+            --spread-days ${{ github.event.inputs.spread_days }}
+        env:
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # NOTE: no SERPAPI, ANTHROPIC or UNSPLASH needed — pSEO is GPT-4o only
