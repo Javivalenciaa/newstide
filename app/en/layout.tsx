@@ -95,6 +95,15 @@ const websiteSchemaEN = {
   ],
 }
 
+// Secondary nav tabs — shown below the main navbar
+const GUIDE_TABS = [
+  { label: 'All Articles',   href: '/en/articles',                    emoji: '📰' },
+  { label: 'Comparisons',   href: '/en/compare?filter=comparisons',   emoji: '⚔️' },
+  { label: 'Alternatives',  href: '/en/compare?filter=alternatives',  emoji: '🔄' },
+  { label: 'Guides',        href: '/en/compare?filter=guides',        emoji: '📖' },
+  { label: 'For Pros',      href: '/en/compare?filter=for-profession',emoji: '👤' },
+]
+
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
@@ -115,6 +124,8 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
       <Script id="google-analytics-en" strategy="afterInteractive">
         {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{page_path:window.location.pathname});`}
       </Script>
+
+      {/* ── MAIN NAVBAR ───────────────────────────────────────────── */}
       <nav id="navbar">
         <Link href="/en" className="nav-logo">
           <div className="nav-logo-mark">NT</div>
@@ -123,6 +134,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
         <div className="nav-links">
           <Link href="/en">Home</Link>
           <Link href="/en/articles">Articles</Link>
+          <Link href="/en/compare">Guides</Link>
           <Link href="/en#newsletter">Newsletter</Link>
         </div>
         <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -131,7 +143,88 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
           <MobileNav lang="en" />
         </div>
       </nav>
+
+      {/* ── SECONDARY TABS BAR ────────────────────────────────────── */}
+      {/* Scrollable pill row on mobile, normal row on desktop */}
+      <div
+        id="subnav"
+        style={{
+          position: 'sticky',
+          top: 60,           /* sits just below the main navbar */
+          zIndex: 90,
+          background: 'var(--bg)',
+          borderBottom: '1px solid var(--border)',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',   /* Firefox */
+        }}
+      >
+        {/* hide scrollbar on webkit */}
+        <style>{`#subnav::-webkit-scrollbar{display:none}`}</style>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '0 16px',
+            maxWidth: 1200,
+            margin: '0 auto',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {/* Home pill */}
+          <Link
+            href="/en"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 14px',
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--muted)',
+              textDecoration: 'none',
+              borderBottom: '2px solid transparent',
+              transition: 'color .15s, border-color .15s',
+              flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fg)'; e.currentTarget.style.borderBottomColor = 'var(--cyan)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderBottomColor = 'transparent' }}
+          >
+            🏠 Home
+          </Link>
+
+          {/* Divider */}
+          <span style={{ width: 1, height: 16, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
+
+          {GUIDE_TABS.map(tab => (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                borderBottom: '2px solid transparent',
+                transition: 'color .15s, border-color .15s',
+                flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--fg)'; e.currentTarget.style.borderBottomColor = 'var(--cyan)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderBottomColor = 'transparent' }}
+            >
+              {tab.emoji} {tab.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {children}
+
       <footer>
         <div className="container">
           <div className="footer-top">
@@ -149,6 +242,14 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                 <Link href="/en/articles/tools">Tools</Link>
                 <Link href="/en/articles/tutorials">Tutorials</Link>
                 <Link href="/en/articles/news">News</Link>
+              </div>
+              <div className="footer-col">
+                <div className="footer-col-title">Guides</div>
+                <Link href="/en/compare">All Guides</Link>
+                <Link href="/en/compare?filter=comparisons">⚔️ Comparisons</Link>
+                <Link href="/en/compare?filter=alternatives">🔄 Alternatives</Link>
+                <Link href="/en/compare?filter=guides">📖 Guides</Link>
+                <Link href="/en/compare?filter=for-profession">👤 For Pros</Link>
               </div>
               <div className="footer-col">
                 <div className="footer-col-title">Company</div>
