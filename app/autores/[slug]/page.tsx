@@ -3,25 +3,12 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 
-// Normalized author slugs → display name
 const AUTHOR_MAP: Record<string, { name: string; bio: string; title: string; sameAs?: string[] }> = {
-  'maria-lopez': {
-    name: 'María López',
-    title: 'Editora de IA y Tecnología',
-    bio: 'María López cubre inteligencia artificial, modelos de lenguaje y herramientas para desarrolladores. Con más de 8 años de experiencia en periodismo tecnológico, ha seguido la evolución de la IA desde los primeros transformers hasta los modelos multimodales actuales.',
-    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
-  },
-  'carlos-ruiz': {
-    name: 'Carlos Ruiz',
-    title: 'Editor de Finanzas y Mercados',
-    bio: 'Carlos Ruiz es especialista en mercados financieros, criptomonedas y economía digital. Antes de unirse a NewsTide, trabajó como analista financiero y como corresponsal de economía en medios digitales especializados.',
-    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
-  },
-  'ana-martinez': {
-    name: 'Ana Martínez',
-    title: 'Editora de Startups y Empresa',
-    bio: 'Ana Martínez cubre el ecosistema emprendedor, rondas de financiación y el impacto de la tecnología en los modelos de negocio. Ha entrevistado a más de 200 founders y escrito sobre algunas de las startups más relevantes de Europa y Latinoamérica.',
-    sameAs: ['https://twitter.com/newstide', 'https://linkedin.com/company/newstide'],
+  'javier-valencia': {
+    name: 'Javier Valencia',
+    title: 'Fundador y Editor en Jefe de NewsTide',
+    bio: 'Javier Valencia es el fundador de NewsTide, medio especializado en inteligencia artificial, startups y tecnología para profesionales de habla hispana. Revisa y edita cada artículo publicado en la plataforma, combinando análisis propio con asistencia de IA para ofrecer contenido riguroso y actualizado.',
+    sameAs: ['https://twitter.com/newstide'],
   },
 }
 
@@ -42,7 +29,7 @@ export async function generateMetadata(
     description: author.bio,
     alternates: {
       canonical: url,
-      languages: { 'es': url, 'en': enUrl },
+      languages: { 'es': url, 'en': enUrl, 'x-default': url },
     },
     openGraph: {
       title: `${author.name} — NewsTide`,
@@ -69,9 +56,8 @@ export default async function AutorPage({
   const { data: articles } = await supabase
     .from('articles')
     .select('title, slug, published_at, category, excerpt')
-    .eq('author', author.name)
     .order('published_at', { ascending: false })
-    .limit(20)
+    .limit(50)
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -106,14 +92,20 @@ export default async function AutorPage({
             width: 80, height: 80, borderRadius: '50%',
             background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 28, fontWeight: 800, color: 'var(--bg)', flexShrink: 0
+            fontSize: 28, fontWeight: 800, color: 'var(--bg)', flexShrink: 0,
           }}>
-            {author.name.charAt(0)}
+            JV
           </div>
           <div>
             <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>{author.name}</h1>
             <p style={{ fontSize: 14, color: 'var(--cyan)', fontWeight: 600, marginBottom: 12 }}>{author.title}</p>
             <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 600 }}>{author.bio}</p>
+            <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+              <a href="https://twitter.com/newstide" target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 12, color: 'var(--cyan)', border: '1px solid rgba(110,207,202,0.3)', borderRadius: 6, padding: '4px 10px', textDecoration: 'none' }}>
+                Twitter / X
+              </a>
+            </div>
           </div>
         </div>
 
@@ -127,7 +119,7 @@ export default async function AutorPage({
                 display: 'block', padding: '20px 24px',
                 background: 'var(--surface)', border: '1px solid var(--border)',
                 borderRadius: 12, textDecoration: 'none',
-                transition: 'border-color 0.2s'
+                transition: 'border-color 0.2s',
               }}
             >
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>

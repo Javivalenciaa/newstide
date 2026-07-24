@@ -20,6 +20,8 @@ const CAT_SLUG_ES: Record<string, string> = {
   'Herramientas': 'herramientas', 'Startups': 'startups', 'Noticias': 'noticias',
 }
 
+const AUTHOR_SLUG = 'javier-valencia'
+
 function Badge({ cat }: { cat: string }) {
   const color = CAT_COLORS[cat] || '#6ecfca'
   return (
@@ -35,16 +37,14 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// Truncate to 60 chars max, keeping whole words — ideal for <title> tag
 function seoTitle(title: string, siteName = 'NewsTide'): string {
-  const max = 60 - siteName.length - 3 // 3 = " | "
+  const max = 60 - siteName.length - 3
   if (title.length <= max) return `${title} | ${siteName}`
   const cut = title.substring(0, max)
   const lastSpace = cut.lastIndexOf(' ')
   return `${cut.substring(0, lastSpace > 20 ? lastSpace : max)} | ${siteName}`
 }
 
-// 150-155 chars max, ends with site context
 function seoDescription(excerpt: string, fallback: string): string {
   const text = excerpt || fallback
   if (text.length <= 155) return text
@@ -58,18 +58,13 @@ function pickRelatedArticles(
   candidates: RelatedArticle[]
 ): RelatedArticle[] {
   const titleTokens = (article.title + ' ' + (article.keyword || ''))
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 3)
-
+    .toLowerCase().split(/\s+/).filter((t) => t.length > 3)
   return candidates
     .map((r) => {
       let score = 0
       if (r.category === article.category) score += 3
       const rTokens = r.title.toLowerCase().split(/\s+/)
-      for (const token of titleTokens) {
-        if (rTokens.includes(token)) score += 1
-      }
+      for (const token of titleTokens) { if (rTokens.includes(token)) score += 1 }
       return { ...r, score }
     })
     .sort((a, b) => (b as RelatedArticle & { score: number }).score - (a as RelatedArticle & { score: number }).score)
@@ -85,10 +80,9 @@ export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-
   const { data: article } = await supabase
     .from('articles')
-    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url, author')
+    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -106,7 +100,7 @@ export async function generateMetadata(
   const urlEN = article.slug_en ? `https://www.newstide.news/en/article/${article.slug_en}` : undefined
   const images = article.cover_image_url
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: article.title }]
-    : []
+    : [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }]
 
   return {
     title,
@@ -119,21 +113,23 @@ export async function generateMetadata(
       },
     },
     openGraph: {
-      title: article.title, // OG title = full title without truncation
+      title: article.title,
       description,
       url,
       siteName: 'NewsTide',
       locale: 'es_ES',
       type: 'article',
       publishedTime: article.published_at,
-      authors: ['NewsTide Editorial'],
+      authors: ['Javier Valencia'],
       images,
     },
     twitter: {
       card: 'summary_large_image',
       title: article.title,
       description,
-      ...(article.cover_image_url ? { images: [article.cover_image_url] } : {}),
+      images: article.cover_image_url
+        ? [article.cover_image_url]
+        : ['https://www.newstide.news/og-image.png'],
     },
   }
 }
@@ -158,11 +154,7 @@ export default async function ArticuloPage({
 
   if (!article) {
     const { data: bySlugEn } = await supabase
-      .from('articles')
-      .select('slug')
-      .eq('slug_en', slug)
-      .maybeSingle()
-
+      .from('articles').select('slug').eq('slug_en', slug).maybeSingle()
     if (bySlugEn?.slug) permanentRedirect(`/articulo/${bySlugEn.slug}`)
     notFound()
   }
@@ -189,6 +181,8 @@ export default async function ArticuloPage({
     .order('published_at', { ascending: false })
     .limit(5)
 
+  const authorPageUrl = `https://www.newstide.news/autores/${AUTHOR_SLUG}`
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -202,9 +196,10 @@ export default async function ArticuloPage({
     articleSection: CAT_SECTION[article.category] || article.category,
     speakable: { '@type': 'SpeakableSpecification', cssSelector: ['.article-main-title', '.article-byline'] },
     author: {
-      '@type': 'Organization',
-      name: 'NewsTide Editorial',
-      url: 'https://www.newstide.news/equipo-editorial',
+      '@type': 'Person',
+      name: 'Javier Valencia',
+      url: authorPageUrl,
+      jobTitle: 'Fundador y Editor en Jefe',
     },
     publisher: {
       '@type': 'NewsMediaOrganization',
@@ -213,7 +208,9 @@ export default async function ArticuloPage({
       url: 'https://www.newstide.news',
       logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
     },
-    ...(article.cover_image_url ? { image: { '@type': 'ImageObject', url: article.cover_image_url, width: 1200, height: 630 } } : {}),
+    image: article.cover_image_url
+      ? { '@type': 'ImageObject', url: article.cover_image_url, width: 1200, height: 630 }
+      : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
   }
 
@@ -237,7 +234,9 @@ export default async function ArticuloPage({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
               <Badge cat={article.category} />
               <span className="meta-sep">·</span>
-              <Link href="/equipo-editorial" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>NewsTide Editorial</Link>
+              <Link href={authorPageUrl} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none', fontWeight: 500 }}>Javier Valencia</Link>
+              <span className="meta-sep">·</span>
+              <span style={{ fontSize: 12, color: 'var(--faint)' }}>Revisado por NewsTide Editorial</span>
               <span className="meta-sep">·</span>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
               <span className="meta-sep">·</span>
@@ -262,10 +261,8 @@ export default async function ArticuloPage({
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
                 img: ({ src, alt }) => {
-                  // Use meaningful alt text — strip Unsplash generic descriptions
                   const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
-                    ? alt
-                    : `${article.title} — NewsTide`
+                    ? alt : `${article.title} — NewsTide`
                   return src ? (
                     <span style={{ display: 'block', margin: '32px 0' }}>
                       <img src={src} alt={cleanAlt} loading="lazy" style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} />
@@ -285,12 +282,12 @@ export default async function ArticuloPage({
             </ReactMarkdown>
 
             <div style={{ marginTop: 48, padding: '16px 20px', background: 'rgba(110,207,202,0.05)', border: '1px solid rgba(110,207,202,0.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-              <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido generado con asistencia de inteligencia artificial y revisado por el equipo editorial de NewsTide para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
+              <strong style={{ color: 'var(--cyan)' }}>Nota editorial:</strong> Este artículo ha sido elaborado con asistencia de inteligencia artificial y revisado por Javier Valencia para garantizar su precisión y relevancia. <Link href="/politica-editorial" style={{ color: 'var(--cyan)' }}>Conoce nuestra política editorial.</Link>
             </div>
 
             {(article.source_url || article.source_name) && (
               <div style={{ marginTop: 32, padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
-                <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>Sources</div>
+                <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>Fuentes</div>
                 {article.source_url && (
                   <div style={{ marginBottom: 4 }}>
                     <a href={article.source_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan)', wordBreak: 'break-all' }}>{article.source_url}</a>
@@ -325,11 +322,21 @@ export default async function ArticuloPage({
 
           <aside>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
-              <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Publicado por</div>
-              <Link href="/equipo-editorial" style={{ textDecoration: 'none' }}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6, color: 'var(--text)' }}>NewsTide Editorial</div>
+              <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Autor</div>
+              <Link href={authorPageUrl} style={{ textDecoration: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 800, color: 'var(--bg)', flexShrink: 0,
+                  }}>JV</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>Javier Valencia</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Revisado por NewsTide Editorial</div>
+                  </div>
+                </div>
               </Link>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 10 }}>Contenido elaborado con asistencia de IA y revisado por nuestro equipo.</div>
               <Link href="/politica-editorial" style={{ fontSize: 12, color: 'var(--cyan)' }}>Política editorial →</Link>
             </div>
 
