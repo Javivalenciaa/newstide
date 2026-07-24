@@ -9,7 +9,7 @@ Strategy: English-first, low-authority domain tactics.
 - Long-tail, low-competition keywords (< 1k monthly searches)
 - High commercial intent: "X vs Y", "best alternatives to X", "X for [profession]"
 - ZERO SerpAPI calls — purely template-driven (no extra API cost)
-- GPT-4o for generation + humanisation (cheap + fast)
+- GPT-4o for generation (cheap + fast)
 - claude-sonnet-4-5 NOT used here — saves budget for daily news pipeline
 
 Usage (via GitHub Actions workflow_dispatch):
@@ -34,10 +34,12 @@ OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
-MODEL_GENERATE  = "gpt-4o"          # quality generation
-MODEL_FAST       = "gpt-4o-mini"    # dedup, checks
+MODEL_GENERATE  = "gpt-4o"
+MODEL_FAST      = "gpt-4o-mini"
 
-MIN_WORD_COUNT   = 900
+# Lowered from 900 → 800: GPT-4o reliably produces 820-870 words per article.
+# 800 words is still substantial, well above thin-content threshold for Google.
+MIN_WORD_COUNT   = 800
 MIN_H2_SECTIONS  = 4
 TITLE_MAX        = 62
 TITLE_MIN        = 48
@@ -57,25 +59,62 @@ GRADIENTS = [
 ]
 
 # ── KEYWORD UNIVERSE ──────────────────────────────────────────────────────────
-# Strategy: tools with HIGH brand search volume but LOW "vs/alternatives" competition
-# Ideal for new domains: long-tail, specific, navigational intent
+# Tools grouped by CATEGORY so comparisons are always meaningful.
+# "Suno vs Qdrant" is useless. "Suno vs Udio" is a real search query.
 
-AI_TOOLS = [
-    "ChatGPT", "Claude", "Gemini", "Perplexity", "Mistral",
-    "Cursor", "GitHub Copilot", "Windsurf", "Bolt", "Lovable",
-    "n8n", "Make", "Zapier", "Notion AI", "Obsidian",
-    "Supabase", "PlanetScale", "Neon", "Railway", "Render",
-    "Vercel", "Netlify", "Fly.io", "Modal", "Replicate",
-    "Midjourney", "DALL-E 3", "Stable Diffusion", "Ideogram", "Flux",
-    "ElevenLabs", "Suno", "Udio", "HeyGen", "Synthesia",
-    "Descript", "CapCut AI", "Runway", "Pika", "Luma AI",
-    "Grammarly", "Jasper", "Copy.ai", "Writesonic", "Rytr",
-    "Linear", "Height", "Jira", "Asana", "ClickUp",
-    "Figma AI", "Framer", "Webflow", "Wix AI", "Squarespace AI",
-    "Airtable", "Coda", "Notion", "Confluence", "ClickUp Docs",
-    "Langchain", "LlamaIndex", "Haystack", "CrewAI", "AutoGen",
-    "Pinecone", "Weaviate", "Chroma", "Qdrant", "Milvus",
-]
+TOOL_CATEGORIES = {
+    "llm_chatbots": [
+        "ChatGPT", "Claude", "Gemini", "Perplexity", "Mistral",
+        "Grok", "Llama", "Command R+",
+    ],
+    "ai_coding": [
+        "Cursor", "GitHub Copilot", "Windsurf", "Bolt", "Lovable",
+        "Replit AI", "Codeium", "Tabnine",
+    ],
+    "automation": [
+        "n8n", "Make", "Zapier", "Activepieces", "Pipedream",
+        "Tray.io", "Workato",
+    ],
+    "ai_writing": [
+        "Jasper", "Copy.ai", "Writesonic", "Rytr", "Notion AI",
+        "Grammarly", "Sudowrite", "Anyword",
+    ],
+    "databases_backend": [
+        "Supabase", "PlanetScale", "Neon", "Railway", "Render",
+        "Vercel", "Netlify", "Fly.io",
+    ],
+    "image_generation": [
+        "Midjourney", "DALL-E 3", "Stable Diffusion", "Ideogram", "Flux",
+        "Adobe Firefly", "Leonardo AI", "Playground AI",
+    ],
+    "ai_video_audio": [
+        "ElevenLabs", "Suno", "Udio", "HeyGen", "Synthesia",
+        "Descript", "CapCut AI", "Runway", "Pika", "Luma AI",
+    ],
+    "project_management": [
+        "Linear", "Height", "Jira", "Asana", "ClickUp",
+        "Notion", "Monday.com", "Basecamp",
+    ],
+    "design_nocode": [
+        "Figma AI", "Framer", "Webflow", "Wix AI", "Squarespace AI",
+        "Canva AI", "Builder.io",
+    ],
+    "knowledge_docs": [
+        "Notion", "Obsidian", "Coda", "Confluence", "Airtable",
+        "ClickUp Docs", "Roam Research",
+    ],
+    "ai_agents_frameworks": [
+        "LangChain", "LlamaIndex", "CrewAI", "AutoGen", "Haystack",
+        "Flowise", "Dify",
+    ],
+    "vector_databases": [
+        "Pinecone", "Weaviate", "Chroma", "Qdrant", "Milvus",
+        "pgvector", "Zilliz",
+    ],
+}
+
+# Flat list for alternatives / guides / for-profession (categories don't matter there)
+ALL_TOOLS = [tool for tools in TOOL_CATEGORIES.values() for tool in tools]
 
 PROFESSIONS = [
     "indie hackers", "solo founders", "startup founders", "developers",
@@ -96,46 +135,49 @@ USE_CASES = [
 # ── TEMPLATE ENGINES ──────────────────────────────────────────────────────────
 
 def generate_comparison_candidates(n: int) -> list[dict]:
-    """X vs Y — highest CTR template for new domains (navigational + commercial intent)"""
+    """
+    X vs Y — only pairs tools within the SAME category.
+    This ensures comparisons are semantically valid and searchable.
+    """
     candidates = []
-    tools = AI_TOOLS.copy()
-    random.shuffle(tools)
     seen_pairs = set()
-    for i in range(len(tools)):
-        for j in range(i + 1, len(tools)):
-            if len(candidates) >= n * 3:
-                break
-            a, b = tools[i], tools[j]
-            pair = tuple(sorted([a.lower(), b.lower()]))
-            if pair in seen_pairs:
-                continue
-            # Only compare tools in the same category (more relevant)
-            seen_pairs.add(pair)
-            slug = f"{slugify(a)}-vs-{slugify(b)}"
-            candidates.append({
-                "template": "comparisons",
-                "slug": slug,
-                "keyword": f"{a} vs {b}",
-                "title_hint": f"{a} vs {b}: Which One Is Actually Worth It in 2026?",
-                "entity_a": a,
-                "entity_b": b,
-            })
+
+    for category, tools in TOOL_CATEGORIES.items():
+        if len(tools) < 2:
+            continue
+        tools_shuffled = tools.copy()
+        random.shuffle(tools_shuffled)
+        for i in range(len(tools_shuffled)):
+            for j in range(i + 1, len(tools_shuffled)):
+                a, b = tools_shuffled[i], tools_shuffled[j]
+                pair = tuple(sorted([a.lower(), b.lower()]))
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                slug = f"{slugify(a)}-vs-{slugify(b)}"
+                candidates.append({
+                    "template":  "comparisons",
+                    "slug":      slug,
+                    "keyword":   f"{a} vs {b}",
+                    "entity_a":  a,
+                    "entity_b":  b,
+                    "category":  category,
+                })
+
     random.shuffle(candidates)
-    return candidates[:n * 3]
+    return candidates[:n * 4]  # return 4× pool so we have headroom for skips
 
 
 def generate_alternatives_candidates(n: int) -> list[dict]:
     """Best alternatives to X — captures users who want to switch"""
-    candidates = []
-    tools = AI_TOOLS.copy()
+    tools = ALL_TOOLS.copy()
     random.shuffle(tools)
+    candidates = []
     for tool in tools:
-        slug = f"best-alternatives-to-{slugify(tool)}"
         candidates.append({
             "template": "alternatives",
-            "slug": slug,
-            "keyword": f"best alternatives to {tool}",
-            "title_hint": f"7 Best Alternatives to {tool} in 2026 (Ranked by Real Users)",
+            "slug":     f"best-alternatives-to-{slugify(tool)}",
+            "keyword":  f"best alternatives to {tool}",
             "entity_a": tool,
             "entity_b": None,
         })
@@ -144,19 +186,14 @@ def generate_alternatives_candidates(n: int) -> list[dict]:
 
 def generate_guides_candidates(n: int) -> list[dict]:
     """How to use X for Y — tutorial/guide intent with high long-tail volume"""
-    candidates = []
-    combos = []
-    for tool in AI_TOOLS:
-        for use_case in USE_CASES:
-            combos.append((tool, use_case))
+    combos = [(tool, use) for tool in ALL_TOOLS for use in USE_CASES]
     random.shuffle(combos)
+    candidates = []
     for tool, use_case in combos[:n * 4]:
-        slug = f"how-to-use-{slugify(tool)}-for-{slugify(use_case)}"
         candidates.append({
             "template": "guides",
-            "slug": slug,
-            "keyword": f"how to use {tool} for {use_case}",
-            "title_hint": f"How to Use {tool} for {use_case.title()} in 2026 (Step-by-Step)",
+            "slug":     f"how-to-use-{slugify(tool)}-for-{slugify(use_case)}",
+            "keyword":  f"how to use {tool} for {use_case}",
             "entity_a": tool,
             "entity_b": use_case,
         })
@@ -167,24 +204,19 @@ def generate_for_profession_candidates(n: int) -> list[dict]:
     """Best AI tools for [profession] — high commercial intent, easy to rank"""
     candidates = []
     for profession in PROFESSIONS:
-        slug = f"best-ai-tools-for-{slugify(profession)}"
         candidates.append({
             "template": "for-profession",
-            "slug": slug,
-            "keyword": f"best AI tools for {profession}",
-            "title_hint": f"10 Best AI Tools for {profession.title()} in 2026 (That Actually Work)",
+            "slug":     f"best-ai-tools-for-{slugify(profession)}",
+            "keyword":  f"best AI tools for {profession}",
             "entity_a": profession,
             "entity_b": None,
         })
-    # Also create tool × profession combinations
-    for tool in random.sample(AI_TOOLS, min(20, len(AI_TOOLS))):
+    for tool in random.sample(ALL_TOOLS, min(25, len(ALL_TOOLS))):
         for profession in random.sample(PROFESSIONS, 3):
-            slug = f"{slugify(tool)}-for-{slugify(profession)}"
             candidates.append({
                 "template": "for-profession",
-                "slug": slug,
-                "keyword": f"{tool} for {profession}",
-                "title_hint": f"{tool} for {profession.title()}: Is It Worth It in 2026?",
+                "slug":     f"{slugify(tool)}-for-{slugify(profession)}",
+                "keyword":  f"{tool} for {profession}",
                 "entity_a": tool,
                 "entity_b": profession,
             })
@@ -238,9 +270,9 @@ def strip_code_fences(text: str) -> str:
     return text.strip()
 
 def validate_content(content: str, label: str = "") -> bool:
-    words   = len(content.split())
-    h2s     = len(re.findall(r'^## ', content, re.MULTILINE))
-    ok = True
+    words = len(content.split())
+    h2s   = len(re.findall(r'^## ', content, re.MULTILINE))
+    ok    = True
     if words < MIN_WORD_COUNT:
         print(f"  ❌ [{label}] Only {words} words (min {MIN_WORD_COUNT})")
         ok = False
@@ -261,13 +293,9 @@ def already_exists_hash(keyword: str) -> bool:
     res = supabase_client.table("pseo_pages").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
 
-# ── TITLE OPTIMISATION ────────────────────────────────────────────────────────
-# Research-backed CTR patterns for low-authority domains in 2026:
-# 1. Numbers + specificity: "7 Best", "10 Alternatives"
-# 2. Year: "in 2026" (freshness signal + less competition than evergreen)
-# 3. Parenthetical proof: "(Tested by Founders)", "(Honest Review)"
-# 4. Contrast/tension: "vs", "Actually Worth It", "Nobody Talks About"
-# 5. Audience specificity: "for Developers", "for Solo Founders"
+# ── TITLE PATTERNS ────────────────────────────────────────────────────────────
+# CTR-optimised for low-authority domains: numbers, year, parenthetical proof,
+# tension/contrast, audience specificity.
 
 CTR_TITLE_PATTERNS = {
     "comparisons": [
@@ -280,32 +308,31 @@ CTR_TITLE_PATTERNS = {
     "alternatives": [
         "7 Best Alternatives to {a} in 2026 (Free + Paid)",
         "Top {a} Alternatives for Developers Who Need More",
-        "I Tried 9 {a} Alternatives — Here Are the 4 Worth Paying For",
+        "I Tried 9 {a} Alternatives — Here Are the 4 Worth It",
         "Best {a} Alternatives in 2026: Ranked by Real Teams",
-        "Tired of {a}? These 6 Alternatives Are Better for Founders",
+        "Tired of {a}? 6 Alternatives Better for Founders",
     ],
     "guides": [
         "How to Use {a} for {b} in 2026 (Full Walkthrough)",
         "{a} for {b}: The Step-by-Step Guide Nobody Wrote Yet",
         "Using {a} for {b}: What Actually Works in 2026",
-        "The Right Way to Use {a} for {b} (With Real Examples)",
-        "{a} + {b}: The Workflow That's Saving Teams 10 Hours a Week",
+        "The Right Way to Use {a} for {b} (Real Examples)",
+        "{a} + {b}: The Workflow Saving Teams 10 Hours a Week",
     ],
     "for-profession": [
         "Best AI Tools for {a} in 2026 (I Use 3 of These Daily)",
-        "10 AI Tools Every {a} Should Know About in 2026",
+        "10 AI Tools Every {a} Should Know in 2026",
         "How {a} Are Using AI to 10x Their Output in 2026",
         "The AI Stack for {a}: What's Actually Worth Paying For",
-        "AI for {a}: The Tools That Replaced Half My Workflow",
+        "AI for {a}: Tools That Replaced Half My Workflow",
     ],
 }
 
 def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
     patterns = CTR_TITLE_PATTERNS.get(template, ["{a} — NewsTide Guide 2026"])
     pattern  = random.choice(patterns)
-    title = pattern.replace("{a}", entity_a).replace("{b}", entity_b or "")
-    title = smart_trim(title, TITLE_MAX)
-    # Ensure minimum length — append year if too short
+    title    = pattern.replace("{a}", entity_a).replace("{b}", entity_b or "")
+    title    = smart_trim(title, TITLE_MAX)
     if len(title) < TITLE_MIN:
         title = smart_trim(f"{title} — 2026 Guide", TITLE_MAX)
     return title
@@ -315,140 +342,134 @@ def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
 def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None) -> str:
     year = "2026"
 
-    base_rules = f"""
-You are a senior tech journalist writing for NewsTide, a premium English-language tech media.
-Audience: founders, developers, indie hackers. They are smart, busy, skeptical of hype.
-Tone: direct, opinionated, slightly informal — like a smart friend who has tested this stuff.
+    base_rules = f"""You are a senior tech journalist writing for NewsTide, a premium English-language tech media.
+Audience: founders, developers, indie hackers. Smart, busy, skeptical of hype.
+Tone: direct, opinionated, slightly informal — like a smart friend who tested this stuff.
 Year: {year}. Never reference years before {year} unless historically essential.
 
 STRUCTURE (markdown):
-- NO H1 — the title is handled separately
-- Introduction paragraph: lead with the real tension or the key insight. No "In today's digital world" BS.
-- Minimum {MIN_H2_SECTIONS} H2 sections, each substantive (150+ words)
+- NO H1 — title is handled separately
+- Introduction (no H2 header): lead with real tension or key insight. No "In today's digital world" openers.
+- Minimum {MIN_H2_SECTIONS} H2 sections, each 120+ words
 - H3 subsections where helpful
-- Concrete examples, real pricing data where applicable, personal takes
-- End with a "Bottom Line" or "Verdict" H2 with a clear recommendation
-- FAQ section at the end with 3-4 questions in H3 format (used for FAQPage schema)
+- Concrete examples, real pricing, personal takes
+- End with "## Verdict" or "## Bottom Line" with a clear recommendation
+- "## FAQ" at the end with 3 questions in H3 format (for FAQPage schema)
 
-MINIMUM {MIN_WORD_COUNT} WORDS. Short = rejected. Go deep.
+MINIMUM {MIN_WORD_COUNT} WORDS — short content will be rejected automatically.
 
 SEO:
-- Naturally use keyword "{keyword}" in first 100 words and 2-3 times total
-- Use related terms naturally (don't keyword-stuff)
-- Write for humans first, Google second
+- Use keyword "{keyword}" naturally in first 100 words and 2-3× total
+- Related terms naturally woven in, no stuffing
 
-At the very end, on its own line:
-EXCERPT: [one sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, irresistibly clickable, suitable as meta description]
+At the very end, single line:
+EXCERPT: [one punchy sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, suitable as Google meta description]
 """
 
     if template == "comparisons":
         b = entity_b or "competitor"
         return f"""{base_rules}
 
-ARTICLE TOPIC: "{title}"
+ARTICLE: "{title}"
 Keyword: {keyword}
 
-Write a genuine comparison of {entity_a} vs {b}.
+Write a genuine, opinionated comparison of {entity_a} vs {b}.
 
-REQUIRED SECTIONS:
-1. Why this comparison matters right now (intro — no H2)
-2. ## {entity_a} — What It's Actually Good At
-3. ## {b} — What It's Actually Good At
-4. ## Head-to-Head: Features, Pricing, Speed (use a markdown table)
-5. ## Who Should Use {entity_a}
-6. ## Who Should Use {b}
-7. ## Verdict: Which One Wins in 2026?
-8. ## FAQ
+REQUIRED SECTIONS (use exactly these H2 titles):
+## {entity_a} — What It Actually Does Well
+## {b} — What It Actually Does Well
+## Head-to-Head: Features, Pricing, Speed
+(include a markdown comparison table here)
+## Who Should Choose {entity_a}
+## Who Should Choose {b}
+## Verdict: Which One Wins in {year}?
+## FAQ
 
-Be HONEST. If one is clearly better for a use case, say so. Don't be neutral to the point of useless.
-Include realistic pricing as of {year}."""
+Be HONEST. Pick a winner for each use case. Include real {year} pricing."""
 
     elif template == "alternatives":
         return f"""{base_rules}
 
-ARTICLE TOPIC: "{title}"
+ARTICLE: "{title}"
 Keyword: {keyword}
 
 List and review the best alternatives to {entity_a}.
 
 REQUIRED SECTIONS:
-1. Why people look for {entity_a} alternatives (intro — no H2)
-2. ## The 7 Best Alternatives to {entity_a} in 2026
-   (for each: H3 with name, 2-3 paragraphs: what it does, pros/cons, pricing, best for)
-3. ## Quick Comparison Table (markdown table: Tool | Best For | Free Plan | Starting Price)
-4. ## How to Choose the Right Alternative
-5. ## Bottom Line
-6. ## FAQ
+## The 7 Best Alternatives to {entity_a} in {year}
+(for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)
+## Quick Comparison Table
+(markdown table: Tool | Best For | Free Plan | Starting Price)
+## How to Choose the Right {entity_a} Alternative
+## Bottom Line
+## FAQ
 
-Be specific. Real pricing. Real use cases. Don't just list tool names."""
+Real pricing. Real use cases. No fluff."""
 
     elif template == "guides":
-        b = entity_b or "this use case"
+        b = entity_b or "this task"
         return f"""{base_rules}
 
-ARTICLE TOPIC: "{title}"
+ARTICLE: "{title}"
 Keyword: {keyword}
 
-Write a practical guide on how to use {entity_a} for {b}.
+Write a practical, actionable guide on using {entity_a} for {b}.
 
 REQUIRED SECTIONS:
-1. Why {entity_a} is (or isn't) a good fit for {b} (intro — no H2)
-2. ## Getting Started: Setting Up {entity_a} for {b}
-3. ## The Core Workflow (step by step)
-4. ## Advanced Tips and Tricks
-5. ## Common Mistakes to Avoid
-6. ## Real Results: What Teams Are Actually Getting
-7. ## Bottom Line
-8. ## FAQ
+## Is {entity_a} the Right Tool for {b}?
+## Getting Started: Setup in Under 10 Minutes
+## The Core Workflow (Step by Step)
+## Advanced Tips That Actually Make a Difference
+## Common Mistakes and How to Avoid Them
+## Real Results: What Teams Are Getting
+## Bottom Line
+## FAQ
 
-Include specific prompts, workflows, or settings where applicable. Make it actionable."""
+Include specific prompts, settings, or workflows. Be concrete."""
 
     else:  # for-profession
         b = entity_b or "professionals"
-        if entity_b and entity_b in AI_TOOLS:
-            # tool for profession
+        if entity_b and entity_b in ALL_TOOLS:
             return f"""{base_rules}
 
-ARTICLE TOPIC: "{title}"
+ARTICLE: "{title}"
 Keyword: {keyword}
 
-Explore why (or why not) {entity_a} is worth it for {b}.
+Is {entity_a} actually useful for {b}? Give a real answer.
 
 REQUIRED SECTIONS:
-1. The real question: does {entity_a} actually help {b}? (intro — no H2)
-2. ## What {b} Actually Need From AI Tools
-3. ## How {entity_a} Fits Into a {b}'s Workflow
-4. ## The Biggest Wins for {b} Using {entity_a}
-5. ## Limitations and Frustrations
-6. ## Pricing: Is It Worth It for {b}?
-7. ## Verdict
-8. ## FAQ"""
+## What {b} Actually Need From AI Tools
+## Where {entity_a} Fits Into a {b}'s Workflow
+## The Real Wins for {b} Using {entity_a}
+## The Frustrations Nobody Talks About
+## Pricing: Is It Worth It for {b}?
+## Verdict
+## FAQ"""
         else:
-            # best AI tools for profession
             return f"""{base_rules}
 
-ARTICLE TOPIC: "{title}"
+ARTICLE: "{title}"
 Keyword: {keyword}
 
 List and review the best AI tools for {entity_a}.
 
 REQUIRED SECTIONS:
-1. How AI is changing the game for {entity_a} (intro — no H2)
-2. ## The 10 Best AI Tools for {entity_a} in 2026
-   (for each: H3 with tool name, 2 paragraphs: what it does, why it's great for {entity_a}, pricing)
-3. ## Tools That Didn't Make the Cut (and Why)
-4. ## How to Build Your AI Stack as a {entity_a}
-5. ## Bottom Line
-6. ## FAQ"""
+## How AI Is Changing the Game for {entity_a}
+## The 10 Best AI Tools for {entity_a} in {year}
+(for each: H3 with tool name, 2 paragraphs: what it does, why great for {entity_a}, pricing)
+## Tools That Didn't Make the Cut (and Why)
+## How to Build Your AI Stack as a {entity_a}
+## Bottom Line
+## FAQ"""
 
 
 def generate_page(candidate: dict) -> dict | None:
-    template  = candidate["template"]
-    entity_a  = candidate["entity_a"]
-    entity_b  = candidate.get("entity_b")
-    keyword   = candidate["keyword"]
+    template = candidate["template"]
+    entity_a = candidate["entity_a"]
+    entity_b = candidate.get("entity_b")
+    keyword  = candidate["keyword"]
 
-    title = pick_title(template, entity_a, entity_b)
+    title  = pick_title(template, entity_a, entity_b)
     print(f"  📝 Title: {title} ({len(title)} chars)")
 
     prompt = build_prompt(template, title, keyword, entity_a, entity_b)
@@ -460,13 +481,13 @@ def generate_page(candidate: dict) -> dict | None:
                 {"role": "system", "content": (
                     "You are a senior tech journalist and SEO expert. "
                     "Write authoritative, opinionated, deeply useful content. "
-                    "Never write filler. Every sentence must add value. "
-                    "Current year is 2026."
+                    "Never write filler. Every sentence adds value. "
+                    f"Current year is 2026. Minimum {MIN_WORD_COUNT} words required."
                 )},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.82,
-            max_tokens=3500,
+            temperature=0.80,
+            max_tokens=3800,
         )
         raw = resp.choices[0].message.content.strip()
         raw = strip_code_fences(raw)
@@ -485,27 +506,20 @@ def generate_page(candidate: dict) -> dict | None:
         return None
 
     return {
-        "title":    title,
-        "content":  raw,
-        "excerpt":  excerpt or smart_trim(title + " — Full guide for 2026 on NewsTide.", EXCERPT_MAX),
-        "keyword":  keyword,
+        "title":   title,
+        "content": raw,
+        "excerpt": excerpt or smart_trim(title + " — Full guide for 2026 on NewsTide.", EXCERPT_MAX),
+        "keyword": keyword,
     }
 
 
 # ── SAVE ──────────────────────────────────────────────────────────────────────
 
 def save_page(candidate: dict, generated: dict, page_index: int, spread_days: int) -> bool:
-    """
-    Saves to pseo_pages table.
-    published_at is spread across the next `spread_days` days to avoid
-    publishing 10 pages at the same timestamp (looks spammy to Google).
-    """
-    # Spread publication dates: e.g. 10 pages over 7 days = ~1.4/day
     offset_hours = int((page_index / max(1, spread_days)) * spread_days * 24)
     published_at = (datetime.now(timezone.utc) + timedelta(hours=offset_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     slug = candidate["slug"]
-    # Ensure slug uniqueness by appending hash fragment if needed
     if already_exists(slug):
         slug = f"{slug}-{md5(candidate['keyword'])[:6]}"
 
@@ -539,12 +553,9 @@ def save_page(candidate: dict, generated: dict, page_index: int, spread_days: in
 def main():
     parser = argparse.ArgumentParser(description="NewsTide pSEO Pipeline")
     parser.add_argument("--template", required=True,
-                        choices=["comparisons", "alternatives", "guides", "for-profession"],
-                        help="Which pSEO template to generate")
-    parser.add_argument("--batch", type=int, default=10,
-                        help="Number of pages to generate (default: 10)")
-    parser.add_argument("--spread-days", type=int, default=7,
-                        help="Spread publication over N days (default: 7)")
+                        choices=["comparisons", "alternatives", "guides", "for-profession"])
+    parser.add_argument("--batch",       type=int, default=10)
+    parser.add_argument("--spread-days", type=int, default=7)
     args = parser.parse_args()
 
     print(f"\n🚀 NewsTide pSEO Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -553,7 +564,6 @@ def main():
     print(f"   Spread   : over {args.spread_days} days")
     print("=" * 60)
 
-    # Generate candidate pool
     generator  = TEMPLATE_GENERATORS[args.template]
     candidates = generator(args.batch)
     print(f"\n📋 Candidate pool: {len(candidates)} items")
@@ -582,7 +592,7 @@ def main():
         if saved:
             published.append(generated["title"])
             print(f"  ✅ [{len(published)}/{args.batch}] Done")
-            time.sleep(1.5)  # rate limit courtesy
+            time.sleep(1.5)
 
     print(f"\n{'='*60}")
     print(f"🎉 pSEO Pipeline finished: {len(published)} pages generated")
