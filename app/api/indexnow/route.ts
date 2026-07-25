@@ -1,39 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Call this endpoint after publishing a new article to notify Bing instantly
-// POST /api/indexnow  body: { urls: string[] }
-// Also callable with a single url: { url: string }
+const KEY = '964bf589528b466cace60749e05cfcb6'
+const HOST = 'www.newstide.news'
+const KEY_LOCATION = `https://${HOST}/${KEY}.txt`
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null)
-    if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+    const { urls } = await req.json()
 
-    const key = '8be78df6f0af4417832b40b1192ffc0d'
-    const host = 'www.newstide.news'
-    const keyLocation = `https://${host}/${key}.txt`
-
-    const urlList: string[] = body.urls ?? (body.url ? [body.url] : [])
-    if (urlList.length === 0) {
-      return NextResponse.json({ error: 'No URLs provided' }, { status: 400 })
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return NextResponse.json({ error: 'urls array required' }, { status: 400 })
     }
 
-    const payload = {
-      host,
-      key,
-      keyLocation,
-      urlList,
+    const body = {
+      host: HOST,
+      key: KEY,
+      keyLocation: KEY_LOCATION,
+      urlList: urls,
     }
 
-    const res = await fetch('https://api.indexnow.org/indexnow', {
+    const res = await fetch('https://api.indexnow.org/IndexNow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     })
 
-    console.log('[indexnow] Bing response:', res.status)
-    return NextResponse.json({ ok: true, status: res.status, urls: urlList })
+    if (res.ok) {
+      return NextResponse.json({ success: true, submitted: urls.length })
+    } else {
+      const text = await res.text()
+      return NextResponse.json({ error: text, status: res.status }, { status: 502 })
+    }
   } catch (err) {
-    console.error('[indexnow] Error:', err)
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
