@@ -73,6 +73,31 @@ AUTHORS = [
     "Pedro Sánchez", "Sofía Jiménez", "Luis Torres"
 ]
 
+# ── INDEXNOW ──────────────────────────────────────────────────────────────────
+INDEXNOW_KEY      = "964bf589528b466cace60749e05cfcb6"
+INDEXNOW_HOST     = "www.newstide.news"
+INDEXNOW_KEY_LOC  = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
+
+def ping_indexnow(urls: list) -> None:
+    """Notify Bing/IndexNow about new URLs. Non-blocking — never crashes the pipeline."""
+    if not urls:
+        return
+    try:
+        resp = requests.post(
+            "https://api.indexnow.org/IndexNow",
+            json={
+                "host": INDEXNOW_HOST,
+                "key": INDEXNOW_KEY,
+                "keyLocation": INDEXNOW_KEY_LOC,
+                "urlList": urls,
+            },
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            timeout=10,
+        )
+        print(f"  🔍 IndexNow: {resp.status_code} — pinged {len(urls)} URL(s)")
+    except Exception as e:
+        print(f"  ⚠️  IndexNow ping failed (non-critical): {e}")
+
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def smart_trim(text: str, limit: int) -> str:
     text = re.sub(r"\s+", " ", (text or "").strip())
@@ -147,7 +172,6 @@ def is_truncated(content_en: str, content_es: str) -> bool:
 
 # ── COST GUARD ────────────────────────────────────────────────────────────────
 class CostLimitExceeded(Exception):
-    """Raised when a hard cost limit is hit — aborts the pipeline cleanly."""
     pass
 
 def _check_claude_budget(output_tokens: int = 0) -> None:
@@ -213,7 +237,6 @@ def format_recent_context(articles: list[dict]) -> str:
 
 # ── SOURCE 1: SERPAPI TRENDING NEWS ──────────────────────────────────────────
 def fetch_serpapi_news() -> list[str]:
-    # Focused on high-impression content types: funding rounds, AI product launches, stats
     queries = [
         "AI startup funding round million 2026",
         "OpenAI Anthropic Claude launch announcement today",
@@ -242,7 +265,6 @@ def fetch_serpapi_news() -> list[str]:
 
 # ── SOURCE 2: SERPAPI TRENDING SEARCHES ──────────────────────────────────────
 def fetch_serpapi_trends() -> list[str]:
-    # Targeting US audience — where 70% of impressions come from
     queries = [
         "AI tools make money online 2026",
         "best AI startup to watch 2026",
@@ -270,7 +292,6 @@ def fetch_serpapi_trends() -> list[str]:
 
 # ── SOURCE 3: FUNDING NEWS SPECIFIC ──────────────────────────────────────────
 def fetch_funding_news() -> list[str]:
-    """Dedicated source for VC/funding stories — highest-impression content type."""
     queries = [
         "AI startup Series A funding 2026 million announced",
         "new AI unicorn valuation 2026",
@@ -703,9 +724,10 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         print(f"  ⚠️  reading_time={rt} < {MIN_READING_TIME} — forcing to {MIN_READING_TIME}")
         rt = MIN_READING_TIME
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    slug_es = slugify(title_es)
     data = {
         "title":           title_es,
-        "slug":            slugify(title_es),
+        "slug":            slug_es,
         "content":         content_es,
         "excerpt":         excerpt_es,
         "title_en":        title_en,
@@ -725,6 +747,10 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     try:
         supabase_client.table("articles").insert(data).execute()
         print(f"  ✅ Saved: {title_es[:70]}")
+        # ── Ping IndexNow so Bing indexes immediately ──
+        final_slug_en = slug_en or slugify_en(title_en)
+        urls_to_ping = [f"https://www.newstide.news/en/article/{final_slug_en}"]
+        ping_indexnow(urls_to_ping)
         return title_es
     except Exception as e:
         print(f"  ❌ Error saving: {e}")

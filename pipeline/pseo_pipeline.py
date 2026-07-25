@@ -25,6 +25,7 @@ import time
 import hashlib
 import argparse
 import random
+import requests
 from datetime import datetime, timezone, timedelta
 from openai import OpenAI
 from supabase import create_client
@@ -47,6 +48,31 @@ EXCERPT_MIN      = 120
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+# ── INDEXNOW ──────────────────────────────────────────────────────────────────
+INDEXNOW_KEY      = "964bf589528b466cace60749e05cfcb6"
+INDEXNOW_HOST     = "www.newstide.news"
+INDEXNOW_KEY_LOC  = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
+
+def ping_indexnow(urls: list) -> None:
+    """Notify Bing/IndexNow about new URLs. Non-blocking — never crashes the pipeline."""
+    if not urls:
+        return
+    try:
+        resp = requests.post(
+            "https://api.indexnow.org/IndexNow",
+            json={
+                "host": INDEXNOW_HOST,
+                "key": INDEXNOW_KEY,
+                "keyLocation": INDEXNOW_KEY_LOC,
+                "urlList": urls,
+            },
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            timeout=10,
+        )
+        print(f"  🔍 IndexNow: {resp.status_code} — pinged {len(urls)} URL(s)")
+    except Exception as e:
+        print(f"  ⚠️  IndexNow ping failed (non-critical): {e}")
+
 GRADIENTS = [
     "linear-gradient(135deg,#0d2a2e,#0d1a2e)",
     "linear-gradient(135deg,#1a0d2e,#2e0d1a)",
@@ -57,11 +83,6 @@ GRADIENTS = [
 ]
 
 # ── KEYWORD UNIVERSE ──────────────────────────────────────────────────────────
-# Tools grouped by CATEGORY so comparisons are always meaningful.
-# Categories are intentionally tight — only tools that users actually compare.
-# FIX: databases_backend split into two logical groups so we never get
-#      "PlanetScale vs Netlify" (database vs hosting — nobody searches that).
-
 TOOL_CATEGORIES = {
     "llm_chatbots": [
         "ChatGPT", "Claude", "Gemini", "Perplexity", "Mistral",
@@ -79,7 +100,6 @@ TOOL_CATEGORIES = {
         "Jasper", "Copy.ai", "Writesonic", "Rytr",
         "Grammarly", "Sudowrite", "Anyword",
     ],
-    # ✅ SPLIT: databases vs hosting — never mix these two
     "databases": [
         "Supabase", "PlanetScale", "Neon", "Firebase", "Xata", "Turso",
     ],
@@ -137,15 +157,7 @@ USE_CASES = [
 ]
 
 # ── LIVE DEDUPLICATION CACHE ──────────────────────────────────────────────────
-# FIX: load all existing entity pairs from Supabase at startup.
-# This prevents regenerating "Cursor vs Copilot" if it was done in a previous batch.
-
 def load_existing_pairs() -> set:
-    """
-    Returns a set of frozensets like {frozenset({'cursor', 'github copilot'})}
-    covering every comparison already in pseo_pages.
-    Also returns all existing slugs and keyword_hashes for dedup.
-    """
     existing = set()
     try:
         res = supabase_client.table("pseo_pages") \
@@ -164,10 +176,6 @@ def load_existing_pairs() -> set:
 # ── TEMPLATE ENGINES ──────────────────────────────────────────────────────────
 
 def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
-    """
-    X vs Y — only pairs tools within the SAME category.
-    Skips pairs already in Supabase (live dedup).
-    """
     candidates = []
     seen_pairs = set()
 
@@ -184,7 +192,7 @@ def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
                 if pair_key in seen_pairs:
                     continue
                 if pair_frozen in existing_pairs:
-                    continue  # already generated in a previous run
+                    continue
                 seen_pairs.add(pair_key)
                 slug = f"{slugify(a)}-vs-{slugify(b)}"
                 candidates.append({
@@ -381,9 +389,6 @@ def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
 
 def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None, category: str = "") -> str:
     year = "2026"
-
-    # FIX: explicit pricing honesty rules injected into every prompt.
-    # GPT-4o must hedge unknown prices instead of fabricating exact numbers.
     pricing_rules = """
 PRICING RULES (critical — violations will be rejected):
 - Only state prices you are confident are accurate as of 2026.
@@ -391,7 +396,6 @@ PRICING RULES (critical — violations will be rejected):
 - For tools with public free tiers, mention them. For enterprise-only tools, say "custom pricing".
 - Never write a price table with made-up numbers. Only include prices you know.
 """
-
     base_rules = f"""You are a senior tech journalist writing for NewsTide, a premium English-language tech media.
 Audience: founders, developers, indie hackers. Smart, busy, skeptical of hype.
 Tone: direct, opinionated, slightly informal — like a smart friend who tested this stuff.
@@ -430,237 +434,4 @@ Keyword: {keyword}
 Write a genuine, opinionated comparison of {entity_a} vs {b}.
 
 REQUIRED SECTIONS (use exactly these H2 titles):
-## {entity_a} — What It Actually Does Well
-## {b} — What It Actually Does Well
-## Head-to-Head: Features, Pricing, Speed
-(include a markdown comparison table — only use prices you are confident about, otherwise write "check website")
-## Who Should Choose {entity_a}
-## Who Should Choose {b}
-## Verdict: Which One Wins in {year}?
-## FAQ
-
-Be HONEST. Pick a winner for each use case. Use hedged pricing if uncertain."""
-
-    elif template == "alternatives":
-        return f"""{base_rules}
-
-ARTICLE: "{title}"
-Keyword: {keyword}
-
-List and review the best alternatives to {entity_a}.
-
-REQUIRED SECTIONS:
-## The 7 Best Alternatives to {entity_a} in {year}
-(for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)
-## Quick Comparison Table
-(markdown table: Tool | Best For | Free Plan | Starting Price — use "check website" if unsure of price)
-## How to Choose the Right {entity_a} Alternative
-## Bottom Line
-## FAQ
-
-Real use cases. No fluff. Hedge pricing you're unsure about."""
-
-    elif template == "guides":
-        b = entity_b or "this task"
-        return f"""{base_rules}
-
-ARTICLE: "{title}"
-Keyword: {keyword}
-
-Write a practical, actionable guide on using {entity_a} for {b}.
-
-REQUIRED SECTIONS:
-## Is {entity_a} the Right Tool for {b}?
-## Getting Started: Setup in Under 10 Minutes
-## The Core Workflow (Step by Step)
-## Advanced Tips That Actually Make a Difference
-## Common Mistakes and How to Avoid Them
-## Real Results: What Teams Are Getting
-## Bottom Line
-## FAQ
-
-Include specific prompts, settings, or workflows. Be concrete."""
-
-    else:  # for-profession
-        b = entity_b or "professionals"
-        if entity_b and entity_b in ALL_TOOLS:
-            return f"""{base_rules}
-
-ARTICLE: "{title}"
-Keyword: {keyword}
-
-Is {entity_a} actually useful for {b}? Give a real answer.
-
-REQUIRED SECTIONS:
-## What {b} Actually Need From AI Tools
-## Where {entity_a} Fits Into a {b}'s Workflow
-## The Real Wins for {b} Using {entity_a}
-## The Frustrations Nobody Talks About
-## Pricing: Is It Worth It for {b}?
-## Verdict
-## FAQ"""
-        else:
-            return f"""{base_rules}
-
-ARTICLE: "{title}"
-Keyword: {keyword}
-
-List and review the best AI tools for {entity_a}.
-
-REQUIRED SECTIONS:
-## How AI Is Changing the Game for {entity_a}
-## The 10 Best AI Tools for {entity_a} in {year}
-(for each: H3 with tool name, 2 paragraphs: what it does, why great for {entity_a}, pricing — hedge if unsure)
-## Tools That Didn't Make the Cut (and Why)
-## How to Build Your AI Stack as a {entity_a}
-## Bottom Line
-## FAQ"""
-
-
-def generate_page(candidate: dict) -> dict | None:
-    template = candidate["template"]
-    entity_a = candidate["entity_a"]
-    entity_b = candidate.get("entity_b")
-    keyword  = candidate["keyword"]
-    category = candidate.get("category", "")
-
-    title  = pick_title(template, entity_a, entity_b)
-    print(f"  📝 Title: {title} ({len(title)} chars)")
-
-    prompt = build_prompt(template, title, keyword, entity_a, entity_b, category)
-
-    try:
-        resp = openai_client.chat.completions.create(
-            model=MODEL_GENERATE,
-            messages=[
-                {"role": "system", "content": (
-                    "You are a senior tech journalist and SEO expert. "
-                    "Write authoritative, opinionated, deeply useful content. "
-                    "Never write filler. Every sentence adds value. "
-                    f"Current year is 2026. Minimum {MIN_WORD_COUNT} words required. "
-                    "IMPORTANT: Never invent specific pricing numbers you are not confident about. "
-                    "Use hedged language like 'around $X/month' or 'check their website' instead."
-                )},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.78,
-            max_tokens=3800,
-        )
-        raw = resp.choices[0].message.content.strip()
-        raw = strip_code_fences(raw)
-    except Exception as e:
-        print(f"  ❌ GPT-4o error: {e}")
-        return None
-
-    excerpt = ""
-    if "EXCERPT:" in raw:
-        parts   = raw.split("EXCERPT:")
-        raw     = parts[0].strip()
-        excerpt = normalize_excerpt(parts[1].strip())
-
-    if not validate_content(raw, label="generated"):
-        print("  ❌ Content failed validation — skipping")
-        return None
-
-    return {
-        "title":   title,
-        "content": raw,
-        "excerpt": excerpt or smart_trim(title + " — Full guide for 2026 on NewsTide.", EXCERPT_MAX),
-        "keyword": keyword,
-    }
-
-
-# ── SAVE ──────────────────────────────────────────────────────────────────────
-
-def save_page(candidate: dict, generated: dict, page_index: int, spread_days: int) -> bool:
-    offset_hours = int((page_index / max(1, spread_days)) * spread_days * 24)
-    published_at = (datetime.now(timezone.utc) + timedelta(hours=offset_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    slug = candidate["slug"]
-    if already_exists(slug):
-        slug = f"{slug}-{md5(candidate['keyword'])[:6]}"
-
-    data = {
-        "slug":           slug,
-        "template":       candidate["template"],
-        "entity_a":       candidate["entity_a"],
-        "entity_b":       candidate.get("entity_b"),
-        "keyword":        generated["keyword"],
-        "keyword_hash":   md5(generated["keyword"]),
-        "title":          generated["title"],
-        "content":        generated["content"],
-        "excerpt":        generated["excerpt"],
-        "reading_time":   reading_time(generated["content"]),
-        "image_gradient": GRADIENTS[page_index % len(GRADIENTS)],
-        "published_at":   published_at,
-        "lang":           "en",
-    }
-
-    try:
-        supabase_client.table("pseo_pages").insert(data).execute()
-        print(f"  ✅ Saved: {generated['title'][:70]} (publish: {published_at[:10]})")
-        return True
-    except Exception as e:
-        print(f"  ❌ Supabase error: {e}")
-        return False
-
-
-# ── MAIN ──────────────────────────────────────────────────────────────────────
-
-def main():
-    parser = argparse.ArgumentParser(description="NewsTide pSEO Pipeline")
-    parser.add_argument("--template", required=True,
-                        choices=["comparisons", "alternatives", "guides", "for-profession"])
-    parser.add_argument("--batch",       type=int, default=10)
-    parser.add_argument("--spread-days", type=int, default=7)
-    args = parser.parse_args()
-
-    print(f"\n🚀 NewsTide pSEO Pipeline — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"   Template : {args.template}")
-    print(f"   Batch    : {args.batch} pages")
-    print(f"   Spread   : over {args.spread_days} days")
-    print("=" * 60)
-
-    # Load existing pairs ONCE at startup — avoids duplicate API calls per candidate
-    print("\n🔍 Loading existing pages from Supabase for dedup...")
-    existing_pairs = load_existing_pairs()
-    print(f"   {len(existing_pairs)} existing entity pairs found — will skip these")
-
-    generator  = TEMPLATE_GENERATORS[args.template]
-    candidates = generator(args.batch, existing_pairs)
-    print(f"\n📋 Candidate pool: {len(candidates)} items (already-done pairs excluded)")
-
-    published = []
-    pool_idx  = 0
-
-    while len(published) < args.batch and pool_idx < len(candidates):
-        candidate = candidates[pool_idx]
-        pool_idx += 1
-
-        slug    = candidate["slug"]
-        keyword = candidate["keyword"]
-
-        print(f"\n[{len(published)+1}/{args.batch}] {keyword[:70]}")
-
-        if already_exists(slug) or already_exists_hash(keyword):
-            print("  ⏭️  Already exists — skipping")
-            continue
-
-        generated = generate_page(candidate)
-        if not generated:
-            continue
-
-        saved = save_page(candidate, generated, len(published), args.spread_days)
-        if saved:
-            published.append(generated["title"])
-            print(f"  ✅ [{len(published)}/{args.batch}] Done")
-            time.sleep(1.5)
-
-    print(f"\n{'='*60}")
-    print(f"🎉 pSEO Pipeline finished: {len(published)} pages generated")
-    for i, t in enumerate(published, 1):
-        print(f"   {i}. {t[:80]}")
-
-
-if __name__ == "__main__":
-    main()
+## {entity_a} — What It A
