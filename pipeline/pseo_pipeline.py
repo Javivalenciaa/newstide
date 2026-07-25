@@ -13,8 +13,8 @@ Strategy: English-first, low-authority domain tactics.
 - claude-sonnet-4-5 NOT used here — saves budget for daily news pipeline
 
 Usage (via GitHub Actions workflow_dispatch):
-  python pipeline/pseo_pipeline.py --template comparisons --batch 10
-  python pipeline/pseo_pipeline.py --template alternatives --batch 10
+  python pipeline/pseo_pipeline.py --template comparisons --batch 10 --spread-days 3
+  python pipeline/pseo_pipeline.py --template alternatives --batch 10 --spread-days 7
   python pipeline/pseo_pipeline.py --template guides --batch 10
   python pipeline/pseo_pipeline.py --template for-profession --batch 10
 """
@@ -187,7 +187,7 @@ def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
         for i in range(len(tools_shuffled)):
             for j in range(i + 1, len(tools_shuffled)):
                 a, b = tools_shuffled[i], tools_shuffled[j]
-                pair_key   = tuple(sorted([a.lower(), b.lower()]))
+                pair_key    = tuple(sorted([a.lower(), b.lower()]))
                 pair_frozen = frozenset([a.lower(), b.lower()])
                 if pair_key in seen_pairs:
                     continue
@@ -333,6 +333,16 @@ def validate_content(content: str, label: str = "") -> bool:
         print(f"  ✅ [{label}] {words} words, {h2s} H2 sections")
     return ok
 
+def spread_published_at(idx: int, total: int, spread_days: int) -> str:
+    """Distribute publication timestamps evenly across spread_days starting from now."""
+    now = datetime.now(timezone.utc)
+    if spread_days <= 1 or total <= 1:
+        return now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    total_seconds = spread_days * 24 * 3600
+    step_seconds  = total_seconds / max(total - 1, 1)
+    offset        = timedelta(seconds=idx * step_seconds)
+    return (now + offset).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 # ── SLUG/HASH DEDUPLICATION ───────────────────────────────────────────────────
 
 def already_exists(slug: str) -> bool:
@@ -390,42 +400,43 @@ def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
 def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None, category: str = "") -> str:
     year = "2026"
 
-    pricing_rules = """
-PRICING RULES (critical — violations will be rejected):
-- Only state prices you are confident are accurate as of 2026.
-- If you are NOT sure of the exact price, write: "pricing starts around $X/month" or "check their website for current pricing" — never invent specific numbers.
-- For tools with public free tiers, mention them. For enterprise-only tools, say "custom pricing".
-- Never write a price table with made-up numbers. Only include prices you know.
-"""
+    pricing_rules = (
+        "PRICING RULES (critical — violations will be rejected):\n"
+        "- Only state prices you are confident are accurate as of 2026.\n"
+        "- If you are NOT sure of the exact price, write: 'pricing starts around $X/month' "
+        "or 'check their website for current pricing' — never invent specific numbers.\n"
+        "- For tools with public free tiers, mention them. For enterprise-only tools, say 'custom pricing'.\n"
+        "- Never write a price table with made-up numbers. Only include prices you know.\n"
+    )
 
     base_rules = (
         "You are a senior tech journalist writing for NewsTide, a premium English-language tech media.\n"
         "Audience: founders, developers, indie hackers. Smart, busy, skeptical of hype.\n"
         "Tone: direct, opinionated, slightly informal — like a smart friend who tested this stuff.\n"
-        f"Year: {year}. Never reference years before {year} unless historically essential.\n"
-        f"\n{pricing_rules}\n"
+        f"Year: {year}. Never reference years before {year} unless historically essential.\n\n"
+        + pricing_rules + "\n"
         "STRUCTURE (markdown):\n"
         "- NO H1 — title is handled separately\n"
-        "- Introduction (no H2 header): lead with real tension or key insight. No \"In today's digital world\" openers.\n"
+        "- Introduction (no H2 header): lead with real tension or key insight. No 'In today's digital world' openers.\n"
         f"- Minimum {MIN_H2_SECTIONS} H2 sections, each 120+ words\n"
         "- H3 subsections where helpful\n"
         "- Concrete examples, real pricing (hedged if uncertain), personal takes\n"
-        "- End with \"## Verdict\" or \"## Bottom Line\" with a clear recommendation\n"
-        "- \"## FAQ\" at the end with 3 questions in H3 format (for FAQPage schema)\n"
-        "\n"
-        f"MINIMUM {MIN_WORD_COUNT} WORDS — short content will be rejected automatically.\n"
-        "\n"
+        "- End with '## Verdict' or '## Bottom Line' with a clear recommendation\n"
+        "- '## FAQ' at the end with 3 questions in H3 format (for FAQPage schema)\n\n"
+        f"MINIMUM {MIN_WORD_COUNT} WORDS — short content will be rejected automatically.\n\n"
         "SEO:\n"
         f"- Use keyword \"{keyword}\" naturally in first 100 words and 2-3x total\n"
-        "- Related terms naturally woven in, no stuffing\n"
-        "\n"
-        "At the very end, single line:\n"
+        "- Related terms naturally woven in, no stuffing\n\n"
+        f"At the very end, single line:\n"
         f"EXCERPT: [one punchy sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, suitable as Google meta description]\n"
     )
 
     if template == "comparisons":
         b = entity_b or "competitor"
-        category_hint = f"\nNote: both tools are in the '{category}' category — make sure the comparison is relevant and makes sense for users choosing between them." if category else ""
+        category_hint = (
+            f"\nNote: both tools are in the '{category}' category — "
+            "make sure the comparison is relevant and makes sense for users choosing between them."
+        ) if category else ""
         return (
             base_rules
             + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n{category_hint}\n\n"
@@ -434,7 +445,8 @@ PRICING RULES (critical — violations will be rejected):
             + f"## {entity_a} — What It Actually Does Well\n"
             + f"## {b} — What It Actually Does Well\n"
             + "## Head-to-Head: Features, Pricing, Speed\n"
-            + "(include a markdown comparison table — only use prices you are confident about, otherwise write \"check website\")\n"
+            + "(include a markdown comparison table — only use prices you are confident about, "
+            + "otherwise write 'check website')\n"
             + f"## Who Should Choose {entity_a}\n"
             + f"## Who Should Choose {b}\n"
             + f"## Verdict: Which One Wins in {year}?\n"
@@ -449,9 +461,9 @@ PRICING RULES (critical — violations will be rejected):
             + f"List and review the best alternatives to {entity_a}.\n\n"
             + "REQUIRED SECTIONS:\n"
             + f"## The 7 Best Alternatives to {entity_a} in {year}\n"
-            + f"(for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)\n"
+            + "(for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)\n"
             + "## Quick Comparison Table\n"
-            + "(markdown table: Tool | Best For | Free Plan | Starting Price — use \"check website\" if unsure of price)\n"
+            + "(markdown table: Tool | Best For | Free Plan | Starting Price — use 'check website' if unsure of price)\n"
             + f"## How to Choose the Right {entity_a} Alternative\n"
             + "## Bottom Line\n"
             + "## FAQ\n\n"
@@ -500,8 +512,9 @@ PRICING RULES (critical — violations will be rejected):
                 + "REQUIRED SECTIONS:\n"
                 + f"## How AI Is Changing the Game for {entity_a}\n"
                 + f"## The 10 Best AI Tools for {entity_a} in {year}\n"
-                + f"(for each: H3 with tool name, 2 paragraphs: what it does, why great for {entity_a}, pricing — hedge if unsure)\n"
-                + f"## Tools That Didn't Make the Cut (and Why)\n"
+                + "(for each: H3 with tool name, 2 paragraphs: what it does, "
+                + f"why great for {entity_a}, pricing — hedge if unsure)\n"
+                + "## Tools That Didn't Make the Cut (and Why)\n"
                 + f"## How to Build Your AI Stack as a {entity_a}\n"
                 + "## Bottom Line\n"
                 + "## FAQ"
@@ -593,7 +606,7 @@ def generate_page(candidate: dict) -> dict | None:
 
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 
-def save_page(page: dict, idx: int) -> bool:
+def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> bool:
     slug    = page["slug"]
     keyword = page["keyword"]
 
@@ -604,8 +617,8 @@ def save_page(page: dict, idx: int) -> bool:
         print(f"  ⏭️  Keyword hash already exists — skipping: {keyword}")
         return False
 
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    rt      = reading_time(page["content"])
+    published_at = spread_published_at(idx, total, spread_days)
+    rt           = reading_time(page["content"])
 
     data = {
         "title":          page["title"],
@@ -620,12 +633,12 @@ def save_page(page: dict, idx: int) -> bool:
         "category":       page.get("category", ""),
         "reading_time":   rt,
         "image_gradient": GRADIENTS[idx % len(GRADIENTS)],
-        "published_at":   now_iso,
+        "published_at":   published_at,
     }
 
     try:
         supabase_client.table("pseo_pages").insert(data).execute()
-        print(f"  ✅ Saved: {page['title'][:70]}")
+        print(f"  ✅ Saved [{published_at[:10]}]: {page['title'][:70]}")
         # ── Ping IndexNow so Bing indexes immediately ──
         pseo_url = f"https://www.newstide.news/compare/{slug}"
         ping_indexnow([pseo_url])
@@ -639,13 +652,30 @@ def save_page(page: dict, idx: int) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="NewsTide pSEO Pipeline")
-    parser.add_argument("--template", choices=list(TEMPLATE_GENERATORS.keys()), required=True)
-    parser.add_argument("--batch",    type=int, default=10)
+    parser.add_argument(
+        "--template",
+        choices=list(TEMPLATE_GENERATORS.keys()),
+        required=True,
+        help="pSEO template to run",
+    )
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=10,
+        help="Number of pages to generate",
+    )
+    parser.add_argument(
+        "--spread-days",
+        type=int,
+        default=1,
+        dest="spread_days",
+        help="Spread publication timestamps over N days (anti-spam SEO signal)",
+    )
     args = parser.parse_args()
 
     print(f"\n🚀 pSEO Pipeline — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
-    print(f"🎯 Target: {args.batch} pages")
+    print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s)")
 
     print("\n📚 Loading existing pairs from Supabase...")
     existing_pairs = load_existing_pairs()
@@ -666,7 +696,7 @@ def main():
         slug    = candidate["slug"]
         keyword = candidate["keyword"]
 
-        print(f"\n[{saved_count+1}/{args.batch}] {keyword[:70]}")
+        print(f"\n[{saved_count + 1}/{args.batch}] {keyword[:70]}")
 
         if already_exists(slug):
             print(f"  ⏭️  Already exists (slug) — skipping")
@@ -680,13 +710,13 @@ def main():
             print(f"  ❌ Generation failed — skipping")
             continue
 
-        ok = save_page(page, idx=saved_count)
+        ok = save_page(page, idx=saved_count, spread_days=args.spread_days, total=args.batch)
         if ok:
             saved_count += 1
             if saved_count < args.batch:
                 time.sleep(1)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🎉 pSEO Pipeline finished: {saved_count}/{args.batch} pages saved")
     print(f"   Candidates tried: {tried_count}")
 
