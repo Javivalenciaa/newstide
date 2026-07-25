@@ -201,7 +201,7 @@ def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
                     "keyword":  f"{a} vs {b}",
                     "entity_a": a,
                     "entity_b": b,
-                    "category": category,
+                    "category": category,  # used for prompt only, not saved to DB
                 })
 
     random.shuffle(candidates)
@@ -417,7 +417,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
         + pricing_rules + "\n"
         "STRUCTURE (markdown):\n"
         "- NO H1 — title is handled separately\n"
-        "- Introduction (no H2 header): lead with real tension or key insight. No 'In today's digital world' openers.\n"
+        "- Introduction (no H2 header): lead with real tension or key insight. No 'In today’s digital world' openers.\n"
         f"- Minimum {MIN_H2_SECTIONS} H2 sections, each 120+ words\n"
         "- H3 subsections where helpful\n"
         "- Concrete examples, real pricing (hedged if uncertain), personal takes\n"
@@ -427,7 +427,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
         "SEO:\n"
         f"- Use keyword \"{keyword}\" naturally in first 100 words and 2-3x total\n"
         "- Related terms naturally woven in, no stuffing\n\n"
-        f"At the very end, single line:\n"
+        "At the very end, single line:\n"
         f"EXCERPT: [one punchy sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, suitable as Google meta description]\n"
     )
 
@@ -599,7 +599,7 @@ def generate_page(candidate: dict) -> dict | None:
         "entity_a": entity_a,
         "entity_b": entity_b,
         "template": template,
-        "category": category,
+        "category": category,  # kept for internal use, not written to DB
         "slug":     candidate["slug"],
     }
 
@@ -620,6 +620,7 @@ def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> boo
     published_at = spread_published_at(idx, total, spread_days)
     rt           = reading_time(page["content"])
 
+    # NOTE: 'category' is intentionally excluded — column does not exist in pseo_pages
     data = {
         "title":          page["title"],
         "slug":           slug,
@@ -630,7 +631,6 @@ def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> boo
         "template":       page["template"],
         "entity_a":       page["entity_a"],
         "entity_b":       page.get("entity_b"),
-        "category":       page.get("category", ""),
         "reading_time":   rt,
         "image_gradient": GRADIENTS[idx % len(GRADIENTS)],
         "published_at":   published_at,
