@@ -9,8 +9,7 @@ Strategy: English-first, low-authority domain tactics.
 - Long-tail, low-competition keywords (< 1k monthly searches)
 - High commercial intent: "X vs Y", "best alternatives to X", "X for [profession]"
 - ZERO SerpAPI calls — purely template-driven (no extra API cost)
-- GPT-4o for generation (cheap + fast)
-- claude-sonnet-4-5 NOT used here — saves budget for daily news pipeline
+- GPT-4.1 for generation (instruction-following + cost-efficient)
 
 Usage (via GitHub Actions workflow_dispatch):
   python pipeline/pseo_pipeline.py --template comparisons --batch 10 --spread-days 3
@@ -35,15 +34,35 @@ OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
-MODEL_GENERATE  = "gpt-4o"
-MODEL_FAST      = "gpt-4o-mini"
+# gpt-4.1: better instruction-following than gpt-4o, same cost range
+MODEL_GENERATE  = "gpt-4.1"
+MODEL_RETRY     = "gpt-4.1"  # same model, higher tokens on retry
 
-MIN_WORD_COUNT   = 800
+MIN_WORD_COUNT   = 900
 MIN_H2_SECTIONS  = 4
 TITLE_MAX        = 62
 TITLE_MIN        = 48
 EXCERPT_MAX      = 155
 EXCERPT_MIN      = 120
+
+# Cliché openers that indicate low-quality AI content
+FORBIDDEN_OPENERS = [
+    "in the ever-evolving",
+    "in today's",
+    "in the fast-paced",
+    "navigating the",
+    "as ai continues",
+    "as technology continues",
+    "in the rapidly",
+    "in the world of",
+    "in the landscape of",
+    "the world of",
+    "it's no secret",
+    "let's dive",
+    "let's delve",
+    "look no further",
+    "whether you're a",
+]
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -201,7 +220,7 @@ def generate_comparison_candidates(n: int, existing_pairs: set) -> list[dict]:
                     "keyword":  f"{a} vs {b}",
                     "entity_a": a,
                     "entity_b": b,
-                    "category": category,  # used for prompt only, not saved to DB
+                    "category": category,
                 })
 
     random.shuffle(candidates)
@@ -311,7 +330,7 @@ def normalize_excerpt(text: str) -> str:
     return cut.strip(" -:;,.") + "."
 
 def reading_time(text: str) -> int:
-    return max(5, round(len(text.split()) / 200))
+    return max(1, round(len(text.split()) / 200))
 
 def strip_code_fences(text: str) -> str:
     text = text.strip()
@@ -332,6 +351,15 @@ def validate_content(content: str, label: str = "") -> bool:
     if ok:
         print(f"  ✅ [{label}] {words} words, {h2s} H2 sections")
     return ok
+
+def validate_opener(content: str, label: str = "") -> bool:
+    """Reject content that starts with a known cliché opener."""
+    first_200 = content[:200].lower()
+    for phrase in FORBIDDEN_OPENERS:
+        if first_200.startswith(phrase) or first_200.startswith("\n" + phrase):
+            print(f"  ❌ [{label}] Cliché opener detected: '{phrase[:40]}...'")
+            return False
+    return True
 
 def spread_published_at(idx: int, total: int, spread_days: int) -> str:
     """Distribute publication timestamps evenly across spread_days starting from now."""
@@ -395,129 +423,187 @@ def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
         title = smart_trim(f"{title} — 2026 Guide", TITLE_MAX)
     return title
 
+# ── SYSTEM PROMPT ───────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """
+You are a senior tech journalist writing for NewsTide, a premium English-language tech publication.
+Audience: developers, indie hackers, solo founders. Smart, busy, skeptical of hype.
+Year: 2026. Everything you write must reflect the current AI/dev tool landscape as of 2026.
+
+TONE
+- Direct, opinionated, slightly informal. Like a smart friend who actually used the tools.
+- No filler. Every sentence must add real value.
+- Use contractions (it's, you're, don't). Write like a human, not a press release.
+
+OPENER RULES — CRITICAL, STRICTLY ENFORCED:
+Your first sentence MUST NOT start with any of these patterns (instant rejection):
+- "In the ever-evolving..."
+- "In today's..."
+- "In the fast-paced..."
+- "Navigating the..."
+- "As AI continues..."
+- "As technology continues..."
+- "Whether you're a..."
+- "It's no secret that..."
+- "Let's dive..."
+- "Let's delve..."
+- "Look no further..."
+Instead, start with: a sharp observation, a real tension, a number/stat, or a direct verdict.
+Example good openers:
+- "Jasper costs $49/month. That's the first thing most teams question when they evaluate it."
+- "Three things keep developers from committing to Cursor: price, privacy, and offline support."
+- "Picking the wrong deployment platform at seed stage can cost you 40 hours of migration work later."
+
+TOOL ACCURACY — CRITICAL:
+- Only mention tools that are actively maintained and well-known in 2026.
+- DO NOT include: Bard AI (renamed Gemini), Peppertype.ai (defunct), DeepArt, Artbreeder, CodeStream (acquired/inactive), or any tool you are not confident is active.
+- For AI code editors, the main players are: Cursor, Windsurf, GitHub Copilot, Codeium, Tabnine, Bolt, Lovable, Replit AI. Use these, not generic IDEs.
+- For LLMs: ChatGPT, Claude, Gemini, Perplexity, Mistral, Grok, Llama, Command R+. Never list deprecated models.
+
+PRICING RULES — CRITICAL:
+- Only state prices you are highly confident are accurate as of 2026.
+- If uncertain: write "pricing starts around $X/month" or "check their website for current pricing".
+- Never invent exact prices for tools you're unsure about.
+- Never write a price table with made-up numbers.
+- Always mention free tiers where they exist (e.g., Cursor has a free tier, GitHub Copilot is ~$10/month).
+
+STRUCTURE:
+- NO H1 — the title is injected separately
+- Introduction paragraph (no H2): start with the sharp opener, establish the real tension or insight
+- Minimum 4 H2 sections, each 120+ words
+- H3 subsections where helpful
+- End with ## Verdict or ## Bottom Line with a clear, opinionated recommendation
+- ## FAQ at the very end, exactly 3 questions in H3 format
+
+MINIMUM 900 WORDS — non-negotiable.
+
+SEO:
+- Use the target keyword naturally in the first 100 words and 2-3 times total
+- Weave in related terms naturally, no stuffing
+
+FINAL LINE (required):
+EXCERPT: [one punchy, specific sentence, 120-155 chars, suitable as Google meta description. No generic phrases.]
+""".strip()
+
 # ── CONTENT GENERATION ────────────────────────────────────────────────────────
 
 def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None, category: str = "") -> str:
     year = "2026"
 
-    pricing_rules = (
-        "PRICING RULES (critical — violations will be rejected):\n"
-        "- Only state prices you are confident are accurate as of 2026.\n"
-        "- If you are NOT sure of the exact price, write: 'pricing starts around $X/month' "
-        "or 'check their website for current pricing' — never invent specific numbers.\n"
-        "- For tools with public free tiers, mention them. For enterprise-only tools, say 'custom pricing'.\n"
-        "- Never write a price table with made-up numbers. Only include prices you know.\n"
-    )
-
-    base_rules = (
-        "You are a senior tech journalist writing for NewsTide, a premium English-language tech media.\n"
-        "Audience: founders, developers, indie hackers. Smart, busy, skeptical of hype.\n"
-        "Tone: direct, opinionated, slightly informal — like a smart friend who tested this stuff.\n"
-        f"Year: {year}. Never reference years before {year} unless historically essential.\n\n"
-        + pricing_rules + "\n"
-        "STRUCTURE (markdown):\n"
-        "- NO H1 — title is handled separately\n"
-        "- Introduction (no H2 header): lead with real tension or key insight. No 'In today’s digital world' openers.\n"
-        f"- Minimum {MIN_H2_SECTIONS} H2 sections, each 120+ words\n"
-        "- H3 subsections where helpful\n"
-        "- Concrete examples, real pricing (hedged if uncertain), personal takes\n"
-        "- End with '## Verdict' or '## Bottom Line' with a clear recommendation\n"
-        "- '## FAQ' at the end with 3 questions in H3 format (for FAQPage schema)\n\n"
-        f"MINIMUM {MIN_WORD_COUNT} WORDS — short content will be rejected automatically.\n\n"
-        "SEO:\n"
-        f"- Use keyword \"{keyword}\" naturally in first 100 words and 2-3x total\n"
-        "- Related terms naturally woven in, no stuffing\n\n"
-        "At the very end, single line:\n"
-        f"EXCERPT: [one punchy sentence, {EXCERPT_MIN}-{EXCERPT_MAX} chars, suitable as Google meta description]\n"
-    )
-
     if template == "comparisons":
         b = entity_b or "competitor"
         category_hint = (
-            f"\nNote: both tools are in the '{category}' category — "
-            "make sure the comparison is relevant and makes sense for users choosing between them."
+            f"Note: both tools are in the '{category}' category — "
+            "ensure the comparison is specific to that use case context."
         ) if category else ""
         return (
-            base_rules
-            + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n{category_hint}\n\n"
-            + f"Write a genuine, opinionated comparison of {entity_a} vs {b}.\n\n"
-            + "REQUIRED SECTIONS (use exactly these H2 titles):\n"
-            + f"## {entity_a} — What It Actually Does Well\n"
-            + f"## {b} — What It Actually Does Well\n"
-            + "## Head-to-Head: Features, Pricing, Speed\n"
-            + "(include a markdown comparison table — only use prices you are confident about, "
-            + "otherwise write 'check website')\n"
-            + f"## Who Should Choose {entity_a}\n"
-            + f"## Who Should Choose {b}\n"
-            + f"## Verdict: Which One Wins in {year}?\n"
-            + "## FAQ\n\n"
-            + "Be HONEST. Pick a winner for each use case. Use hedged pricing if uncertain."
+            f"Write the article: \"{title}\"\n"
+            f"Target keyword: {keyword}\n"
+            f"{category_hint}\n\n"
+            f"Compare {entity_a} vs {b} honestly and specifically. No generic comparisons.\n\n"
+            "REQUIRED H2 SECTIONS (use exactly these):\n"
+            f"## {entity_a} — What It Actually Does Well\n"
+            f"## {b} — What It Actually Does Well\n"
+            "## Head-to-Head: Features, Pricing, Speed\n"
+            "   Include a markdown table. Only use pricing you are confident about; otherwise 'check website'.\n"
+            f"## Who Should Pick {entity_a}\n"
+            f"## Who Should Pick {b}\n"
+            f"## Verdict: The Winner for {year}\n"
+            "## FAQ (3 H3 questions specific to this comparison)\n\n"
+            "Requirements:\n"
+            "- Pick a clear winner for each use case. Don't sit on the fence.\n"
+            "- Mention specific features, limits, or quirks from personal testing perspective.\n"
+            f"- Minimum 900 words."
         )
 
     elif template == "alternatives":
         return (
-            base_rules
-            + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n\n"
-            + f"List and review the best alternatives to {entity_a}.\n\n"
-            + "REQUIRED SECTIONS:\n"
-            + f"## The 7 Best Alternatives to {entity_a} in {year}\n"
-            + "(for each alternative: H3 with name, 2 paragraphs covering what it does, pros/cons, pricing, best for)\n"
-            + "## Quick Comparison Table\n"
-            + "(markdown table: Tool | Best For | Free Plan | Starting Price — use 'check website' if unsure of price)\n"
-            + f"## How to Choose the Right {entity_a} Alternative\n"
-            + "## Bottom Line\n"
-            + "## FAQ\n\n"
-            + "Real use cases. No fluff. Hedge pricing you're unsure about."
+            f"Write the article: \"{title}\"\n"
+            f"Target keyword: {keyword}\n\n"
+            f"List and honestly review the best alternatives to {entity_a} as of {year}.\n"
+            f"Only include tools that are actively maintained and directly compete with {entity_a}.\n\n"
+            "REQUIRED H2 SECTIONS:\n"
+            f"## Why Teams Are Moving Away From {entity_a}\n"
+            f"   (real reasons: pricing, missing features, UX friction — be specific)\n"
+            f"## The Best {entity_a} Alternatives in {year}\n"
+            f"   For each alternative (7 total), write an H3 with the tool name, then cover:\n"
+            "   - What it does better than {entity_a}\n"
+            "   - Real limitations\n"
+            "   - Pricing (hedged if uncertain)\n"
+            "   - Who it's best for\n"
+            "## Quick Comparison Table\n"
+            "   Columns: Tool | Best For | Free Plan | Starting Price\n"
+            f"## How to Choose the Right {entity_a} Alternative\n"
+            "## Bottom Line\n"
+            "## FAQ (3 H3 questions)\n\n"
+            "Requirements:\n"
+            "- DO NOT pad with defunct or barely-relevant tools to reach 7. Only real, active, direct competitors.\n"
+            "- Start the article with a sharp observation about why someone would leave {entity_a}.\n"
+            f"- Minimum 900 words."
         )
 
     elif template == "guides":
         b = entity_b or "this task"
         return (
-            base_rules
-            + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n\n"
-            + f"Write a practical, actionable guide on using {entity_a} for {b}.\n\n"
-            + "REQUIRED SECTIONS:\n"
-            + f"## Is {entity_a} the Right Tool for {b}?\n"
-            + "## Getting Started: Setup in Under 10 Minutes\n"
-            + "## The Core Workflow (Step by Step)\n"
-            + "## Advanced Tips That Actually Make a Difference\n"
-            + "## Common Mistakes and How to Avoid Them\n"
-            + "## Real Results: What Teams Are Getting\n"
-            + "## Bottom Line\n"
-            + "## FAQ\n\n"
-            + "Include specific prompts, settings, or workflows. Be concrete."
+            f"Write the article: \"{title}\"\n"
+            f"Target keyword: {keyword}\n\n"
+            f"Write a practical, step-by-step guide on using {entity_a} for {b}.\n\n"
+            "REQUIRED H2 SECTIONS:\n"
+            f"## Is {entity_a} Actually the Right Tool for {b}?\n"
+            "   (honest assessment — when it works, when it doesn't)\n"
+            "## Setup: Get Running in Under 10 Minutes\n"
+            "   (real steps, specific settings, not generic instructions)\n"
+            "## The Core Workflow (Step by Step)\n"
+            "   (include specific prompts, configurations, or examples)\n"
+            "## Advanced Techniques That Actually Move the Needle\n"
+            "## The Mistakes Everyone Makes (and How to Avoid Them)\n"
+            "## Bottom Line\n"
+            "## FAQ (3 H3 questions)\n\n"
+            "Requirements:\n"
+            "- Be concrete. Include actual example prompts or workflow steps.\n"
+            "- Mention real limitations of using {entity_a} for {b}.\n"
+            f"- Minimum 900 words."
         )
 
     else:  # for-profession
         b = entity_b or "professionals"
         if entity_b and entity_b in ALL_TOOLS:
+            # Tool + profession angle
             return (
-                base_rules
-                + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n\n"
-                + f"Is {entity_a} actually useful for {b}? Give a real answer.\n\n"
-                + "REQUIRED SECTIONS:\n"
-                + f"## What {b} Actually Need From AI Tools\n"
-                + f"## Where {entity_a} Fits Into a {b}'s Workflow\n"
-                + f"## The Real Wins for {b} Using {entity_a}\n"
-                + "## The Frustrations Nobody Talks About\n"
-                + f"## Pricing: Is It Worth It for {b}?\n"
-                + "## Verdict\n"
-                + "## FAQ"
+                f"Write the article: \"{title}\"\n"
+                f"Target keyword: {keyword}\n\n"
+                f"Is {entity_a} actually worth it for {b}? Give a real, opinionated answer.\n\n"
+                "REQUIRED H2 SECTIONS:\n"
+                f"## What {b} Actually Need From an AI Tool\n"
+                f"## Where {entity_a} Fits Into a {b}'s Workflow\n"
+                f"## The Real Wins: What {b} Use It For Daily\n"
+                "   (specific use cases with concrete examples)\n"
+                "## The Honest Drawbacks for This Use Case\n"
+                f"## Pricing Reality for {b}\n"
+                "## Verdict\n"
+                "## FAQ (3 H3 questions)\n\n"
+                f"- Minimum 900 words."
             )
         else:
+            # Best tools for a profession
             return (
-                base_rules
-                + f"\n\nARTICLE: \"{title}\"\nKeyword: {keyword}\n\n"
-                + f"List and review the best AI tools for {entity_a}.\n\n"
-                + "REQUIRED SECTIONS:\n"
-                + f"## How AI Is Changing the Game for {entity_a}\n"
-                + f"## The 10 Best AI Tools for {entity_a} in {year}\n"
-                + "(for each: H3 with tool name, 2 paragraphs: what it does, "
-                + f"why great for {entity_a}, pricing — hedge if unsure)\n"
-                + "## Tools That Didn't Make the Cut (and Why)\n"
-                + f"## How to Build Your AI Stack as a {entity_a}\n"
-                + "## Bottom Line\n"
-                + "## FAQ"
+                f"Write the article: \"{title}\"\n"
+                f"Target keyword: {keyword}\n\n"
+                f"List and review the best AI tools for {entity_a} as of {year}.\n"
+                "Only include tools that are actively maintained and specifically useful for this audience.\n\n"
+                "REQUIRED H2 SECTIONS:\n"
+                f"## How AI Is Actually Changing Work for {entity_a}\n"
+                "   (concrete examples, not generic hype)\n"
+                f"## The Best AI Tools for {entity_a} in {year}\n"
+                f"   For each tool (8-10 total), write an H3 with the name, then:\n"
+                f"   - What it does specifically for {entity_a}\n"
+                "   - Real-world use case\n"
+                "   - Pricing (hedged if uncertain)\n"
+                "## Tools That Didn't Make the Cut (and Why)\n"
+                f"## How to Build Your AI Stack as a {entity_a}\n"
+                "## Bottom Line\n"
+                "## FAQ (3 H3 questions)\n\n"
+                f"- Minimum 900 words."
             )
 
 
@@ -533,27 +619,24 @@ def generate_page(candidate: dict) -> dict | None:
 
     prompt = build_prompt(template, title, keyword, entity_a, entity_b, category)
 
-    try:
-        resp = openai_client.chat.completions.create(
-            model=MODEL_GENERATE,
-            messages=[
-                {"role": "system", "content": (
-                    "You are a senior tech journalist and SEO expert. "
-                    "Write authoritative, opinionated, deeply useful content. "
-                    "Never write filler. Every sentence adds value. "
-                    f"Current year is 2026. Minimum {MIN_WORD_COUNT} words required. "
-                    "IMPORTANT: Never invent specific pricing numbers you are not confident about. "
-                    "Use hedged language like 'around $X/month' or 'check their website'."
-                )},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.75,
-            max_tokens=4000,
-        )
-        raw = resp.choices[0].message.content.strip()
-        raw = strip_code_fences(raw)
-    except Exception as e:
-        print(f"  ❌ GPT error: {e}")
+    def call_model(max_tokens: int, temperature: float) -> str | None:
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_GENERATE,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return strip_code_fences(resp.choices[0].message.content.strip())
+        except Exception as e:
+            print(f"  ❌ GPT error: {e}")
+            return None
+
+    raw = call_model(max_tokens=4500, temperature=0.7)
+    if raw is None:
         return None
 
     excerpt = ""
@@ -562,34 +645,38 @@ def generate_page(candidate: dict) -> dict | None:
         raw     = parts[0].strip()
         excerpt = normalize_excerpt(parts[1].strip())
 
+    # Validate: word count + H2 count
     if not validate_content(raw, label=keyword[:40]):
-        print(f"  ⚠️  Content too short — retrying once with higher token limit...")
-        try:
-            resp2 = openai_client.chat.completions.create(
-                model=MODEL_GENERATE,
-                messages=[
-                    {"role": "system", "content": (
-                        "You are a senior tech journalist. Write LONG, thorough, exhaustive content. "
-                        f"Minimum {MIN_WORD_COUNT} words — absolutely required. Every section must be detailed."
-                    )},
-                    {"role": "user", "content": prompt + f"\n\nREMINDER: Write at least {MIN_WORD_COUNT} words. Do not stop early."},
-                ],
-                temperature=0.7,
-                max_tokens=4500,
-            )
-            raw2 = strip_code_fences(resp2.choices[0].message.content.strip())
-            if "EXCERPT:" in raw2:
-                parts2  = raw2.split("EXCERPT:")
-                raw2    = parts2[0].strip()
-                excerpt = normalize_excerpt(parts2[1].strip())
-            if validate_content(raw2, label=f"{keyword[:40]}-retry"):
-                raw = raw2
-            else:
-                print(f"  ❌ Retry also failed — skipping this candidate")
-                return None
-        except Exception as e:
-            print(f"  ❌ Retry GPT error: {e}")
+        print(f"  ⚠️  Content too short — retrying with more tokens...")
+        raw2 = call_model(
+            max_tokens=5000,
+            temperature=0.65,
+        )
+        if raw2 is None:
             return None
+        if "EXCERPT:" in raw2:
+            parts2  = raw2.split("EXCERPT:")
+            raw2    = parts2[0].strip()
+            excerpt = normalize_excerpt(parts2[1].strip())
+        if not validate_content(raw2, label=f"{keyword[:40]}-retry"):
+            print(f"  ❌ Retry also failed — skipping")
+            return None
+        raw = raw2
+
+    # Validate: opener quality
+    if not validate_opener(raw, label=keyword[:40]):
+        print(f"  ⚠️  Cliché opener — retrying once...")
+        raw3 = call_model(max_tokens=4500, temperature=0.8)
+        if raw3 is None:
+            return None
+        if "EXCERPT:" in raw3:
+            parts3  = raw3.split("EXCERPT:")
+            raw3    = parts3[0].strip()
+            excerpt = normalize_excerpt(parts3[1].strip())
+        if not validate_opener(raw3, label=f"{keyword[:40]}-opener-retry"):
+            print(f"  ⚠️  Still cliché after retry — accepting anyway (check manually)")
+        else:
+            raw = raw3
 
     return {
         "title":    title,
@@ -599,7 +686,7 @@ def generate_page(candidate: dict) -> dict | None:
         "entity_a": entity_a,
         "entity_b": entity_b,
         "template": template,
-        "category": category,  # kept for internal use, not written to DB
+        "category": category,
         "slug":     candidate["slug"],
     }
 
@@ -620,7 +707,7 @@ def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> boo
     published_at = spread_published_at(idx, total, spread_days)
     rt           = reading_time(page["content"])
 
-    # NOTE: 'category' is intentionally excluded — column does not exist in pseo_pages
+    # NOTE: 'category' intentionally excluded — column does not exist in pseo_pages
     data = {
         "title":          page["title"],
         "slug":           slug,
@@ -639,7 +726,6 @@ def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> boo
     try:
         supabase_client.table("pseo_pages").insert(data).execute()
         print(f"  ✅ Saved [{published_at[:10]}]: {page['title'][:70]}")
-        # ── Ping IndexNow so Bing indexes immediately ──
         pseo_url = f"https://www.newstide.news/compare/{slug}"
         ping_indexnow([pseo_url])
         return True
@@ -675,7 +761,7 @@ def main():
 
     print(f"\n🚀 pSEO Pipeline — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
-    print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s)")
+    print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s) | Model: {MODEL_GENERATE}")
 
     print("\n📚 Loading existing pairs from Supabase...")
     existing_pairs = load_existing_pairs()
