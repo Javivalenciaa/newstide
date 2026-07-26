@@ -11,6 +11,11 @@ Strategy: English-first, low-authority domain tactics.
 - ZERO SerpAPI calls — purely template-driven (no extra API cost)
 - GPT-4.1 for generation (instruction-following + cost-efficient)
 
+Upgrades v2:
+- CTR Title Agent: psychological CTR expert generates titles dynamically (no fixed patterns)
+- Advanced Humanizer Agent: breaks perplexity, burstiness, n-gram and discourse marker
+  AI fingerprints based on 2026 detection research
+
 Usage (via GitHub Actions workflow_dispatch):
   python pipeline/pseo_pipeline.py --template comparisons --batch 10 --spread-days 3
   python pipeline/pseo_pipeline.py --template alternatives --batch 10 --spread-days 7
@@ -34,9 +39,9 @@ OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
-# gpt-4.1: better instruction-following than gpt-4o, same cost range
 MODEL_GENERATE  = "gpt-4.1"
-MODEL_RETRY     = "gpt-4.1"  # same model, higher tokens on retry
+MODEL_TITLES    = "gpt-4.1"        # CTR Title Agent
+MODEL_HUMANIZE  = "gpt-4o"         # Advanced Humanizer Agent (best at style transfer)
 
 MIN_WORD_COUNT   = 900
 MIN_H2_SECTIONS  = 4
@@ -45,7 +50,9 @@ TITLE_MIN        = 48
 EXCERPT_MAX      = 155
 EXCERPT_MIN      = 120
 
-# Cliché openers that indicate low-quality AI content
+# ── AI DETECTION: FORBIDDEN PATTERNS ─────────────────────────────────────────
+# These are the exact linguistic fingerprints that GPTZero, Originality.ai,
+# and Copyleaks flag in 2026 (low perplexity tokens + overused discourse markers)
 FORBIDDEN_OPENERS = [
     "in the ever-evolving",
     "in today's",
@@ -64,6 +71,42 @@ FORBIDDEN_OPENERS = [
     "whether you're a",
 ]
 
+# High-frequency AI discourse markers that raise burstiness detection scores
+AI_CLICHE_MARKERS = [
+    "it's worth noting",
+    "it is worth noting",
+    "it's important to note",
+    "it is important to note",
+    "needless to say",
+    "at the end of the day",
+    "in conclusion",
+    "to summarize",
+    "in summary",
+    "in a nutshell",
+    "this comprehensive guide",
+    "dive deep into",
+    "delve into",
+    "game-changer",
+    "game changer",
+    "cutting-edge",
+    "groundbreaking",
+    "revolutionize",
+    "transformative",
+    "seamlessly",
+    "robust solution",
+    "leverage",           # AI loves this word
+    "utilize",            # AI loves this word
+    "furthermore",        # classic AI discourse marker
+    "moreover",           # classic AI discourse marker
+    "in addition to",
+    "it is crucial",
+    "it is essential",
+    "plays a crucial role",
+    "plays an important role",
+    "a wide range of",
+    "a variety of",
+]
+
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -73,7 +116,6 @@ INDEXNOW_HOST     = "www.newstide.news"
 INDEXNOW_KEY_LOC  = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
 
 def ping_indexnow(urls: list) -> None:
-    """Notify Bing/IndexNow about new URLs. Non-blocking — never crashes the pipeline."""
     if not urls:
         return
     try:
@@ -353,7 +395,6 @@ def validate_content(content: str, label: str = "") -> bool:
     return ok
 
 def validate_opener(content: str, label: str = "") -> bool:
-    """Reject content that starts with a known cliché opener."""
     first_200 = content[:200].lower()
     for phrase in FORBIDDEN_OPENERS:
         if first_200.startswith(phrase) or first_200.startswith("\n" + phrase):
@@ -361,8 +402,11 @@ def validate_opener(content: str, label: str = "") -> bool:
             return False
     return True
 
+def count_ai_markers(content: str) -> int:
+    lower = content.lower()
+    return sum(1 for marker in AI_CLICHE_MARKERS if marker in lower)
+
 def spread_published_at(idx: int, total: int, spread_days: int) -> str:
-    """Distribute publication timestamps evenly across spread_days starting from now."""
     now = datetime.now(timezone.utc)
     if spread_days <= 1 or total <= 1:
         return now.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -381,47 +425,225 @@ def already_exists_hash(keyword: str) -> bool:
     res = supabase_client.table("pseo_pages").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
 
-# ── TITLE PATTERNS ────────────────────────────────────────────────────────────
+# ── CTR TITLE AGENT ───────────────────────────────────────────────────────────
+# Generates psychologically optimized titles dynamically.
+# Based on 2026 research on click psychology: curiosity gaps, loss aversion,
+# social proof, specificity, and pattern interruption.
 
-CTR_TITLE_PATTERNS = {
-    "comparisons": [
-        "{a} vs {b}: The Honest Verdict for Developers (2026)",
-        "{a} vs {b} in 2026: I Tested Both So You Don't Have To",
-        "{a} vs {b}: Which One Saves More Money for Startups?",
-        "{a} vs {b}: The Feature Breakdown Nobody Shows You",
-        "{a} or {b}? A Solo Founder's Honest Take in 2026",
-    ],
-    "alternatives": [
-        "7 Best Alternatives to {a} in 2026 (Free + Paid)",
-        "Top {a} Alternatives for Developers Who Need More",
-        "I Tried 9 {a} Alternatives — Here Are the 4 Worth It",
-        "Best {a} Alternatives in 2026: Ranked by Real Teams",
-        "Tired of {a}? 6 Alternatives Better for Founders",
-    ],
-    "guides": [
-        "How to Use {a} for {b} in 2026 (Full Walkthrough)",
-        "{a} for {b}: The Step-by-Step Guide Nobody Wrote Yet",
-        "Using {a} for {b}: What Actually Works in 2026",
-        "The Right Way to Use {a} for {b} (Real Examples)",
-        "{a} + {b}: The Workflow Saving Teams 10 Hours a Week",
-    ],
-    "for-profession": [
-        "Best AI Tools for {a} in 2026 (I Use 3 of These Daily)",
-        "10 AI Tools Every {a} Should Know in 2026",
-        "How {a} Are Using AI to 10x Their Output in 2026",
-        "The AI Stack for {a}: What's Actually Worth Paying For",
-        "AI for {a}: Tools That Replaced Half My Workflow",
-    ],
-}
+CTR_AGENT_SYSTEM = """You are a world-class headline copywriter and CTR optimization expert.
+You have studied 10 million Google Search clicks and know exactly what makes people click.
 
-def pick_title(template: str, entity_a: str, entity_b: str | None) -> str:
-    patterns = CTR_TITLE_PATTERNS.get(template, ["{a} — NewsTide Guide 2026"])
-    pattern  = random.choice(patterns)
-    title    = pattern.replace("{a}", entity_a).replace("{b}", entity_b or "")
-    title    = smart_trim(title, TITLE_MAX)
-    if len(title) < TITLE_MIN:
-        title = smart_trim(f"{title} — 2026 Guide", TITLE_MAX)
-    return title
+YOUR EXPERTISE:
+- Curiosity gap: reveal just enough to create unbearable curiosity
+- Loss aversion: people click to avoid missing out or making expensive mistakes
+- Specificity: concrete numbers and names beat vague promises every time
+- Pattern interruption: break expected formats to stand out in SERP
+- Emotional contrast: tension, surprise, the "wait, what?" moment
+- Social proof with stakes: "5 YC startups switched", "saves $800/month"
+
+PSYCHOLOGICAL LEVERS YOU USE:
+1. The Reveal: "The real reason X beats Y" — implies hidden truth
+2. The Warning: "Why most people get X wrong" — fear of being wrong
+3. The Insider: "What nobody tells you about X" — exclusive knowledge
+4. The Data Shock: "X costs 3x more than Y — here's the math" — numbers create authority
+5. The Verdict After Testing: "I used both for 30 days — here's what happened"
+6. The Counterintuitive: "X is worse than Y — unless you're a developer"
+7. The Stakes Raiser: "The wrong choice here costs startups $2k/month"
+
+STRICT RULES:
+- Title MUST be between 48 and 62 characters (count carefully)
+- NEVER use: "game-changer", "revolutionize", "comprehensive", "ultimate guide"
+- NEVER start with "How to" unless it's for guides template and has a number or twist
+- No clickbait that can't be delivered in the article
+- Make every word earn its place — cut mercilessly
+- The title should make someone stop scrolling and think "I need to read this NOW"
+
+Output ONLY the title text. No quotes, no explanation."""
+
+def generate_ctr_title(template: str, entity_a: str, entity_b: str | None, keyword: str) -> str:
+    """CTR Title Agent: generates a psychologically optimized title using GPT."""
+
+    b = entity_b or ""
+
+    template_context = {
+        "comparisons": f"""You're writing a comparison article: {entity_a} vs {b}
+Audience: developers, indie hackers, startup founders who need to choose between these two tools.
+They've probably already Googled this — your title needs to beat every other result.
+
+Generate ONE killer title that:
+- Makes them feel they'll FINALLY get a clear answer
+- Implies you've done the work they haven't
+- Uses tension, a number, or a surprising angle
+- Is between 48-62 characters
+
+Examples of the energy you want (adapt, don't copy):
+- "Cursor vs Copilot: I Tested Both for 6 Months. Here's the Truth"  [too long, adapt]
+- "n8n vs Zapier: The Real Cost Difference Nobody Calculates"
+- "Supabase vs Firebase: Which Saves More Money at Scale?"
+- "Claude vs ChatGPT: The Benchmark That Surprised 3 YC Teams"
+""",
+        "alternatives": f"""You're writing an alternatives article for: {entity_a}
+Audience: developers or founders frustrated with {entity_a} who are actively looking to switch.
+They're in "research mode" — your title needs to promise relief and a clear answer.
+
+Generate ONE title that:
+- Validates their frustration with {entity_a}
+- Promises specific, tested alternatives
+- Uses a number (7, 5, 9) or a surprising qualifier
+- Is between 48-62 characters
+
+Examples of the energy (adapt, don't copy):
+- "7 {entity_a} Alternatives That Don't Break After Free Tier"
+- "Tired of {entity_a}? These 5 Switch in Under an Hour"
+- "The {entity_a} Alternatives 4 Founders Actually Switched To"
+""",
+        "guides": f"""You're writing a guide: how to use {entity_a} for {b}
+Audience: busy developers or founders who want real results fast, not theory.
+They've seen a hundred "how to" guides — yours needs to promise something different.
+
+Generate ONE title that:
+- Implies a shortcut, a real result, or a specific outcome
+- Has a number or a time frame if it fits naturally
+- Is concrete about what they'll achieve
+- Is between 48-62 characters
+
+Examples of the energy (adapt, don't copy):
+- "{entity_a} for {b}: The 20-Minute Setup That Actually Works"
+- "How to Use {entity_a} for {b} (and Cut Your Time in Half)"
+- "{entity_a} + {b}: The Workflow 500 Developers Are Using"
+""",
+        "for-profession": f"""You're writing a tools roundup for: {entity_a} (profession/audience)
+Target reader: a {entity_a} who wants to use AI to work better, faster, or earn more.
+They see "best tools" lists every day — your title needs a sharper angle.
+
+Generate ONE title that:
+- Speaks directly to a {entity_a}'s specific pain or goal
+- Is opinionated and specific (not generic "best tools")
+- Uses a number or a qualifying phrase that creates contrast
+- Is between 48-62 characters
+
+Examples of the energy (adapt, don't copy):
+- "AI Tools for {entity_a}: The 6 That Are Worth Paying For"
+- "How {entity_a} Use AI to Ship 3x Faster in 2026"
+- "The AI Stack Every {entity_a} Needs — and 4 to Skip"
+""",
+    }
+
+    context = template_context.get(template, f"Write a killer title for: {keyword}")
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_TITLES,
+            messages=[
+                {"role": "system", "content": CTR_AGENT_SYSTEM},
+                {"role": "user",   "content": context},
+            ],
+            temperature=0.9,
+            max_tokens=80,
+        )
+        raw_title = resp.choices[0].message.content.strip().strip('"').strip("'")
+        # Enforce hard character limit
+        title = smart_trim(raw_title, TITLE_MAX)
+        # Enforce minimum length — pad with year context if too short
+        if len(title) < TITLE_MIN:
+            title = smart_trim(f"{title} — 2026", TITLE_MAX)
+        print(f"  🎯 CTR Title Agent: \"{title}\" ({len(title)} chars)")
+        return title
+    except Exception as e:
+        print(f"  ⚠️  CTR Title Agent error: {e} — using keyword as fallback")
+        return smart_trim(keyword.title(), TITLE_MAX)
+
+
+# ── ADVANCED HUMANIZER AGENT ──────────────────────────────────────────────────
+# Breaks the 4 main AI detection signals identified in 2026 research:
+# 1. Low perplexity — predictable word choices
+# 2. Low burstiness — uniform sentence lengths
+# 3. AI discourse markers — "furthermore", "moreover", "it's worth noting"
+# 4. N-gram fingerprints — repeated syntactic patterns from LLM training data
+
+HUMANIZER_SYSTEM = """You are an expert editor who has studied exactly how AI text detectors work in 2026.
+
+HOW AI DETECTORS CATCH AI TEXT (what you must break):
+
+1. LOW PERPLEXITY: AI picks the most predictable word every time.
+   FIX: Swap expected words for surprising-but-correct alternatives.
+   "The tool is very useful" → "The tool earns its keep."
+   "This can help you save time" → "This buys you back hours."
+   "It is important to" → "You'll want to" or just delete it.
+
+2. UNIFORM BURSTINESS (coefficient of variation < 0.30 = AI detected):
+   AI writes sentences of similar length (15-20 words each).
+   FIX: Violently vary sentence length. Mix 3-word punches with complex compound sentences.
+   "Short. Then a much longer one that builds, adds context, and lands somewhere unexpected."
+   Target: vary between 4-word sentences and 35-word sentences within the same paragraph.
+
+3. DISCOURSE MARKERS — AI fingerprints (replace ALL of these):
+   "furthermore" → "and here's the thing" / "what's more" / cut entirely
+   "moreover" → "on top of that" / "also" / restructure
+   "it's worth noting" → "something people miss:" / cut
+   "it is important to note" → just say the thing directly
+   "in conclusion" → "bottom line:" / "so where does that leave you?"
+   "to summarize" → don't summarize, end with a punch
+   "leverage" → "use" / "tap into" / "pull from"
+   "utilize" → "use" (always)
+   "seamlessly" → delete or replace with specific behavior
+   "robust" → "solid" / "battle-tested" / be specific
+   "cutting-edge" → name the actual feature
+   "game-changer" → explain WHY it changes things specifically
+
+4. N-GRAM REPETITION (LLM syntactic fingerprints):
+   AI repeats sentence structures: "X is Y. X does Z. X can help with..."
+   FIX: Vary how you introduce each point. Mix:
+   - Questions: "What does this mean for your workflow?"
+   - Fragments: "Not ideal. Especially if you're on a tight budget."
+   - Parentheticals: "The API (which runs on gpt-4.1 under the hood) handles this automatically."
+   - Direct address: "If you're a solo founder, this matters more than you think."
+   - Em dashes for interruption: "The free tier — 500 requests/month — covers most indie projects."
+
+5. PARAGRAPH LENGTH UNIFORMITY:
+   AI writes uniform paragraph sizes (3-4 sentences each).
+   FIX: Mix single-sentence paragraphs with dense multi-sentence ones.
+   One-liner paragraphs create visual rhythm and feel human.
+
+WHAT NOT TO DO:
+- Don't change facts, data, tool names, or the article's conclusions
+- Don't add fake personal anecdotes you can't verify
+- Don't make the article sound casual if the original is authoritative
+- Don't remove markdown headers — keep all ## and ### structure
+
+OUTPUT: Return ONLY the rewritten article. No explanations, no preamble."""
+
+def humanize_content(content: str, label: str = "") -> str:
+    """Advanced Humanizer Agent: breaks AI detection patterns."""
+    print(f"  🧬 Humanizer Agent running on [{label}]...")
+
+    marker_count = count_ai_markers(content)
+    if marker_count > 0:
+        print(f"     Found {marker_count} AI markers to eliminate")
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_HUMANIZE,
+            messages=[
+                {"role": "system", "content": HUMANIZER_SYSTEM},
+                {"role": "user",   "content": content},
+            ],
+            temperature=0.85,
+            max_tokens=5500,
+        )
+        humanized = resp.choices[0].message.content.strip()
+        humanized = strip_code_fences(humanized)
+
+        # Verify markers were reduced
+        new_marker_count = count_ai_markers(humanized)
+        reduction = marker_count - new_marker_count
+        print(f"     AI markers: {marker_count} → {new_marker_count} (eliminated {reduction})")
+
+        return humanized
+    except Exception as e:
+        print(f"  ⚠️  Humanizer error: {e} — returning original")
+        return content
+
 
 # ── SYSTEM PROMPT ───────────────────────────────────────────────────────────
 
@@ -568,7 +790,6 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
     else:  # for-profession
         b = entity_b or "professionals"
         if entity_b and entity_b in ALL_TOOLS:
-            # Tool + profession angle
             return (
                 f"Write the article: \"{title}\"\n"
                 f"Target keyword: {keyword}\n\n"
@@ -585,7 +806,6 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
                 f"- Minimum 900 words."
             )
         else:
-            # Best tools for a profession
             return (
                 f"Write the article: \"{title}\"\n"
                 f"Target keyword: {keyword}\n\n"
@@ -614,8 +834,10 @@ def generate_page(candidate: dict) -> dict | None:
     keyword  = candidate["keyword"]
     category = candidate.get("category", "")
 
-    title  = pick_title(template, entity_a, entity_b)
-    print(f"  📝 Title: {title} ({len(title)} chars)")
+    # ── Step 1: CTR Title Agent ───────────────────────────────────────────────
+    title = generate_ctr_title(template, entity_a, entity_b, keyword)
+
+    print(f"  📝 Generating content for: {title}")
 
     prompt = build_prompt(template, title, keyword, entity_a, entity_b, category)
 
@@ -635,6 +857,7 @@ def generate_page(candidate: dict) -> dict | None:
             print(f"  ❌ GPT error: {e}")
             return None
 
+    # ── Step 2: Generate raw content ─────────────────────────────────────────
     raw = call_model(max_tokens=4500, temperature=0.7)
     if raw is None:
         return None
@@ -648,10 +871,7 @@ def generate_page(candidate: dict) -> dict | None:
     # Validate: word count + H2 count
     if not validate_content(raw, label=keyword[:40]):
         print(f"  ⚠️  Content too short — retrying with more tokens...")
-        raw2 = call_model(
-            max_tokens=5000,
-            temperature=0.65,
-        )
+        raw2 = call_model(max_tokens=5000, temperature=0.65)
         if raw2 is None:
             return None
         if "EXCERPT:" in raw2:
@@ -678,9 +898,17 @@ def generate_page(candidate: dict) -> dict | None:
         else:
             raw = raw3
 
+    # ── Step 3: Advanced Humanizer Agent ─────────────────────────────────────
+    humanized = humanize_content(raw, label=keyword[:40])
+
+    # Validate content wasn't broken by humanizer
+    if not validate_content(humanized, label=f"{keyword[:40]}-humanized"):
+        print(f"  ⚠️  Humanizer broke content length — using pre-humanize version")
+        humanized = raw
+
     return {
         "title":    title,
-        "content":  raw,
+        "content":  humanized,
         "excerpt":  excerpt,
         "keyword":  keyword,
         "entity_a": entity_a,
@@ -707,7 +935,6 @@ def save_page(page: dict, idx: int, spread_days: int = 1, total: int = 1) -> boo
     published_at = spread_published_at(idx, total, spread_days)
     rt           = reading_time(page["content"])
 
-    # NOTE: 'category' intentionally excluded — column does not exist in pseo_pages
     data = {
         "title":          page["title"],
         "slug":           slug,
@@ -759,9 +986,10 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"\n🚀 pSEO Pipeline — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"\n🚀 pSEO Pipeline v2 — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
-    print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s) | Model: {MODEL_GENERATE}")
+    print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s)")
+    print(f"🤖 Models: Generate={MODEL_GENERATE} | Titles={MODEL_TITLES} | Humanize={MODEL_HUMANIZE}")
 
     print("\n📚 Loading existing pairs from Supabase...")
     existing_pairs = load_existing_pairs()
@@ -803,7 +1031,7 @@ def main():
                 time.sleep(1)
 
     print(f"\n{'=' * 60}")
-    print(f"🎉 pSEO Pipeline finished: {saved_count}/{args.batch} pages saved")
+    print(f"🎉 pSEO Pipeline v2 finished: {saved_count}/{args.batch} pages saved")
     print(f"   Candidates tried: {tried_count}")
 
 
