@@ -7,6 +7,7 @@ import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
 export const revalidate = 300
+export const dynamicParams = true
 
 const FIN_CAT_COLORS: Record<string, string> = {
   'Saving Money':  '#6ecfca',
@@ -131,7 +132,6 @@ export default async function FinanceArticlePage({
   const excerpt = article.excerpt_en || article.excerpt
   const url     = `https://www.newstide.news/en/fin/${article.slug_en}`
 
-  // Related articles from same category
   const { data: related } = await supabase
     .from('finance_articles')
     .select('title_en, title, slug_en, category, published_at')
@@ -140,7 +140,6 @@ export default async function FinanceArticlePage({
     .order('published_at', { ascending: false })
     .limit(6)
 
-  // Latest finance articles
   const { data: latest } = await supabase
     .from('finance_articles')
     .select('title_en, title, slug_en')
@@ -215,6 +214,15 @@ export default async function FinanceArticlePage({
       <div className="container">
         <div className="article-body-grid">
           <article>
+            {article.cover_image_url && (
+              <div style={{ margin: '0 0 32px' }}>
+                <img
+                  src={article.cover_image_url}
+                  alt={title}
+                  style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }}
+                />
+              </div>
+            )}
             <ReactMarkdown
               components={{
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
@@ -241,12 +249,10 @@ export default async function FinanceArticlePage({
               {content}
             </ReactMarkdown>
 
-            {/* Editorial note */}
             <div style={{ marginTop: 48, padding: '16px 20px', background: 'rgba(110,207,202,0.05)', border: '1px solid rgba(110,207,202,0.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
               <strong style={{ color: 'var(--cyan)' }}>Editorial note:</strong> This article was produced with AI assistance and reviewed by Javier Valencia for accuracy. Content is for informational purposes only — not financial advice. <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Read our editorial policy.</Link>
             </div>
 
-            {/* Related in same category */}
             {related && related.length > 0 && (
               <div style={{ marginTop: 48 }}>
                 <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 20, color: 'var(--text)' }}>More on {article.category}</h2>
@@ -268,7 +274,6 @@ export default async function FinanceArticlePage({
           </article>
 
           <aside>
-            {/* Author card */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Author</div>
               <Link href={AUTHOR_PAGE_EN} style={{ textDecoration: 'none' }}>
@@ -283,7 +288,6 @@ export default async function FinanceArticlePage({
               <Link href="/en/editorial-policy" style={{ fontSize: 12, color: 'var(--cyan)' }}>Editorial policy →</Link>
             </div>
 
-            {/* Article details */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Details</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 2.2 }}>
@@ -293,7 +297,6 @@ export default async function FinanceArticlePage({
               </div>
             </div>
 
-            {/* Latest finance articles */}
             {latest && latest.length > 0 && (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 16 }}>
                 <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Latest Finance</div>
@@ -308,14 +311,12 @@ export default async function FinanceArticlePage({
               </div>
             )}
 
-            {/* Newsletter */}
             <div style={{ background: 'linear-gradient(135deg, rgba(110,207,202,0.08), rgba(155,140,239,0.08))', border: '1px solid rgba(110,207,202,0.2)', borderRadius: 14, padding: 24 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>✉️ Newsletter</div>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>Weekly finance tips in your inbox.</p>
               <NewsletterForm compact />
             </div>
 
-            {/* Share */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Share</div>
               <ShareButtons url={url} title={title} />
