@@ -16,6 +16,12 @@ Upgrades v2:
 - Advanced Humanizer Agent: breaks perplexity, burstiness, n-gram and discourse marker
   AI fingerprints based on 2026 detection research
 
+Fixes v2.1:
+- Title truncation guard: regenerate if title ends mid-word or on dangling verb/preposition
+- Title/count consistency: number in title MUST match number of items listed in article
+- No invented model versions: banned list of unverified product names
+- No invented prices: stricter hedging rules enforced at prompt level
+
 Usage (via GitHub Actions workflow_dispatch):
   python pipeline/pseo_pipeline.py --template comparisons --batch 10 --spread-days 3
   python pipeline/pseo_pipeline.py --template alternatives --batch 10 --spread-days 7
@@ -106,6 +112,49 @@ AI_CLICHE_MARKERS = [
     "a wide range of",
     "a variety of",
 ]
+
+# ── FIX #1: TITLE TRUNCATION GUARD ───────────────────────────────────────────
+# Words that signal a title was hard-cut mid-thought.
+# If the title ends with any of these, it needs regeneration.
+TITLE_DANGLING_ENDINGS = {
+    # prepositions
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "into",
+    "about", "after", "before", "between", "through", "over", "under",
+    # conjunctions / articles
+    "and", "or", "but", "the", "a", "an",
+    # common dangling verbs
+    "is", "are", "was", "were", "be", "been", "have", "has", "do", "does",
+    "use", "get", "make", "take", "give", "know", "see", "need", "try",
+    # adverbs that signal an incomplete thought
+    "actually", "really", "finally", "just", "still", "even", "already",
+    # articles / determiners that indicate cut
+    "their", "your", "our", "its", "this", "that", "these", "those",
+}
+
+def title_is_truncated(title: str) -> bool:
+    """Return True if the title looks like it was cut mid-thought."""
+    if not title:
+        return True
+    last_word = title.rstrip(".,!?—").rsplit(" ", 1)[-1].lower()
+    return last_word in TITLE_DANGLING_ENDINGS
+
+
+# ── FIX #2: TITLE/COUNT CONSISTENCY ──────────────────────────────────────────
+# Extract the leading number from a title like "7 Haystack Alternatives..."
+# so we can pass it to the prompt and enforce the count in the content.
+NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+def extract_title_count(title: str) -> int | None:
+    """Return the leading number in a title, or None if there isn't one."""
+    m = re.match(r'^(\d+)', title.strip())
+    if m:
+        return int(m.group(1))
+    first_word = title.strip().split()[0].lower() if title.strip() else ""
+    return NUMBER_WORDS.get(first_word)
+
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -451,17 +500,23 @@ PSYCHOLOGICAL LEVERS YOU USE:
 7. The Stakes Raiser: "The wrong choice here costs startups $2k/month"
 
 STRICT RULES:
-- Title MUST be between 48 and 62 characters (count carefully)
+- Title MUST be between 48 and 62 characters (count EVERY character carefully before responding)
+- The title must be a COMPLETE, grammatically finished sentence or phrase — never cut off mid-word or end on a preposition, conjunction, article, or dangling verb
+- NEVER end the title with words like: "actually", "and", "or", "but", "the", "a", "an", "in", "on", "at", "to", "for", "of", "with", "by", "their", "your", "that", "this"
 - NEVER use: "game-changer", "revolutionize", "comprehensive", "ultimate guide"
 - NEVER start with "How to" unless it's for guides template and has a number or twist
 - No clickbait that can't be delivered in the article
 - Make every word earn its place — cut mercilessly
 - The title should make someone stop scrolling and think "I need to read this NOW"
 
+Before outputting, mentally check: is this title complete? Does it end on a strong word? Is it 48-62 chars?
+
 Output ONLY the title text. No quotes, no explanation."""
 
 def generate_ctr_title(template: str, entity_a: str, entity_b: str | None, keyword: str) -> str:
-    """CTR Title Agent: generates a psychologically optimized title using GPT."""
+    """CTR Title Agent: generates a psychologically optimized title using GPT.
+    Includes truncation guard: retries up to 3 times if title ends mid-thought.
+    """
 
     b = entity_b or ""
 
@@ -474,10 +529,9 @@ Generate ONE killer title that:
 - Makes them feel they'll FINALLY get a clear answer
 - Implies you've done the work they haven't
 - Uses tension, a number, or a surprising angle
-- Is between 48-62 characters
+- Is between 48-62 characters AND ends on a strong, complete word (not a preposition or article)
 
 Examples of the energy you want (adapt, don't copy):
-- "Cursor vs Copilot: I Tested Both for 6 Months. Here's the Truth"  [too long, adapt]
 - "n8n vs Zapier: The Real Cost Difference Nobody Calculates"
 - "Supabase vs Firebase: Which Saves More Money at Scale?"
 - "Claude vs ChatGPT: The Benchmark That Surprised 3 YC Teams"
@@ -490,7 +544,7 @@ Generate ONE title that:
 - Validates their frustration with {entity_a}
 - Promises specific, tested alternatives
 - Uses a number (7, 5, 9) or a surprising qualifier
-- Is between 48-62 characters
+- Is between 48-62 characters AND ends on a strong, complete word
 
 Examples of the energy (adapt, don't copy):
 - "7 {entity_a} Alternatives That Don't Break After Free Tier"
@@ -505,11 +559,11 @@ Generate ONE title that:
 - Implies a shortcut, a real result, or a specific outcome
 - Has a number or a time frame if it fits naturally
 - Is concrete about what they'll achieve
-- Is between 48-62 characters
+- Is between 48-62 characters AND ends on a strong, complete word
 
 Examples of the energy (adapt, don't copy):
 - "{entity_a} for {b}: The 20-Minute Setup That Actually Works"
-- "How to Use {entity_a} for {b} (and Cut Your Time in Half)"
+- "How to Use {entity_a} for {b} (Cut Your Time in Half)"
 - "{entity_a} + {b}: The Workflow 500 Developers Are Using"
 """,
         "for-profession": f"""You're writing a tools roundup for: {entity_a} (profession/audience)
@@ -520,7 +574,7 @@ Generate ONE title that:
 - Speaks directly to a {entity_a}'s specific pain or goal
 - Is opinionated and specific (not generic "best tools")
 - Uses a number or a qualifying phrase that creates contrast
-- Is between 48-62 characters
+- Is between 48-62 characters AND ends on a strong, complete word
 
 Examples of the energy (adapt, don't copy):
 - "AI Tools for {entity_a}: The 6 That Are Worth Paying For"
@@ -531,27 +585,53 @@ Examples of the energy (adapt, don't copy):
 
     context = template_context.get(template, f"Write a killer title for: {keyword}")
 
-    try:
-        resp = openai_client.chat.completions.create(
-            model=MODEL_TITLES,
-            messages=[
-                {"role": "system", "content": CTR_AGENT_SYSTEM},
-                {"role": "user",   "content": context},
-            ],
-            temperature=0.9,
-            max_tokens=80,
-        )
-        raw_title = resp.choices[0].message.content.strip().strip('"').strip("'")
-        # Enforce hard character limit
-        title = smart_trim(raw_title, TITLE_MAX)
-        # Enforce minimum length — pad with year context if too short
-        if len(title) < TITLE_MIN:
-            title = smart_trim(f"{title} — 2026", TITLE_MAX)
-        print(f"  🎯 CTR Title Agent: \"{title}\" ({len(title)} chars)")
-        return title
-    except Exception as e:
-        print(f"  ⚠️  CTR Title Agent error: {e} — using keyword as fallback")
-        return smart_trim(keyword.title(), TITLE_MAX)
+    for attempt in range(1, 4):  # up to 3 attempts
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_TITLES,
+                messages=[
+                    {"role": "system", "content": CTR_AGENT_SYSTEM},
+                    {"role": "user",   "content": context},
+                ],
+                temperature=0.9 if attempt == 1 else 0.7,
+                max_tokens=80,
+            )
+            raw_title = resp.choices[0].message.content.strip().strip('"').strip("'")
+
+            # Enforce hard character limit WITHOUT smart_trim
+            # (smart_trim can create truncated titles — we want GPT to size correctly)
+            title = re.sub(r"\s+", " ", raw_title).strip()
+
+            # If over limit, only trim if the trim point is a safe word boundary
+            # and the result passes the truncation guard
+            if len(title) > TITLE_MAX:
+                trimmed = smart_trim(title, TITLE_MAX)
+                if title_is_truncated(trimmed):
+                    print(f"  ⚠️  Title trim would truncate (attempt {attempt}): '{trimmed}' — retrying")
+                    continue
+                title = trimmed
+
+            # Enforce minimum length — pad with year context if too short
+            if len(title) < TITLE_MIN:
+                padded = smart_trim(f"{title} — 2026", TITLE_MAX)
+                if not title_is_truncated(padded):
+                    title = padded
+
+            # Truncation guard: reject if title ends mid-thought
+            if title_is_truncated(title):
+                print(f"  ⚠️  Title ends mid-thought (attempt {attempt}): '{title}' — retrying")
+                continue
+
+            print(f"  🎯 CTR Title Agent: \"{title}\" ({len(title)} chars, attempt {attempt})")
+            return title
+
+        except Exception as e:
+            print(f"  ⚠️  CTR Title Agent error (attempt {attempt}): {e}")
+
+    # Fallback: safe keyword-based title that can't be truncated
+    fallback = smart_trim(keyword.title(), TITLE_MAX)
+    print(f"  ⚠️  CTR Title Agent: all attempts failed — using fallback: '{fallback}'")
+    return fallback
 
 
 # ── ADVANCED HUMANIZER AGENT ──────────────────────────────────────────────────
@@ -610,6 +690,7 @@ WHAT NOT TO DO:
 - Don't add fake personal anecdotes you can't verify
 - Don't make the article sound casual if the original is authoritative
 - Don't remove markdown headers — keep all ## and ### structure
+- CRITICAL: Do NOT invent or change any product names, version numbers, or prices
 
 OUTPUT: Return ONLY the rewritten article. No explanations, no preamble."""
 
@@ -645,7 +726,7 @@ def humanize_content(content: str, label: str = "") -> str:
         return content
 
 
-# ── SYSTEM PROMPT ───────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """
 You are a senior tech journalist writing for NewsTide, a premium English-language tech publication.
@@ -678,16 +759,29 @@ Example good openers:
 
 TOOL ACCURACY — CRITICAL:
 - Only mention tools that are actively maintained and well-known in 2026.
-- DO NOT include: Bard AI (renamed Gemini), Peppertype.ai (defunct), DeepArt, Artbreeder, CodeStream (acquired/inactive), or any tool you are not confident is active.
-- For AI code editors, the main players are: Cursor, Windsurf, GitHub Copilot, Codeium, Tabnine, Bolt, Lovable, Replit AI. Use these, not generic IDEs.
+- DO NOT include: Bard AI (renamed Gemini), Peppertype.ai (defunct), DeepArt, Artbreeder,
+  CodeStream (acquired/inactive), or any tool you are not confident is active.
+- For AI code editors: Cursor, Windsurf, GitHub Copilot, Codeium, Tabnine, Bolt, Lovable, Replit AI.
 - For LLMs: ChatGPT, Claude, Gemini, Perplexity, Mistral, Grok, Llama, Command R+. Never list deprecated models.
+- For image generation: Midjourney, DALL-E 3 (NOT "DALL-E 4" — that model does not exist),
+  Stable Diffusion, Flux, Adobe Firefly, Leonardo AI, Playground AI, Ideogram.
+  NEVER invent version numbers for products (e.g. do not write "DALL-E 4", "GPT-5", "Claude 4"
+  unless you are 100% certain the version exists and is publicly released as of 2026).
 
 PRICING RULES — CRITICAL:
 - Only state prices you are highly confident are accurate as of 2026.
 - If uncertain: write "pricing starts around $X/month" or "check their website for current pricing".
-- Never invent exact prices for tools you're unsure about.
-- Never write a price table with made-up numbers.
-- Always mention free tiers where they exist (e.g., Cursor has a free tier, GitHub Copilot is ~$10/month).
+- NEVER invent specific dollar amounts for tools you're not sure about.
+  Saying "$499/month" when the actual price is different destroys credibility immediately.
+- Never write a price table with made-up exact numbers — use approximate ranges or "check website".
+- Always mention free tiers where they exist.
+
+COUNT CONSISTENCY — CRITICAL:
+- If the article title includes a number (e.g. "7 Alternatives", "5 Tools"), the article body
+  MUST list EXACTLY that many items — no more, no less.
+- Count your items before finishing. If you have 7 in the title, you must have exactly 7 H3 items.
+- Do not pad with low-quality tools just to hit the count. If you can't find enough quality tools,
+  use a lower number in both the title and the article.
 
 STRUCTURE:
 - NO H1 — the title is injected separately
@@ -712,6 +806,13 @@ EXCERPT: [one punchy, specific sentence, 120-155 chars, suitable as Google meta 
 def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_b: str | None, category: str = "") -> str:
     year = "2026"
 
+    # ── FIX #2: extract count from title and inject into prompt ──────────────
+    title_count = extract_title_count(title)
+    count_instruction = (
+        f"IMPORTANT: The title says '{title_count}' — the article body MUST list "
+        f"EXACTLY {title_count} items (H3 sections). Count them before finishing.\n\n"
+    ) if title_count else ""
+
     if template == "comparisons":
         b = entity_b or "competitor"
         category_hint = (
@@ -722,6 +823,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
             f"Write the article: \"{title}\"\n"
             f"Target keyword: {keyword}\n"
             f"{category_hint}\n\n"
+            f"{count_instruction}"
             f"Compare {entity_a} vs {b} honestly and specifically. No generic comparisons.\n\n"
             "REQUIRED H2 SECTIONS (use exactly these):\n"
             f"## {entity_a} — What It Actually Does Well\n"
@@ -742,25 +844,27 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
         return (
             f"Write the article: \"{title}\"\n"
             f"Target keyword: {keyword}\n\n"
+            f"{count_instruction}"
             f"List and honestly review the best alternatives to {entity_a} as of {year}.\n"
             f"Only include tools that are actively maintained and directly compete with {entity_a}.\n\n"
             "REQUIRED H2 SECTIONS:\n"
             f"## Why Teams Are Moving Away From {entity_a}\n"
             f"   (real reasons: pricing, missing features, UX friction — be specific)\n"
             f"## The Best {entity_a} Alternatives in {year}\n"
-            f"   For each alternative (7 total), write an H3 with the tool name, then cover:\n"
-            "   - What it does better than {entity_a}\n"
+            f"   For each alternative, write an H3 with the tool name, then cover:\n"
+            f"   - What it does better than {entity_a}\n"
             "   - Real limitations\n"
-            "   - Pricing (hedged if uncertain)\n"
+            "   - Pricing (use approximate ranges; if unsure, say 'check their site')\n"
             "   - Who it's best for\n"
             "## Quick Comparison Table\n"
             "   Columns: Tool | Best For | Free Plan | Starting Price\n"
+            "   Use approximate prices only. For any price you're not sure about, write 'see site'.\n"
             f"## How to Choose the Right {entity_a} Alternative\n"
             "## Bottom Line\n"
             "## FAQ (3 H3 questions)\n\n"
             "Requirements:\n"
-            "- DO NOT pad with defunct or barely-relevant tools to reach 7. Only real, active, direct competitors.\n"
-            "- Start the article with a sharp observation about why someone would leave {entity_a}.\n"
+            f"- DO NOT pad with defunct or barely-relevant tools. Only real, active, direct competitors to {entity_a}.\n"
+            f"- Start the article with a sharp observation about why someone would leave {entity_a}.\n"
             f"- Minimum 900 words."
         )
 
@@ -769,6 +873,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
         return (
             f"Write the article: \"{title}\"\n"
             f"Target keyword: {keyword}\n\n"
+            f"{count_instruction}"
             f"Write a practical, step-by-step guide on using {entity_a} for {b}.\n\n"
             "REQUIRED H2 SECTIONS:\n"
             f"## Is {entity_a} Actually the Right Tool for {b}?\n"
@@ -782,8 +887,8 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
             "## Bottom Line\n"
             "## FAQ (3 H3 questions)\n\n"
             "Requirements:\n"
-            "- Be concrete. Include actual example prompts or workflow steps.\n"
-            "- Mention real limitations of using {entity_a} for {b}.\n"
+            f"- Be concrete. Include actual example prompts or workflow steps.\n"
+            f"- Mention real limitations of using {entity_a} for {b}.\n"
             f"- Minimum 900 words."
         )
 
@@ -793,6 +898,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
             return (
                 f"Write the article: \"{title}\"\n"
                 f"Target keyword: {keyword}\n\n"
+                f"{count_instruction}"
                 f"Is {entity_a} actually worth it for {b}? Give a real, opinionated answer.\n\n"
                 "REQUIRED H2 SECTIONS:\n"
                 f"## What {b} Actually Need From an AI Tool\n"
@@ -809,6 +915,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
             return (
                 f"Write the article: \"{title}\"\n"
                 f"Target keyword: {keyword}\n\n"
+                f"{count_instruction}"
                 f"List and review the best AI tools for {entity_a} as of {year}.\n"
                 "Only include tools that are actively maintained and specifically useful for this audience.\n\n"
                 "REQUIRED H2 SECTIONS:\n"
@@ -818,7 +925,7 @@ def build_prompt(template: str, title: str, keyword: str, entity_a: str, entity_
                 f"   For each tool (8-10 total), write an H3 with the name, then:\n"
                 f"   - What it does specifically for {entity_a}\n"
                 "   - Real-world use case\n"
-                "   - Pricing (hedged if uncertain)\n"
+                "   - Pricing (approximate ranges; if unsure, say 'check their site')\n"
                 "## Tools That Didn't Make the Cut (and Why)\n"
                 f"## How to Build Your AI Stack as a {entity_a}\n"
                 "## Bottom Line\n"
@@ -986,7 +1093,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"\n🚀 pSEO Pipeline v2 — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"\n🚀 pSEO Pipeline v2.1 — {args.template} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
     print(f"🎯 Target: {args.batch} pages | Spread: {args.spread_days} day(s)")
     print(f"🤖 Models: Generate={MODEL_GENERATE} | Titles={MODEL_TITLES} | Humanize={MODEL_HUMANIZE}")
@@ -1031,7 +1138,7 @@ def main():
                 time.sleep(1)
 
     print(f"\n{'=' * 60}")
-    print(f"🎉 pSEO Pipeline v2 finished: {saved_count}/{args.batch} pages saved")
+    print(f"🎉 pSEO Pipeline v2.1 finished: {saved_count}/{args.batch} pages saved")
     print(f"   Candidates tried: {tried_count}")
 
 
