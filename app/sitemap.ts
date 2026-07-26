@@ -19,14 +19,25 @@ const EN_CATS = [
   { slug: 'news',      label: 'News' },
 ]
 
+const FIN_CATS = [
+  { slug: 'saving-money',  label: 'Saving Money' },
+  { slug: 'budgeting',     label: 'Budgeting' },
+  { slug: 'investing',     label: 'Investing' },
+  { slug: 'debt',          label: 'Debt' },
+  { slug: 'credit',        label: 'Credit' },
+  { slug: 'side-hustles',  label: 'Side Hustles' },
+]
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [articlesRes, pseoRes] = await Promise.all([
+  const [articlesRes, pseoRes, financeRes] = await Promise.all([
     supabase.from('articles').select('slug, slug_en, published_at').order('published_at', { ascending: false }),
     supabase.from('pseo_pages').select('slug, published_at').lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }),
+    supabase.from('finance_articles').select('slug_en, published_at').not('slug_en', 'is', null).order('published_at', { ascending: false }),
   ])
 
   const allArticles = articlesRes.data || []
   const allPseo     = pseoRes.data     || []
+  const allFinance  = financeRes.data  || []
 
   const esArticleUrls = allArticles.map((a) => ({
     url:             `https://www.newstide.news/articulo/${a.slug}`,
@@ -44,12 +55,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority:        0.8,
     }))
 
-  // pSEO pages — evergreen, lower changeFrequency
   const pseoUrls = allPseo.map((p) => ({
     url:             `https://www.newstide.news/en/compare/${p.slug}`,
     lastModified:    new Date(p.published_at),
     changeFrequency: 'monthly' as const,
     priority:        0.75,
+  }))
+
+  // Finance articles — dedicated /en/fin/ path, completely separate
+  const financeArticleUrls = allFinance.map((a) => ({
+    url:             `https://www.newstide.news/en/fin/${a.slug_en}`,
+    lastModified:    new Date(a.published_at),
+    changeFrequency: 'weekly' as const,
+    priority:        0.8,
   }))
 
   const esCatUrls = ES_CATS.map((c) => ({
@@ -66,14 +84,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.75,
   }))
 
+  const finCatUrls = FIN_CATS.map((c) => ({
+    url: `https://www.newstide.news/en/fin/category/${c.slug}`,
+    lastModified: new Date(),
+    changeFrequency: 'daily' as const,
+    priority: 0.7,
+  }))
+
   return [
     { url: 'https://www.newstide.news',            lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
     { url: 'https://www.newstide.news/en',          lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
     { url: 'https://www.newstide.news/articulos',   lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
     { url: 'https://www.newstide.news/en/articles', lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
     { url: 'https://www.newstide.news/en/compare',  lastModified: new Date(), changeFrequency: 'weekly'  as const, priority: 0.85 },
+    { url: 'https://www.newstide.news/en/fin',      lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
     ...esCatUrls,
     ...enCatUrls,
+    ...finCatUrls,
     { url: 'https://www.newstide.news/sobre-nosotros',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
     { url: 'https://www.newstide.news/en/about',            lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
     { url: 'https://www.newstide.news/politica-editorial',  lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
@@ -87,5 +114,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...esArticleUrls,
     ...enArticleUrls,
     ...pseoUrls,
+    ...financeArticleUrls,
   ]
 }
