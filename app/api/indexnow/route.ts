@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const KEY = '964bf589528b466cace60749e05cfcb6'
+const KEY = process.env.INDEXNOW_KEY ?? '449864d8a7154e33b47bcd42fc5b899a'
 const HOST = 'www.newstide.news'
 const KEY_LOCATION = `https://${HOST}/${KEY}.txt`
 
@@ -34,4 +34,11 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
+}
+
+// GET: serve the key file inline (fallback, el .txt en /public es suficiente)
+export async function GET() {
+  return new Response(KEY, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  })
 }

@@ -1,4 +1,4 @@
-const KEY = '964bf589528b466cace60749e05cfcb6'
+const KEY = process.env.INDEXNOW_KEY ?? '449864d8a7154e33b47bcd42fc5b899a'
 const HOST = 'www.newstide.news'
 const KEY_LOCATION = `https://${HOST}/${KEY}.txt`
 
@@ -10,7 +10,7 @@ export async function pingIndexNow(urls: string[]): Promise<void> {
   if (!urls.length) return
 
   try {
-    await fetch('https://api.indexnow.org/IndexNow', {
+    const res = await fetch('https://api.indexnow.org/IndexNow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
@@ -20,6 +20,7 @@ export async function pingIndexNow(urls: string[]): Promise<void> {
         urlList: urls,
       }),
     })
+    console.log(`[IndexNow] submitted ${urls.length} URL(s) — status ${res.status}`)
   } catch (err) {
     // Non-blocking — never crash the main flow
     console.error('[IndexNow] ping failed:', err)
