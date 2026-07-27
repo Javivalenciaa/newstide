@@ -19,14 +19,7 @@ const EN_CATS = [
   { slug: 'news',      label: 'News' },
 ]
 
-const FIN_CATS = [
-  { slug: 'saving-money',  label: 'Saving Money' },
-  { slug: 'budgeting',     label: 'Budgeting' },
-  { slug: 'investing',     label: 'Investing' },
-  { slug: 'debt',          label: 'Debt' },
-  { slug: 'credit',        label: 'Credit' },
-  { slug: 'side-hustles',  label: 'Side Hustles' },
-]
+// C2 — FIN_CATS removed: /en/fin/category/* pages do not exist yet
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [articlesRes, pseoRes, financeRes] = await Promise.all([
@@ -84,13 +77,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.75,
   }))
 
-  const finCatUrls = FIN_CATS.map((c) => ({
-    url: `https://www.newstide.news/en/fin/category/${c.slug}`,
-    lastModified: new Date(),
-    changeFrequency: 'daily' as const,
-    priority: 0.7,
-  }))
-
   return [
     { url: 'https://www.newstide.news',            lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
     { url: 'https://www.newstide.news/en',          lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 1.0 },
@@ -100,7 +86,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: 'https://www.newstide.news/en/fin',      lastModified: new Date(), changeFrequency: 'hourly'  as const, priority: 0.9 },
     ...esCatUrls,
     ...enCatUrls,
-    ...finCatUrls,
     { url: 'https://www.newstide.news/sobre-nosotros',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
     { url: 'https://www.newstide.news/en/about',            lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
     { url: 'https://www.newstide.news/politica-editorial',  lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
