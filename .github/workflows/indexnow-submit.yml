@@ -1,0 +1,34 @@
+name: IndexNow — Submit recent URLs
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Número de artículos recientes a enviar'
+        required: false
+        default: '50'
+  # También se ejecuta automáticamente cada día a las 08:00 UTC
+  schedule:
+    - cron: '0 8 * * *'
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Submit URLs to IndexNow
+        run: python pipeline/indexnow_submit.py
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          INDEXNOW_LIMIT: ${{ github.event.inputs.limit || '50' }}
