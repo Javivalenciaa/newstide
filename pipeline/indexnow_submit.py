@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """
-IndexNow bulk submitter — llámalo al final de pipeline.py o como script standalone.
-
-Uso standalone:
-  python pipeline/indexnow_submit.py  # envía las últimas 50 URLs de Supabase
-
-O importa submit_urls() desde pipeline.py para llamarlo tras publicar artículos.
+IndexNow bulk submitter.
+Ejecutable desde GitHub Actions (workflow_dispatch) o como script standalone.
 """
 
 import os
@@ -16,14 +12,14 @@ INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "449864d8a7154e33b47bcd42fc5b899a")
 HOST = "www.newstide.news"
 KEY_LOCATION = f"https://{HOST}/{INDEXNOW_KEY}.txt"
 INDEXNOW_API = "https://api.indexnow.org/IndexNow"
+LIMIT = int(os.getenv("INDEXNOW_LIMIT", "50"))
 
 
 def submit_urls(urls: list[str]) -> dict:
-    """Submit a list of URLs to IndexNow. Returns the API response info."""
     if not urls:
+        print("[IndexNow] No URLs to submit.")
         return {"skipped": True}
 
-    # IndexNow max 10,000 URLs per request; chunk if needed
     chunk_size = 500
     results = []
     for i in range(0, len(urls), chunk_size):
@@ -41,18 +37,18 @@ def submit_urls(urls: list[str]) -> dict:
             timeout=30,
         )
         print(f"[IndexNow] submitted {len(chunk)} URLs → HTTP {resp.status_code}")
+        if resp.status_code not in (200, 202):
+            print(f"[IndexNow] Response body: {resp.text}")
         results.append({"submitted": len(chunk), "status": resp.status_code})
 
     return {"batches": results}
 
 
 def get_recent_slugs(limit: int = 50) -> list[str]:
-    """Fetch the most recently published article slugs from Supabase."""
     url = os.environ["NEXT_PUBLIC_SUPABASE_URL"]
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     sb = create_client(url, key)
 
-    # Ajusta el nombre de tabla y columna si difiere en tu schema
     result = (
         sb.table("articles")
         .select("slug, slug_en")
@@ -71,7 +67,7 @@ def get_recent_slugs(limit: int = 50) -> list[str]:
 
 
 if __name__ == "__main__":
-    print("[IndexNow] Fetching recent articles from Supabase...")
-    article_urls = get_recent_slugs(limit=50)
+    print(f"[IndexNow] Fetching last {LIMIT} articles from Supabase...")
+    article_urls = get_recent_slugs(limit=LIMIT)
     print(f"[IndexNow] Found {len(article_urls)} URLs to submit")
     submit_urls(article_urls)
