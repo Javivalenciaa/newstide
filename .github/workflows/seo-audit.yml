@@ -1,0 +1,73 @@
+name: SEO Audit — Newstide
+
+on:
+  workflow_dispatch:        # lanzar manualmente desde móvil/GitHub
+  schedule:
+    - cron: '0 8 * * 1'    # cada lunes a las 08:00 UTC
+
+jobs:
+  seo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install Playwright Chromium
+        run: |
+          pip install playwright
+          playwright install chromium --with-deps
+
+      - name: Clone & install claude-seo plugin
+        run: |
+          git clone --depth 1 https://github.com/AgriciDaniel/claude-seo.git /tmp/claude-seo
+          bash /tmp/claude-seo/install.sh --non-interactive
+
+      - name: Run SEO Audit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p seo-reports
+          REPORT_DATE=$(date +%Y-%m-%d)
+
+          claude --dangerously-skip-permissions -p "
+          You are running a full SEO audit of https://www.newstide.news using the claude-seo plugin.
+          Run the following commands in sequence and save all output:
+          1. /seo audit https://www.newstide.news
+          2. /seo schema https://www.newstide.news/en/article/$(date +%Y)
+          3. /seo geo https://www.newstide.news/en
+          4. /seo content https://www.newstide.news/en/fin
+          Save the combined report to seo-reports/audit-${REPORT_DATE}.md
+          " > seo-reports/audit-${REPORT_DATE}.md 2>&1 || true
+
+          echo "## SEO Audit — $REPORT_DATE" >> seo-reports/audit-${REPORT_DATE}.md
+          echo "Site: https://www.newstide.news" >> seo-reports/audit-${REPORT_DATE}.md
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-audit-${{ github.run_number }}
+          path: seo-reports/
+          retention-days: 90
+
+      - name: Commit report to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seo-reports/
+          git diff --cached --quiet || git commit -m "chore: SEO audit report $(date +%Y-%m-%d)"
+          git push
