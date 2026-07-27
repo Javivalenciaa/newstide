@@ -61,6 +61,8 @@ nav.scrolled{
   transition:opacity 0.2s,transform 0.2s;
 }
 .nav-cta:hover{opacity:0.85;transform:translateY(-1px)}
+/* C6 fix: mobile-menu-btn hidden on desktop, shown on mobile */
+.mobile-menu-btn{display:none}
 .nav-burger{display:none;flex-direction:column;gap:5px;padding:4px;cursor:pointer}
 .nav-burger span{display:block;width:22px;height:2px;background:var(--text);border-radius:2px;transition:transform 0.3s,opacity 0.3s}
 .mobile-menu{
@@ -487,6 +489,8 @@ footer{
   nav{padding:0 20px}
   .nav-links,.nav-search,.nav-cta{display:none}
   .nav-burger{display:flex}
+  /* C6 fix: show .mobile-menu-btn on mobile */
+  .mobile-menu-btn{display:flex}
   #hero{padding:100px 20px 60px}
   .articles-grid{grid-template-columns:1fr}
   .tools-grid{grid-template-columns:1fr}
