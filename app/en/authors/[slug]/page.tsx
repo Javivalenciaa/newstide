@@ -11,7 +11,7 @@ const AUTHOR_MAP: Record<string, {
     name: 'Javier Valencia',
     title: 'Founder & Editor in Chief at NewsTide',
     bio: 'Javier Valencia is a software engineer and Computer Science student. He founded NewsTide to explore the intersection of AI-powered content automation and editorial quality journalism. He has worked as a freelance developer for tech companies, built digital twin simulation tools, and competed in innovation and startup competitions. He combines hands-on full-stack expertise (Next.js, Python, Supabase) with editorial oversight on every published article.',
-    image: '/authors/javier-valencia.jpg',
+    image: '/authors/7e13d624-55ae-4d72-b4aa-27aac63b4c14.jpeg',
     sameAs: [
       'https://www.linkedin.com/in/javier-valencia-mu%C3%B1oz-b193ab2ba',
       'https://github.com/Javivalenciaa',
@@ -152,7 +152,6 @@ export default async function AuthorPageEN({
             <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>{author.name}</h1>
             <p style={{ fontSize: 14, color: 'var(--cyan)', fontWeight: 600, marginBottom: 12 }}>{author.title}</p>
             <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 620 }}>{author.bio}</p>
-
             {author.credentials && (
               <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {author.credentials.map((c) => (
@@ -163,7 +162,6 @@ export default async function AuthorPageEN({
                 ))}
               </div>
             )}
-
             <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {linkedin && (
                 <a href={linkedin} target="_blank" rel="noopener noreferrer"
@@ -180,7 +178,6 @@ export default async function AuthorPageEN({
             </div>
           </div>
         </div>
-
         <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 24 }}>Latest articles</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {(articles || []).map((a) => {
@@ -188,15 +185,8 @@ export default async function AuthorPageEN({
             const excerpt = a.excerpt_en || a.excerpt
             const href    = a.slug_en ? `/en/article/${a.slug_en}` : `/articulo/${a.slug}`
             return (
-              <Link
-                key={a.slug}
-                href={href}
-                style={{
-                  display: 'block', padding: '20px 24px',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 12, textDecoration: 'none',
-                  transition: 'border-color 0.2s',
-                }}
+              <Link key={a.slug} href={href}
+                style={{ display: 'block', padding: '20px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, textDecoration: 'none', transition: 'border-color 0.2s' }}
               >
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
                   {CAT_EN[a.category] || a.category} · {new Date(a.published_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}

@@ -11,7 +11,7 @@ const AUTHOR_MAP: Record<string, {
     name: 'Javier Valencia',
     title: 'Fundador y Editor en Jefe de NewsTide',
     bio: 'Javier Valencia es ingeniero de software y estudiante de Ingeniería Informática. Fundó NewsTide para explorar la intersección entre pipelines de automatización de contenido con IA y el periodismo de calidad. Ha trabajado como freelance para empresas tech, desarrollado proyectos de gemelos digitales y participado en concursos de innovación y startups. Combina su experiencia en desarrollo full-stack (Next.js, Python, Supabase) con supervisión editorial en cada artículo publicado.',
-    image: '/authors/javier-valencia.jpg',
+    image: '/authors/7e13d624-55ae-4d72-b4aa-27aac63b4c14.jpeg',
     sameAs: [
       'https://www.linkedin.com/in/javier-valencia-mu%C3%B1oz-b193ab2ba',
       'https://github.com/Javivalenciaa',
@@ -146,7 +146,6 @@ export default async function AutorPage({
             <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>{author.name}</h1>
             <p style={{ fontSize: 14, color: 'var(--cyan)', fontWeight: 600, marginBottom: 12 }}>{author.title}</p>
             <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 620 }}>{author.bio}</p>
-
             {author.credentials && (
               <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {author.credentials.map((c) => (
@@ -157,7 +156,6 @@ export default async function AutorPage({
                 ))}
               </div>
             )}
-
             <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {linkedin && (
                 <a href={linkedin} target="_blank" rel="noopener noreferrer"
@@ -174,19 +172,11 @@ export default async function AutorPage({
             </div>
           </div>
         </div>
-
         <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 24 }}>Artículos recientes</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {(articles || []).map((a) => (
-            <Link
-              key={a.slug}
-              href={`/articulo/${a.slug}`}
-              style={{
-                display: 'block', padding: '20px 24px',
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 12, textDecoration: 'none',
-                transition: 'border-color 0.2s',
-              }}
+            <Link key={a.slug} href={`/articulo/${a.slug}`}
+              style={{ display: 'block', padding: '20px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, textDecoration: 'none', transition: 'border-color 0.2s' }}
             >
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
                 {a.category} · {new Date(a.published_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
