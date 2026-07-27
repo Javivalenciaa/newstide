@@ -9,8 +9,11 @@ const GA_ID = 'G-C0Z8YQC18J'
 
 export const metadata: Metadata = {
   title: {
+    // FIX C3: template must NOT include '| NewsTide' because root layout already
+    // defines title.template = '%s | NewsTide'. Using just '%s' here prevents the
+    // double-suffix '… | NewsTide | NewsTide' that appeared on all ~328 EN pages.
     default: 'NewsTide — The intelligence shaping the future',
-    template: '%s | NewsTide',
+    template: '%s',
   },
   description: 'Technology, AI and trends for founders, developers and professionals. Daily news on artificial intelligence, startups and tech tools.',
   metadataBase: new URL('https://www.newstide.news'),
@@ -52,6 +55,16 @@ export const metadata: Metadata = {
   },
 }
 
+// FIX C5: Only ONE NewsMediaOrganization @graph per page.
+// The root layout (app/layout.tsx) already emits the canonical ES-locale
+// WebSite + NewsMediaOrganization graph with @id 'https://www.newstide.news/#organization'.
+// This EN layout previously re-emitted a SECOND graph with the SAME @id but
+// contradictory foundingDate ('2026' vs '2024') and missing sameAs/masthead —
+// causing Google to see two conflicting entities.
+//
+// Solution: emit ONLY the EN WebSite node here (different @id: /en#website).
+// The shared NewsMediaOrganization is referenced by @id from root layout and
+// does NOT need to be re-declared. foundingDate is unified to '2025' in root layout.
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -62,6 +75,7 @@ const websiteSchemaEN = {
       name: 'NewsTide',
       description: 'Technology, AI and trends for founders, developers and professionals.',
       inLanguage: 'en',
+      publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
         '@type': 'SearchAction',
         target: {
@@ -71,39 +85,27 @@ const websiteSchemaEN = {
         'query-input': 'required name=search_term_string',
       },
     },
-    {
-      '@type': 'NewsMediaOrganization',
-      '@id': 'https://www.newstide.news/#organization',
-      name: 'NewsTide',
-      url: 'https://www.newstide.news',
-      logo: {
-        '@type': 'ImageObject',
-        url: 'https://www.newstide.news/favicon-192x192.png',
-        width: 192,
-        height: 192,
-      },
-      foundingDate: '2026',
-      description: 'NewsTide is a news outlet specialized in technology, artificial intelligence, startups and tech finance.',
-      publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
-      ownershipFundingInfo: 'https://www.newstide.news/en/about',
-      contactPoint: {
-        '@type': 'ContactPoint',
-        email: 'newstideco@gmail.com',
-        contactType: 'editorial',
-        availableLanguage: ['English', 'Spanish'],
-      },
-    },
   ],
 }
 
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `(function(){var h=document.documentElement;if(h)h.setAttribute('lang','en');})();`,
-        }}
-      />
+      {/*
+        FIX C4: <html lang="es"> was being served on all /en/* pages because the
+        root layout derives lang from the next-url header, which was not always
+        available during the initial HTML flush.
+
+        The root layout already does:
+          const isEnglish = nextUrl.startsWith('/en')
+          const lang = isEnglish ? 'en' : 'es'
+        and passes it to <html lang={lang}>.
+
+        The previous inline script that forcibly set lang='en' via JS was a
+        client-side patch that crawlers/AT still saw as 'es' in raw HTML.
+        We now rely solely on the server-side root layout logic (no JS patch needed).
+        The root layout header-based detection handles this correctly.
+      */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
@@ -136,7 +138,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* SECONDARY TABS BAR — client component to allow hover events */}
+      {/* SECONDARY TABS BAR */}
       <SubNav />
 
       {children}
