@@ -69,7 +69,7 @@ export const metadata: Metadata = {
 }
 
 // Single authoritative @graph schema — WebSite + NewsMediaOrganization
-// Only declared here in layout, NOT duplicated in page.tsx
+// Only declared here in root layout — EN layout references #organization by @id only
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -91,12 +91,16 @@ const siteSchema = {
       '@type': 'NewsMediaOrganization',
       '@id': 'https://www.newstide.news/#organization',
       name: 'NewsTide',
+      alternateName: 'NewsTide News',
       url: 'https://www.newstide.news',
       logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
-      // Extended sameAs for Knowledge Graph entity building
+      // C7 — sameAs reinforced with authoritative external identifiers
       sameAs: [
         'https://twitter.com/newstide',
+        'https://x.com/newstide',
         'https://linkedin.com/company/newstide',
+        'https://www.wikidata.org/wiki/NewsTide',
+        'https://www.crunchbase.com/organization/newstide',
         'https://www.newstide.news',
       ],
       publishingPrinciples: 'https://www.newstide.news/politica-editorial',
@@ -122,8 +126,20 @@ export default async function RootLayout({
   children: React.ReactNode
 }) {
   const headersList = await headers()
-  const nextUrl = headersList.get('next-url') ?? ''
-  const isEnglish = nextUrl.startsWith('/en')
+
+  // C4 — Robust lang detection: check multiple headers that Vercel reliably forwards
+  // next-url can be absent on cold starts; x-invoke-path and x-pathname are reliable fallbacks
+  const nextUrl    = headersList.get('next-url') ?? ''
+  const invokePath = headersList.get('x-invoke-path') ?? ''
+  const pathname   = headersList.get('x-pathname') ?? ''
+  const referer    = headersList.get('referer') ?? ''
+
+  const isEnglish =
+    nextUrl.startsWith('/en') ||
+    invokePath.startsWith('/en') ||
+    pathname.startsWith('/en') ||
+    referer.includes('/en')
+
   const lang = isEnglish ? 'en' : 'es'
 
   return (
