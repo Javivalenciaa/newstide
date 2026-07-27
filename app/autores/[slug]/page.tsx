@@ -2,13 +2,28 @@ import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 
-const AUTHOR_MAP: Record<string, { name: string; bio: string; title: string; sameAs?: string[] }> = {
+const AUTHOR_MAP: Record<string, {
+  name: string; bio: string; title: string; sameAs?: string[]; image?: string; credentials?: string[]
+}> = {
   'javier-valencia': {
     name: 'Javier Valencia',
     title: 'Fundador y Editor en Jefe de NewsTide',
-    bio: 'Javier Valencia es el fundador de NewsTide, medio especializado en inteligencia artificial, startups y tecnología para profesionales de habla hispana. Revisa y edita cada artículo publicado en la plataforma, combinando análisis propio con asistencia de IA para ofrecer contenido riguroso y actualizado.',
-    sameAs: ['https://twitter.com/newstide'],
+    bio: 'Javier Valencia es ingeniero de software y estudiante de Ingeniería Informática. Fundó NewsTide para explorar la intersección entre pipelines de automatización de contenido con IA y el periodismo de calidad. Ha trabajado como freelance para empresas tech, desarrollado proyectos de gemelos digitales y participado en concursos de innovación y startups. Combina su experiencia en desarrollo full-stack (Next.js, Python, Supabase) con supervisión editorial en cada artículo publicado.',
+    image: '/authors/javier-valencia.jpg',
+    sameAs: [
+      'https://www.linkedin.com/in/javier-valencia-mu%C3%B1oz-b193ab2ba',
+      'https://github.com/Javivalenciaa',
+      'https://twitter.com/newstide',
+    ],
+    credentials: [
+      'Ingeniería Informática (en curso)',
+      'Fundador de NewsTide',
+      'Desarrollo full-stack: Next.js, Python, Supabase',
+      'Proyectos de gemelos digitales e IA',
+      'Freelance tech para empresas',
+    ],
   },
 }
 
@@ -29,7 +44,7 @@ export async function generateMetadata(
     description: author.bio,
     alternates: {
       canonical: url,
-      languages: { 'es': url, 'en': enUrl, 'x-default': url },
+      languages: { 'es': url, 'en': enUrl, 'x-default': enUrl },
     },
     openGraph: {
       title: `${author.name} — NewsTide`,
@@ -38,6 +53,9 @@ export async function generateMetadata(
       siteName: 'NewsTide',
       locale: 'es_ES',
       type: 'profile',
+      images: author.image
+        ? [{ url: `https://www.newstide.news${author.image}`, width: 400, height: 400, alt: author.name }]
+        : [],
     },
   }
 }
@@ -70,15 +88,34 @@ export default async function AutorPage({
       jobTitle: author.title,
       description: author.bio,
       url,
-      ...(author.sameAs ? { sameAs: author.sameAs } : {}),
+      image: author.image
+        ? { '@type': 'ImageObject', url: `https://www.newstide.news${author.image}`, width: 400, height: 400 }
+        : undefined,
+      sameAs: author.sameAs || [],
+      hasCredential: (author.credentials || []).map((c) => ({
+        '@type': 'EducationalOccupationalCredential',
+        credentialCategory: c,
+      })),
       worksFor: {
         '@type': 'NewsMediaOrganization',
         '@id': 'https://www.newstide.news/#organization',
         name: 'NewsTide',
         url: 'https://www.newstide.news',
       },
+      knowsAbout: [
+        'Inteligencia Artificial',
+        'Startups',
+        'Ingeniería de Software',
+        'Next.js',
+        'Python',
+        'Gemelos Digitales',
+        'SEO',
+      ],
     },
   }
+
+  const linkedin = (author.sameAs || []).find((s) => s.includes('linkedin'))
+  const github   = (author.sameAs || []).find((s) => s.includes('github'))
 
   return (
     <div style={{ minHeight: '100vh', padding: '120px 0 100px' }}>
@@ -87,24 +124,53 @@ export default async function AutorPage({
         <div style={{ marginBottom: 40 }}>
           <Link href="/" style={{ color: 'var(--muted)', fontSize: 13, textDecoration: 'none' }}>← Inicio</Link>
         </div>
-        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginBottom: 48, flexWrap: 'wrap' }}>
-          <div style={{
-            width: 80, height: 80, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 28, fontWeight: 800, color: 'var(--bg)', flexShrink: 0,
-          }}>
-            JV
-          </div>
-          <div>
+        <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', marginBottom: 48, flexWrap: 'wrap' }}>
+          {author.image ? (
+            <Image
+              src={author.image}
+              alt={`Foto de ${author.name}`}
+              width={88}
+              height={88}
+              style={{ borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--border)' }}
+              priority
+            />
+          ) : (
+            <div style={{
+              width: 88, height: 88, borderRadius: '50%',
+              background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 28, fontWeight: 800, color: 'var(--bg)', flexShrink: 0,
+            }}>JV</div>
+          )}
+          <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>{author.name}</h1>
             <p style={{ fontSize: 14, color: 'var(--cyan)', fontWeight: 600, marginBottom: 12 }}>{author.title}</p>
-            <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 600 }}>{author.bio}</p>
-            <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-              <a href="https://twitter.com/newstide" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12, color: 'var(--cyan)', border: '1px solid rgba(110,207,202,0.3)', borderRadius: 6, padding: '4px 10px', textDecoration: 'none' }}>
-                Twitter / X
-              </a>
+            <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 620 }}>{author.bio}</p>
+
+            {author.credentials && (
+              <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {author.credentials.map((c) => (
+                  <span key={c} style={{
+                    fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                    border: '1px solid var(--border)', color: 'var(--muted)',
+                  }}>{c}</span>
+                ))}
+              </div>
+            )}
+
+            <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {linkedin && (
+                <a href={linkedin} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: 'var(--cyan)', border: '1px solid rgba(110,207,202,0.3)', borderRadius: 6, padding: '4px 12px', textDecoration: 'none' }}>
+                  LinkedIn
+                </a>
+              )}
+              {github && (
+                <a href={github} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: 'var(--cyan)', border: '1px solid rgba(110,207,202,0.3)', borderRadius: 6, padding: '4px 12px', textDecoration: 'none' }}>
+                  GitHub
+                </a>
+              )}
             </div>
           </div>
         </div>
