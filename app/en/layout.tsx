@@ -57,7 +57,6 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// EN schema: primary WebSite in English
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -107,7 +106,6 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
           {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{page_path:window.location.pathname});`}
         </Script>
 
-        {/* MAIN NAVBAR */}
         <nav id="navbar">
           <Link href="/en" className="nav-logo">
             <div className="nav-logo-mark">NT</div>
@@ -126,7 +124,6 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
           </div>
         </nav>
 
-        {/* SECONDARY TABS BAR */}
         <SubNav />
 
         {children}
@@ -161,6 +158,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                   <div className="footer-col-title">Company</div>
                   <Link href="/en/about">About us</Link>
                   <Link href="/en/editorial-policy">Editorial Policy</Link>
+                  <Link href="/en/authors/javier-valencia">Javier Valencia</Link>
                   <Link href="/en/contact">Contact</Link>
                   <Link href="/en/privacy">Privacy</Link>
                 </div>
