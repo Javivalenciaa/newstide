@@ -9,17 +9,20 @@ const GA_ID = 'G-C0Z8YQC18J'
 
 export const metadata: Metadata = {
   title: {
-    default: 'NewsTide — The intelligence shaping the future',
+    default: 'NewsTide — AI, Startups & Tech News',
     template: '%s | NewsTide',
   },
-  description: 'Technology, AI and trends for founders, developers and professionals. Daily news on artificial intelligence, startups and tech tools.',
+  description: 'Daily AI, startup and tech news for founders, developers and professionals. Stay ahead with NewsTide.',
   metadataBase: new URL('https://www.newstide.news'),
   alternates: {
     canonical: 'https://www.newstide.news/en',
     languages: {
-      'es': 'https://www.newstide.news',
       'en': 'https://www.newstide.news/en',
-      'x-default': 'https://www.newstide.news',
+      'en-US': 'https://www.newstide.news/en',
+      'en-GB': 'https://www.newstide.news/en',
+      'en-AU': 'https://www.newstide.news/en',
+      'es': 'https://www.newstide.news/es',
+      'x-default': 'https://www.newstide.news/en',
     },
   },
   openGraph: {
@@ -27,16 +30,16 @@ export const metadata: Metadata = {
     locale: 'en_US',
     type: 'website',
     url: 'https://www.newstide.news/en',
-    title: 'NewsTide — The intelligence shaping the future',
-    description: 'Technology, AI and trends for founders, developers and professionals.',
-    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }],
+    title: 'NewsTide — AI, Startups & Tech News',
+    description: 'Daily AI, startup and tech news for founders, developers and professionals. Stay ahead with NewsTide.',
+    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide — AI & Tech News' }],
   },
   twitter: {
     card: 'summary_large_image',
     site: '@newstide',
     creator: '@newstide',
-    title: 'NewsTide — The intelligence shaping the future',
-    description: 'Technology, AI and trends for founders, developers and professionals.',
+    title: 'NewsTide — AI, Startups & Tech News',
+    description: 'Daily AI, startup and tech news for founders, developers and professionals.',
     images: ['https://www.newstide.news/og-image.png'],
   },
   robots: {
@@ -50,9 +53,10 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  category: 'technology',
 }
 
-// EN schema: WebSite only + reference to canonical #organization defined in root layout
+// EN schema: primary WebSite in English
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -61,7 +65,7 @@ const websiteSchemaEN = {
       '@id': 'https://www.newstide.news/en#website',
       url: 'https://www.newstide.news/en',
       name: 'NewsTide',
-      description: 'Technology, AI and trends for founders, developers and professionals.',
+      description: 'Daily AI, startup and tech news for founders, developers and professionals.',
       inLanguage: 'en',
       publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
@@ -85,6 +89,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
         />
         <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
+        <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
       </head>
       <body>
         <Script
@@ -126,7 +131,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                 <Link href="/en" className="nav-logo" style={{ marginBottom: '12px' }}>
                   <div className="nav-logo-mark">NT</div>NewsTide
                 </Link>
-                <p className="footer-tagline">Technology, AI and trends<br />for those who stay ahead.</p>
+                <p className="footer-tagline">AI, startups & tech news<br />for those who stay ahead.</p>
               </div>
               <div className="footer-links">
                 <div className="footer-col">
@@ -154,8 +159,8 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="footer-col">
                   <div className="footer-col-title">Feeds</div>
-                  <Link href="/en/rss.xml">RSS Feed</Link>
-                  <Link href="/rss.xml">RSS Español</Link>
+                  <Link href="/en/rss.xml">RSS Feed (EN)</Link>
+                  <Link href="/rss.xml">RSS Feed (ES)</Link>
                   <Link href="/news-sitemap.xml">News Sitemap</Link>
                 </div>
               </div>
