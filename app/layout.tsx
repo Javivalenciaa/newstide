@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
-import { headers } from 'next/headers'
 import './globals.css'
 import SpanishShell from '@/components/SpanishShell'
 
@@ -22,7 +21,7 @@ export const metadata: Metadata = {
     languages: {
       'es': 'https://www.newstide.news',
       'en': 'https://www.newstide.news/en',
-      'x-default': 'https://www.newstide.news/en',
+      'x-default': 'https://www.newstide.news',
     },
   },
   openGraph: {
@@ -69,7 +68,6 @@ export const metadata: Metadata = {
 }
 
 // Single authoritative @graph schema — WebSite + NewsMediaOrganization
-// Only declared here in root layout — EN layout references #organization by @id only
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -94,7 +92,6 @@ const siteSchema = {
       alternateName: 'NewsTide News',
       url: 'https://www.newstide.news',
       logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
-      // C7 — sameAs reinforced with authoritative external identifiers
       sameAs: [
         'https://twitter.com/newstide',
         'https://x.com/newstide',
@@ -120,30 +117,13 @@ const siteSchema = {
   ],
 }
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const headersList = await headers()
-
-  // C4 — Robust lang detection: check multiple headers that Vercel reliably forwards
-  // next-url can be absent on cold starts; x-invoke-path and x-pathname are reliable fallbacks
-  const nextUrl    = headersList.get('next-url') ?? ''
-  const invokePath = headersList.get('x-invoke-path') ?? ''
-  const pathname   = headersList.get('x-pathname') ?? ''
-  const referer    = headersList.get('referer') ?? ''
-
-  const isEnglish =
-    nextUrl.startsWith('/en') ||
-    invokePath.startsWith('/en') ||
-    pathname.startsWith('/en') ||
-    referer.includes('/en')
-
-  const lang = isEnglish ? 'en' : 'es'
-
   return (
-    <html lang={lang}>
+    <html lang="es">
       <head>
         <script
           type="application/ld+json"
