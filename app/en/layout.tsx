@@ -52,6 +52,8 @@ export const metadata: Metadata = {
   },
 }
 
+// C5 — EN schema: WebSite only (EN-specific) + reference to canonical #organization
+// NewsMediaOrganization is defined once in root layout; we reference it by @id here
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -62,6 +64,7 @@ const websiteSchemaEN = {
       name: 'NewsTide',
       description: 'Technology, AI and trends for founders, developers and professionals.',
       inLanguage: 'en',
+      publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
         '@type': 'SearchAction',
         target: {
@@ -71,39 +74,13 @@ const websiteSchemaEN = {
         'query-input': 'required name=search_term_string',
       },
     },
-    {
-      '@type': 'NewsMediaOrganization',
-      '@id': 'https://www.newstide.news/#organization',
-      name: 'NewsTide',
-      url: 'https://www.newstide.news',
-      logo: {
-        '@type': 'ImageObject',
-        url: 'https://www.newstide.news/favicon-192x192.png',
-        width: 192,
-        height: 192,
-      },
-      foundingDate: '2026',
-      description: 'NewsTide is a news outlet specialized in technology, artificial intelligence, startups and tech finance.',
-      publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
-      ownershipFundingInfo: 'https://www.newstide.news/en/about',
-      contactPoint: {
-        '@type': 'ContactPoint',
-        email: 'newstideco@gmail.com',
-        contactType: 'editorial',
-        availableLanguage: ['English', 'Spanish'],
-      },
-    },
   ],
 }
 
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `(function(){var h=document.documentElement;if(h)h.setAttribute('lang','en');})();`,
-        }}
-      />
+      {/* C4 — lang="en" is set server-side by root layout; no inline script patch needed */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
