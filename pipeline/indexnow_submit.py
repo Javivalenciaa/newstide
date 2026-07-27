@@ -52,7 +52,7 @@ def get_recent_slugs(limit: int = 50) -> list[str]:
     result = (
         sb.table("articles")
         .select("slug, slug_en")
-        .order("created_at", desc=True)
+        .order("published_at", desc=True)
         .limit(limit)
         .execute()
     )
