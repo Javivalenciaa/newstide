@@ -101,7 +101,7 @@ const siteSchema = {
         'https://x.com/newstide',
         'https://linkedin.com/company/newstide',
         'https://www.wikidata.org/wiki/NewsTide',
-        'https://www.crunchbase.com/organization/newstide',
+        'https://www.crunchbase.com/organization/newstide-co',
         'https://www.newstide.news',
       ],
       publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
