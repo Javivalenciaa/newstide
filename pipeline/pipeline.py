@@ -127,7 +127,16 @@ def slugify(text):
     return text[:60].strip("-")
 
 def slugify_en(text):
+    """Generate a clean ASCII slug from an English title.
+    Normalizes accented characters first (handles edge cases where LLM
+    returns proper nouns or loanwords with diacritics in the EN title).
+    """
     text = smart_trim(text, 60).lower()
+    # Normalize accents — same map as slugify() to handle any stray diacritics
+    for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u"),
+                 ("à","a"),("è","e"),("ì","i"),("ò","o"),("ù","u"),("â","a"),("ê","e"),
+                 ("î","i"),("ô","o"),("û","u"),("ä","a"),("ë","e"),("ï","i"),("ö","o"),("ç","c")]:
+        text = text.replace(a, b)
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
     return text[:60].strip("-")
@@ -702,6 +711,79 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
         lines = new_lines
     return "\n".join(lines)
 
+# ── INTERNAL LINKING ──────────────────────────────────────────────────────────
+def fetch_related_articles_en(category: str, current_slug_en: str, limit: int = 15) -> list[dict]:
+    """Fetch published EN articles in the same category to use as internal link candidates."""
+    try:
+        res = (
+            supabase_client.table("articles")
+            .select("title_en, slug_en, excerpt_en")
+            .eq("category", category)
+            .not_.is_("slug_en", "null")
+            .neq("slug_en", current_slug_en)
+            .order("published_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return [r for r in (res.data or []) if r.get("slug_en") and r.get("title_en")]
+    except Exception as e:
+        print(f"  ⚠️  Internal link fetch failed (non-critical): {e}")
+        return []
+
+def inject_internal_links(content_en: str, category: str, slug_en: str) -> str:
+    """
+    Ask GPT to insert 2-3 natural inline hyperlinks to related NewsTide articles
+    inside the EN article body. Only modifies the body text — never touches H1/H2 lines.
+    Falls back to original content silently if anything fails.
+    """
+    related = fetch_related_articles_en(category, slug_en, limit=12)
+    if not related:
+        print("  ℹ️  No related articles found for internal linking — skipping")
+        return content_en
+
+    candidates_str = "\n".join(
+        f'- Title: "{r["title_en"]}" | URL: https://www.newstide.news/en/article/{r["slug_en"]}'
+        for r in related
+    )
+
+    prompt = f"""You are an SEO editor. Your task is to add 2-3 natural internal hyperlinks to the article below.
+
+AVAILABLE INTERNAL LINKS (choose only the most contextually relevant ones):
+{candidates_str}
+
+RULES — read carefully before editing:
+1. Insert links ONLY inside paragraph text — never inside headings (lines starting with # or ##).
+2. Use the most relevant anchor text already present in the article body (a phrase, tool name, or concept).
+3. Each link must feel completely natural — a reader should not notice it was added.
+4. Do NOT add more than 3 links total.
+5. Do NOT invent URLs. Use ONLY the URLs listed above exactly as written.
+6. Do NOT modify any other part of the article (no rewrites, no new content).
+7. If no natural insertion point exists for a given link, skip it — it's better to add fewer links than to force them.
+8. Return the FULL article with the links inserted. No explanations, no preamble.
+
+ARTICLE:
+{content_en}"""
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=6000,
+        )
+        result = resp.choices[0].message.content.strip()
+        result = strip_code_fences(result)
+        # Sanity check: result must be at least 80% as long as original (no content loss)
+        if len(result) >= len(content_en) * 0.80:
+            print(f"  🔗 Internal links injected ({len(related)} candidates available)")
+            return result
+        else:
+            print("  ⚠️  Internal link injection returned truncated content — using original")
+            return content_en
+    except Exception as e:
+        print(f"  ⚠️  Internal link injection failed (non-critical): {e}")
+        return content_en
+
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 def save_article(keyword, content_es, excerpt_es, category, idx, content_en, title_en, excerpt_en, slug_en, cover_image_url=None):
     lines = content_es.strip().split("\n")
@@ -796,6 +878,13 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         en = translate_to_english(content_es, result["excerpt"], title_preview)
         if not validate_article_content(en["content_en"], label="translated-en"):
             print(f"  ⚠️  EN translation invalid after retries — saving anyway, review manually")
+
+        # ── Inject internal links into EN body ────────────────────────────────
+        print("  🔗 Injecting internal links (EN)...")
+        en["content_en"] = inject_internal_links(
+            en["content_en"], result["category"], en["slug_en"]
+        )
+
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
             article_idx, en["content_en"], en["title_en"], en["excerpt_en"],
