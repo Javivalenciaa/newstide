@@ -322,7 +322,7 @@ def fetch_funding_news() -> list[str]:
 def generate_niche_topics(recent_articles: list[dict], n: int = 15) -> list[str]:
     recent_titles = "\n".join(f"- {a['title']}" for a in recent_articles[:30])
     today = datetime.now().strftime("%B %d, %Y")
-    prompt = f"""Today is {today}. You are editor-in-chief of NewsTide, a premium English-language tech media for founders and developers.
+    prompt = f"""Today is {today}. You are editor-in-chief of NewsTide, a premium Spanish-language tech media for founders and developers.
 
 Already published (DO NOT repeat or use similar angle):
 {recent_titles if recent_titles else "None yet."}
@@ -330,16 +330,17 @@ Already published (DO NOT repeat or use similar angle):
 Generate exactly {n} highly specific, different article ideas optimized for HIGH CTR on Google Search.
 
 RULES:
-1. NEVER generate generic titles like "The best AI tools" or "The future of AI"
+1. NEVER generate generic titles like "Las mejores herramientas de IA" or "El futuro de la IA"
 2. Each idea must mention a REAL, concrete tool/model/company (Claude 3.5, Cursor, Supabase, Linear, Vercel, Mistral, Perplexity, n8n, etc.)
 3. Distribute across these HIGH-PERFORMING types:
-   - 4 ideas: "How to make money/save money with [specific tool]" (e.g. "How to make $5k/month automating reports with Claude API")
-   - 4 ideas: Funding/investment news angles with surprising stats (e.g. "The $2B Bet on AI Agents Nobody Is Talking About")
-   - 4 ideas: Specific comparisons or shocking revelations (e.g. "Why Cursor Beat GitHub Copilot at 3 YC Startups")
-   - 3 ideas: Evergreen guides with strong numbers (e.g. "7 n8n Workflows That Replace a $3k/month Developer")
+   - 4 ideas: "Cómo ganar/ahorrar dinero con [herramienta específica]" (e.g. "Cómo ganar 5.000€/mes automatizando informes con la API de Claude")
+   - 4 ideas: Noticias de financiación/inversión con estadísticas sorprendentes (e.g. "La apuesta de 2.000M$ en Agentes IA de la que nadie habla")
+   - 4 ideas: Comparativas específicas o revelaciones impactantes (e.g. "Por qué Cursor venció a GitHub Copilot en 3 startups de YC")
+   - 3 ideas: Guías evergreen con números contundentes (e.g. "7 flujos de n8n que reemplazan a un desarrollador de 3.000€/mes")
 4. Titles must be punchy, emotional, specific — optimized for clicks, NOT for accuracy theater
-5. Use tension, contrast, numbers, stakes: "Why X fails when...", "The real cost of...", "X vs Y: which won at [company]"
-6. NO tutorial-style generic titles (avoid: "Getting started with X", "Introduction to Y", "A guide to Z")
+5. Use tension, contrast, numbers, stakes: "Por qué X falla cuando...", "El verdadero coste de...", "X vs Y: quién ganó en [empresa]"
+6. NO tutorial-style generic titles (avoid: "Cómo empezar con X", "Introducción a Y", "Guía de Z")
+7. Write all titles IN SPANISH
 
 Format: one idea per line, no numbering, no explanation. Just the article title/angle."""
 
@@ -361,21 +362,21 @@ Format: one idea per line, no numbering, no explanation. Just the article title/
 def get_fallback_topics() -> list[str]:
     today = datetime.now().strftime("%B %Y")
     return [
-        f"How to Make $4k/Month Automating Client Reports with Claude API",
-        f"Cursor vs GitHub Copilot: Which Won at 5 YC Startups in {today}",
-        f"The Real Reason 80% of AI Agents Fail in Production",
-        f"How Supabase Is Replacing $2k/Month Backend Teams at Startups",
-        f"Mistral vs Claude Haiku: The Cost Breakdown Nobody Shows You",
-        f"7 n8n Workflows That Replace a Full-Time Developer",
-        f"The $500M Bet on AI Agents: What VCs Are Actually Funding in {today}",
-        f"Why Perplexity Is Quietly Eating Google's Search Market Share",
-        f"How to Build a SaaS with Vercel AI SDK in 48 Hours",
-        f"The AI Startup Bubble: 89 New Unicorns Hide a Dangerous Pattern",
-        f"Anthropic vs OpenAI: Which API Saves More Money at Scale",
-        f"How European Startups Are Beating Silicon Valley With Smaller LLMs",
-        f"The Hidden Cost of GPT-4o That Founders Discover Too Late",
-        f"How 3 Founders Used n8n + Claude to Fire Their Ops Team",
-        f"Fine-tuning vs RAG in {today}: The Decision That Defines Your AI Stack",
+        f"Cómo ganar 4.000€/mes automatizando informes de clientes con la API de Claude",
+        f"Cursor vs GitHub Copilot: cuál ganó en 5 startups de YC en {today}",
+        f"La verdadera razón por la que el 80% de los agentes IA fallan en producción",
+        f"Cómo Supabase está reemplazando equipos de backend de 2.000€/mes en startups",
+        f"Mistral vs Claude Haiku: el desglose de costes que nadie te muestra",
+        f"7 flujos de n8n que reemplazan a un desarrollador a tiempo completo",
+        f"La apuesta de 500M$ en Agentes IA: en qué están invirtiendo realmente los VCs en {today}",
+        f"Por qué Perplexity está comiendo silenciosamente la cuota de mercado de búsqueda de Google",
+        f"Cómo construir un SaaS con Vercel AI SDK en 48 horas",
+        f"La burbuja de las startups de IA: 89 nuevos unicornios ocultan un patrón peligroso",
+        f"Anthropic vs OpenAI: qué API ahorra más dinero a escala",
+        f"Cómo las startups europeas están superando a Silicon Valley con LLMs más pequeños",
+        f"El coste oculto de GPT-4o que los fundadores descubren demasiado tarde",
+        f"Cómo 3 fundadores usaron n8n + Claude para prescindir de su equipo de operaciones",
+        f"Fine-tuning vs RAG en {today}: la decisión que define tu stack de IA",
     ]
 
 # ── DEDUPLICATION ENGINE ──────────────────────────────────────────────────────
@@ -410,27 +411,28 @@ Reply ONLY: YES or NO"""
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
     recent_titles = "\n".join(f"- {a['title']}" for a in recent_articles[:20])
     angles = [
-        "a specific step-by-step technical tutorial with real numbers",
-        "a direct comparison between two concrete tools with a winner",
-        "a real use case from a known company or startup",
-        "a common mistake or problem nobody talks about on this topic",
-        "a counterintuitive stat or surprising data point",
-        "a monetization angle: how founders make or save money with this",
+        "un tutorial técnico paso a paso con cifras reales",
+        "una comparativa directa entre dos herramientas concretas con un ganador claro",
+        "un caso de uso real de una empresa o startup conocida",
+        "un error común o problema del que nadie habla sobre este tema",
+        "un dato contraintuitivo o estadística sorprendente",
+        "un ángulo de monetización: cómo los fundadores ganan o ahorran dinero con esto",
     ]
     angle = angles[attempt % len(angles)]
-    prompt = f"""You have this topic: "{original}"
+    prompt = f"""Tienes este tema: "{original}"
 
-It's too similar to already published articles:
+Es demasiado similar a artículos ya publicados:
 {recent_titles}
 
-Transform it into a completely different article using this specific angle: {angle}
+Transfórmalo en un artículo completamente diferente usando este ángulo específico: {angle}
 
-The new topic must:
-- Be concrete and different from published articles
-- Mention a real tool, company or use case
-- Have a clickable title for developers or founders with tension/stakes/numbers
+El nuevo tema debe:
+- Ser concreto y diferente de los artículos publicados
+- Mencionar una herramienta, empresa o caso de uso real
+- Tener un título clickable para desarrolladores o fundadores con tensión/stakes/números
+- Estar escrito EN ESPAÑOL
 
-Reply ONLY with the new title/angle (1 line, max 120 characters)."""
+Responde SOLO con el nuevo título/ángulo (1 línea, máx 120 caracteres)."""
     try:
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
@@ -484,53 +486,54 @@ def generate_article(keyword: str, recent_context: str) -> dict:
     category = detect_category(keyword)
     min_words = MIN_WORD_COUNT
     _check_claude_budget(output_tokens=6000)
-    prompt = f"""Write a complete article in English about: "{keyword}"
+    prompt = f"""Escribe un artículo completo EN ESPAÑOL sobre: "{keyword}"
 
-ALREADY PUBLISHED ON NEWSTIDE (do not repeat these topics or angles):
+YA PUBLICADO EN NEWSTIDE (no repitas estos temas ni ángulos):
 {recent_context}
 
-STRUCTURE (use markdown):
-- H1 title: punchy, specific, high-CTR (NOT the raw keyword)
-- Introduction: 2 paragraphs that hook from the first sentence — lead with the tension, the number, or the surprise
-- 4 or 5 H2 sections with real depth and value
-- H3 subsections where needed
-- Concrete examples, real data, comparatives or code where applicable
-- Conclusion with a personal take and a question for the reader
+ESTRUCTURA (usa markdown):
+- Título H1: llamativo, específico, alto CTR (NO el keyword en bruto)
+- Introducción: 2 párrafos que enganchen desde la primera frase — empieza con la tensión, el número o la sorpresa
+- 4 o 5 secciones H2 con profundidad y valor real
+- Subsecciones H3 donde sea necesario
+- Ejemplos concretos, datos reales, comparativas o código donde aplique
+- Conclusión con perspectiva personal y una pregunta al lector
 
-REQUIREMENTS:
-- MINIMUM {min_words} words (mandatory — short articles will be rejected)
-- Ideal target: between {min_words} and {min_words + 400} words
-- Concrete data, real examples, personal perspective
-- Tone: expert but accessible, not corporate
-- Never start with "In the world of..." or generic phrases
-- Article category: {category}
-- Current year is 2026. Update references from prior years to 2026 unless historically essential.
-- The article MUST offer a different angle from already published ones — go deep on specifics
+REQUISITOS:
+- MÍNIMO {min_words} palabras (obligatorio — los artículos cortos serán rechazados)
+- Objetivo ideal: entre {min_words} y {min_words + 400} palabras
+- Datos concretos, ejemplos reales, perspectiva personal
+- Tono: experto pero accesible, no corporativo
+- Nunca empieces con "En el mundo de..." ni frases genéricas
+- Categoría del artículo: {category}
+- El año actual es 2026. Actualiza referencias de años anteriores a 2026 salvo que sean históricamente esenciales.
+- El artículo DEBE ofrecer un ángulo diferente a los ya publicados — profundiza en los detalles
 
-SEO / CTR — H1 TITLE (CRITICAL):
-- H1 MUST be between {TITLE_SOFT_MIN} and {TITLE_SOFT_MAX} characters (counting spaces)
-- HARD LIMIT: never exceed {TITLE_MAX_CHARS} characters in the title
-- If in doubt between two versions, always choose the shorter one
-- Must be extremely clickable, specific and emotional — even aggressive/clickbait, but WITHOUT lying
-- Use contrast, surprise, conflict, numbers or a clear promise when it fits
-- Avoid vague or long titles
-- No quotes in the title
-- Count the title characters before writing — if it exceeds {TITLE_SOFT_MAX} characters, shorten it
+SEO / CTR — TÍTULO H1 (CRÍTICO):
+- El H1 DEBE tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres (contando espacios)
+- LÍMITE DURO: nunca superes {TITLE_MAX_CHARS} caracteres en el título
+- Si dudas entre dos versiones, elige siempre la más corta
+- Debe ser extremadamente clickable, específico y emocional — incluso agresivo/clickbait, pero SIN mentir
+- Usa contraste, sorpresa, conflicto, números o una promesa clara cuando encaje
+- Evita títulos vagos o largos
+- Sin comillas en el título
+- Cuenta los caracteres del título antes de escribir — si supera {TITLE_SOFT_MAX} caracteres, acórtalo
 
-At the end, on a separate line write exactly:
-EXCERPT: [120 to 155 character summary, with a hook, clear and suitable as meta description — make it so compelling someone MUST click]"""
+Al final, en una línea separada escribe exactamente:
+EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y adecuado como meta descripción — hazlo tan convincente que alguien DEBA hacer clic]"""
 
     message = claude_client.messages.create(
         model=MODEL_GENERATE, max_tokens=6000,
         messages=[{"role": "user", "content": prompt}],
         system=(
-            f"You are a senior tech journalist specialized in AI, startups and developer tools. "
-            f"You write for NewsTide, a premium English-language tech media for founders and developers. "
-            f"Your style is clear, direct and opinionated. The current year is 2026. "
-            f"Every article must have a unique, concrete angle. Articles must be exhaustive and well-developed — never short. "
-            f"IMPORTANT: H1 titles must be between {TITLE_SOFT_MIN} and {TITLE_SOFT_MAX} characters, "
-            f"never more than {TITLE_MAX_CHARS}. "
-            f"Excerpts must be irresistibly clickable — they appear as Google search snippets."
+            f"Eres un periodista tecnológico senior especializado en IA, startups y herramientas para desarrolladores. "
+            f"Escribes para NewsTide, un medio tech premium en ESPAÑOL para fundadores y desarrolladores. "
+            f"Tu estilo es claro, directo y con opinión. El año actual es 2026. "
+            f"Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos. "
+            f"IMPORTANTE: Los títulos H1 deben tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres, "
+            f"nunca más de {TITLE_MAX_CHARS}. "
+            f"TODOS los artículos deben estar escritos completamente en ESPAÑOL. "
+            f"Los excerpts deben ser irresistiblemente clickables — aparecen como fragmentos de búsqueda de Google."
         )
     )
     output_tokens = message.usage.output_tokens if hasattr(message, 'usage') else 6000
@@ -549,14 +552,15 @@ def humanize(text: str) -> str:
     response = openai_client.chat.completions.create(
         model=MODEL_HUMANIZE,
         messages=[
-            {"role": "system", "content": """You are a human editor with 15 years of experience in digital media.
-Rewrite the article applying these rules WITHOUT changing the content or data:
-- Mix short sentences (5-8 words) with long ones (18-28 words)
-- Use varied connectors: "however", "that said", "here's the thing", "worth noting"
-- Add occasional opinion: "what surprised me most", "honestly", "in my experience"
-- Include 1-2 natural rhetorical questions
-- "fundamental" → "key", "in conclusion" → "bottom line", "robust" → "solid"
-Keep all markdown headings. Return ONLY the article, no explanations."""},
+            {"role": "system", "content": """Eres un editor humano con 15 años de experiencia en medios digitales en español.
+Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los datos:
+- Mezcla frases cortas (5-8 palabras) con largas (18-28 palabras)
+- Usa conectores variados: "sin embargo", "dicho esto", "lo que más me sorprendió", "vale la pena señalar"
+- Añade opinión ocasional: "lo que más me sorprendió", "honestamente", "en mi experiencia"
+- Incluye 1-2 preguntas retóricas naturales
+- "fundamental" → "clave", "en conclusión" → "en resumen", "robusto" → "sólido"
+- IMPORTANTE: Mantén el texto completamente en ESPAÑOL. No traduzcas ni cambies el idioma.
+Conserva todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
         temperature=0.88, max_tokens=6000
@@ -670,7 +674,7 @@ def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | Non
 def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     def img_md(img: dict) -> str:
         alt = img["alt"].replace('"', "'")
-        return f"![{alt}]({img['url']})\n*Photo: [{img['author']}]({img['author_url']}) on Unsplash*\n"
+        return f"![{alt}]({img['url']})\n*Foto: [{img['author']}]({img['author_url']}) en Unsplash*\n"
     lines = content.split("\n")
     if cover:
         new_lines, inserted, blank = [], False, False
