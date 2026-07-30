@@ -41,6 +41,10 @@ TITLE_MAX_CHARS    = 60
 TITLE_SOFT_MIN     = 45
 TITLE_SOFT_MAX     = 58
 
+# ── AUTHOR (single, real person) ───────────────────────────────────────────────
+AUTHOR      = "Javier Valencia"
+AUTHOR_SLUG = "javier-valencia"
+
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -68,18 +72,12 @@ CATEGORIES = {
     "noticia": "Noticias", "lanza": "Noticias", "anuncia": "Noticias",
 }
 
-AUTHORS = [
-    "Ana Martínez", "Carlos Ruiz", "María López",
-    "Pedro Sánchez", "Sofía Jiménez", "Luis Torres"
-]
-
 # ── INDEXNOW ──────────────────────────────────────────────────────────────────
 INDEXNOW_KEY      = "964bf589528b466cace60749e05cfcb6"
 INDEXNOW_HOST     = "www.newstide.news"
 INDEXNOW_KEY_LOC  = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
 
 def ping_indexnow(urls: list) -> None:
-    """Notify Bing/IndexNow about new URLs. Non-blocking — never crashes the pipeline."""
     if not urls:
         return
     try:
@@ -127,12 +125,7 @@ def slugify(text):
     return text[:60].strip("-")
 
 def slugify_en(text):
-    """Generate a clean ASCII slug from an English title.
-    Normalizes accented characters first (handles edge cases where LLM
-    returns proper nouns or loanwords with diacritics in the EN title).
-    """
     text = smart_trim(text, 60).lower()
-    # Normalize accents — same map as slugify() to handle any stray diacritics
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u"),
                  ("à","a"),("è","e"),("ì","i"),("ò","o"),("ù","u"),("â","a"),("ê","e"),
                  ("î","i"),("ô","o"),("û","u"),("ä","a"),("ë","e"),("ï","i"),("ö","o"),("ç","c")]:
@@ -456,30 +449,24 @@ Reply ONLY with the new title/angle (1 line, max 120 characters)."""
 def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     print("🔍 Building candidate pool (5 sources)...")
     pool = []
-
     print("  📰 Source 1: Daily news — funding & launches (SerpAPI news EN)...")
     news = fetch_serpapi_news()
     print(f"     → {len(news)} headlines fetched")
     pool.extend(news)
-
     print("  💰 Source 2: Funding-specific news (SerpAPI news EN)...")
     funding = fetch_funding_news()
     print(f"     → {len(funding)} funding stories fetched")
     pool.extend(funding)
-
     print("  📈 Source 3: Trending searches US (SerpAPI organic)...")
     trends = fetch_serpapi_trends()
     print(f"     → {len(trends)} trends fetched")
     pool.extend(trends)
-
     print("  🧠 Source 4: Niche ideas — CTR-optimized (GPT-4o-mini)...")
     niche = generate_niche_topics(recent_articles, n=15)
     print(f"     → {len(niche)} niche ideas generated")
     pool.extend(niche)
-
     fallback = get_fallback_topics()
     pool.extend(fallback)
-
     seen = set()
     unique = []
     for p in pool:
@@ -493,12 +480,10 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 # ── GENERATE ARTICLE WITH CLAUDE ─────────────────────────────────────────────
 def generate_article(keyword: str, recent_context: str) -> dict:
     global _claude_calls_this_run, _claude_tokens_this_run
-    print(f"  ✍️  Claude generating ES: {keyword[:70]}...")
+    print(f"  ✍️  Claude generating: {keyword[:70]}...")
     category = detect_category(keyword)
     min_words = MIN_WORD_COUNT
-
     _check_claude_budget(output_tokens=6000)
-
     prompt = f"""Write a complete article in English about: "{keyword}"
 
 ALREADY PUBLISHED ON NEWSTIDE (do not repeat these topics or angles):
@@ -550,7 +535,6 @@ EXCERPT: [120 to 155 character summary, with a hook, clear and suitable as meta 
     )
     output_tokens = message.usage.output_tokens if hasattr(message, 'usage') else 6000
     _register_claude_call(output_tokens)
-
     raw = message.content[0].text
     excerpt = ""
     if "EXCERPT:" in raw:
@@ -600,9 +584,8 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
         temperature=0.75, max_tokens=6000
     )
     raw = response.choices[0].message.content.strip()
-    title_en   = es_title
+    title_en = es_title
     excerpt_en = es_excerpt
-    content_en = raw
     lines = raw.splitlines()
     body_start = 0
     for i, line in enumerate(lines):
@@ -713,7 +696,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
 
 # ── INTERNAL LINKING ──────────────────────────────────────────────────────────
 def fetch_related_articles_en(category: str, current_slug_en: str, limit: int = 15) -> list[dict]:
-    """Fetch published EN articles in the same category to use as internal link candidates."""
     try:
         res = (
             supabase_client.table("articles")
@@ -731,39 +713,31 @@ def fetch_related_articles_en(category: str, current_slug_en: str, limit: int = 
         return []
 
 def inject_internal_links(content_en: str, category: str, slug_en: str) -> str:
-    """
-    Ask GPT to insert 2-3 natural inline hyperlinks to related NewsTide articles
-    inside the EN article body. Only modifies the body text — never touches H1/H2 lines.
-    Falls back to original content silently if anything fails.
-    """
     related = fetch_related_articles_en(category, slug_en, limit=12)
     if not related:
         print("  ℹ️  No related articles found for internal linking — skipping")
         return content_en
-
     candidates_str = "\n".join(
         f'- Title: "{r["title_en"]}" | URL: https://www.newstide.news/en/article/{r["slug_en"]}'
         for r in related
     )
-
     prompt = f"""You are an SEO editor. Your task is to add 2-3 natural internal hyperlinks to the article below.
 
 AVAILABLE INTERNAL LINKS (choose only the most contextually relevant ones):
 {candidates_str}
 
-RULES — read carefully before editing:
+RULES:
 1. Insert links ONLY inside paragraph text — never inside headings (lines starting with # or ##).
-2. Use the most relevant anchor text already present in the article body (a phrase, tool name, or concept).
-3. Each link must feel completely natural — a reader should not notice it was added.
+2. Use the most relevant anchor text already present in the article body.
+3. Each link must feel completely natural.
 4. Do NOT add more than 3 links total.
 5. Do NOT invent URLs. Use ONLY the URLs listed above exactly as written.
-6. Do NOT modify any other part of the article (no rewrites, no new content).
-7. If no natural insertion point exists for a given link, skip it — it's better to add fewer links than to force them.
+6. Do NOT modify any other part of the article.
+7. If no natural insertion point exists for a given link, skip it.
 8. Return the FULL article with the links inserted. No explanations, no preamble.
 
 ARTICLE:
 {content_en}"""
-
     try:
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
@@ -773,7 +747,6 @@ ARTICLE:
         )
         result = resp.choices[0].message.content.strip()
         result = strip_code_fences(result)
-        # Sanity check: result must be at least 80% as long as original (no content loss)
         if len(result) >= len(content_en) * 0.80:
             print(f"  🔗 Internal links injected ({len(related)} candidates available)")
             return result
@@ -817,7 +790,7 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         "content_en":      content_en,
         "excerpt_en":      excerpt_en,
         "category":        category,
-        "author":          AUTHORS[idx % len(AUTHORS)],
+        "author":          AUTHOR,          # always "Javier Valencia"
         "keyword":         keyword,
         "keyword_hash":    md5(keyword),
         "reading_time":    rt,
@@ -829,10 +802,8 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
     try:
         supabase_client.table("articles").insert(data).execute()
         print(f"  ✅ Saved: {title_es[:70]}")
-        # ── Ping IndexNow so Bing indexes immediately ──
         final_slug_en = slug_en or slugify_en(title_en)
-        urls_to_ping = [f"https://www.newstide.news/en/article/{final_slug_en}"]
-        ping_indexnow(urls_to_ping)
+        ping_indexnow([f"https://www.newstide.news/en/article/{final_slug_en}"])
         return title_es
     except Exception as e:
         print(f"  ❌ Error saving: {e}")
@@ -878,13 +849,10 @@ def process_topic(topic: str, recent_articles: list[dict], published_this_run: l
         en = translate_to_english(content_es, result["excerpt"], title_preview)
         if not validate_article_content(en["content_en"], label="translated-en"):
             print(f"  ⚠️  EN translation invalid after retries — saving anyway, review manually")
-
-        # ── Inject internal links into EN body ────────────────────────────────
         print("  🔗 Injecting internal links (EN)...")
         en["content_en"] = inject_internal_links(
             en["content_en"], result["category"], en["slug_en"]
         )
-
         saved_title = save_article(
             candidate, content_es, result["excerpt"], result["category"],
             article_idx, en["content_en"], en["title_en"], en["excerpt_en"],
@@ -908,26 +876,20 @@ def main():
         f"max {MAX_CLAUDE_TOKENS_PER_RUN:,} output tokens, "
         f"max {MAX_POOL_EXPANSIONS} pool expansions"
     )
-
     print("📚 Loading recent articles from Supabase...")
     recent_articles = get_recent_articles()
     print(f"   {len(recent_articles)} articles from last 45 days loaded")
-
     candidate_pool = build_candidate_pool(recent_articles)
-
     published_titles: list[str] = []
     pool_index = 0
     extra_niche_attempts = 0
-
     print(f"\n🎯 Target: {ARTICLES_PER_RUN} articles\n")
-
     try:
         while len(published_titles) < ARTICLES_PER_RUN:
-
             if pool_index >= len(candidate_pool):
                 extra_niche_attempts += 1
                 if extra_niche_attempts > MAX_POOL_EXPANSIONS:
-                    print(f"⛔ Pool exhausted after {MAX_POOL_EXPANSIONS} expansions — aborting to avoid extra costs.")
+                    print(f"⛔ Pool exhausted after {MAX_POOL_EXPANSIONS} expansions — aborting.")
                     break
                 print(f"\n♻️  Pool exhausted — generating more niche topics (expansion {extra_niche_attempts}/{MAX_POOL_EXPANSIONS})...")
                 extra = generate_niche_topics(
@@ -938,36 +900,26 @@ def main():
                 if not extra:
                     candidate_pool.extend(get_fallback_topics())
                 continue
-
             topic = candidate_pool[pool_index]
             pool_index += 1
-
             print(f"\n📝 [{len(published_titles)+1}/{ARTICLES_PER_RUN}] Processing: {topic[:70]}")
-
             saved = process_topic(
-                topic,
-                recent_articles,
-                published_titles,
+                topic, recent_articles, published_titles,
                 article_idx=len(published_titles)
             )
-
             if saved:
                 published_titles.append(saved)
                 recent_articles.insert(0, {
-                    "title": saved,
-                    "keyword": topic,
-                    "category": detect_category(topic),
-                    "excerpt": ""
+                    "title": saved, "keyword": topic,
+                    "category": detect_category(topic), "excerpt": ""
                 })
                 print(f"\n✅ Article {len(published_titles)}/{ARTICLES_PER_RUN} published: {saved[:60]}")
                 if len(published_titles) < ARTICLES_PER_RUN:
                     print("   Continuing with next...\n")
                 time.sleep(2)
-
     except CostLimitExceeded as e:
         print(f"\n{e}")
         print(f"   Articles published before cutoff: {len(published_titles)}")
-
     print(f"\n{'='*60}")
     print(f"🎉 Pipeline finished: {len(published_titles)} articles published")
     print(f"📊 Total Claude calls: {_claude_calls_this_run} | Output tokens: {_claude_tokens_this_run:,}")
