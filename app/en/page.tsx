@@ -54,6 +54,15 @@ function Badge({ cat }: { cat: string }) {
   )
 }
 
+const SECTIONS = [
+  { href: '/en/articles', icon: '📰', label: 'All Articles', desc: 'Browse every article' },
+  { href: '/en/fin', icon: '💰', label: 'Personal Finance', desc: 'Money, investing & more' },
+  { href: '/en/compare', icon: '⚖️', label: 'Comparisons', desc: 'Tools & products compared' },
+  { href: '/en/authors', icon: '✍️', label: 'Authors', desc: 'Meet our editorial team' },
+  { href: '/en/about', icon: '🌊', label: 'About', desc: 'Our mission & vision' },
+  { href: '/en/contact', icon: '✉️', label: 'Contact', desc: 'Get in touch with us' },
+]
+
 export default async function HomeEN() {
   const { data: articles } = await supabase
     .from('articles')
@@ -102,6 +111,51 @@ export default async function HomeEN() {
           </div>
         </div>
         <div className="hero-scroll">Scroll<div className="hero-scroll-line" /></div>
+      </section>
+
+      {/* SECTIONS NAV */}
+      <section style={{ padding: '48px 0 32px', borderBottom: '1px solid var(--border)' }}>
+        <div className="container">
+          <div style={{ marginBottom: 24 }}>
+            <div className="section-label" style={{ marginBottom: 6 }}>Explore</div>
+            <h2 className="section-title" style={{ margin: 0 }}>All Sections</h2>
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: 16,
+          }}>
+            {SECTIONS.map(({ href, icon, label, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  padding: '20px 18px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  background: 'rgba(110,207,202,0.03)',
+                  textDecoration: 'none',
+                  transition: 'border-color 0.2s, background 0.2s',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--accent)'
+                  ;(e.currentTarget as HTMLAnchorElement).style.background = 'rgba(110,207,202,0.07)'
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--border)'
+                  ;(e.currentTarget as HTMLAnchorElement).style.background = 'rgba(110,207,202,0.03)'
+                }}
+              >
+                <span style={{ fontSize: 26 }}>{icon}</span>
+                <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--fg)' }}>{label}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>{desc}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* FEATURED */}
