@@ -10,6 +10,11 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/api/', '/_next/'],
       },
       {
+        // Googlebot News — explicitly allowed with full access for Google News indexing
+        userAgent: 'Googlebot-News',
+        allow: '/',
+      },
+      {
         // ChatGPT Search retrieval — allow so content appears in ChatGPT answers
         userAgent: 'OAI-SearchBot',
         allow: '/',
@@ -35,7 +40,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: '/',
       },
       {
-        // Meta AI training ��� block
+        // Meta AI training — block
         userAgent: 'FacebookBot',
         disallow: '/',
       },

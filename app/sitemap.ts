@@ -1,7 +1,10 @@
 import { supabase } from '@/lib/supabase'
 import { MetadataRoute } from 'next'
 
-export const dynamic = 'force-dynamic'
+// FIX: force-dynamic caused sitemap to regenerate on every Googlebot request,
+// risking cold-start timeouts and inconsistent responses. ISR (1h) is correct
+// for a news sitemap: fresh enough, stable enough for crawlers.
+export const revalidate = 3600
 
 const ES_CATS = [
   { slug: 'ia',           label: 'IA' },
@@ -18,8 +21,6 @@ const EN_CATS = [
   { slug: 'tutorials', label: 'Tutorials' },
   { slug: 'news',      label: 'News' },
 ]
-
-// C2 — FIN_CATS removed: /en/fin/category/* pages do not exist yet
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [articlesRes, pseoRes, financeRes] = await Promise.all([
@@ -55,7 +56,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority:        0.75,
   }))
 
-  // Finance articles — dedicated /en/fin/ path, completely separate
   const financeArticleUrls = allFinance.map((a) => ({
     url:             `https://www.newstide.news/en/fin/${a.slug_en}`,
     lastModified:    new Date(a.published_at),
