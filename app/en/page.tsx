@@ -3,6 +3,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import NewsletterForm from '@/components/NewsletterForm'
+import SectionNavCard from '@/components/SectionNavCard'
 
 export const revalidate = 300
 
@@ -126,33 +127,7 @@ export default async function HomeEN() {
             gap: 16,
           }}>
             {SECTIONS.map(({ href, icon, label, desc }) => (
-              <Link
-                key={href}
-                href={href}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  padding: '20px 18px',
-                  borderRadius: 10,
-                  border: '1px solid var(--border)',
-                  background: 'rgba(110,207,202,0.03)',
-                  textDecoration: 'none',
-                  transition: 'border-color 0.2s, background 0.2s',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--accent)'
-                  ;(e.currentTarget as HTMLAnchorElement).style.background = 'rgba(110,207,202,0.07)'
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--border)'
-                  ;(e.currentTarget as HTMLAnchorElement).style.background = 'rgba(110,207,202,0.03)'
-                }}
-              >
-                <span style={{ fontSize: 26 }}>{icon}</span>
-                <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--fg)' }}>{label}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>{desc}</span>
-              </Link>
+              <SectionNavCard key={href} href={href} icon={icon} label={label} desc={desc} />
             ))}
           </div>
         </div>
