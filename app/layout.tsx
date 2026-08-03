@@ -18,9 +18,11 @@ export const metadata: Metadata = {
   description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales. Actualizado cada día.',
   metadataBase: new URL('https://www.newstide.news'),
   alternates: {
-    canonical: 'https://www.newstide.news/es',
+    // FIX: /es does not exist — canonical must point to the real root URL
+    canonical: 'https://www.newstide.news',
     languages: {
-      'es': 'https://www.newstide.news/es',
+      // FIX: 'es' hreflang must point to a real page (root, not /es)
+      'es': 'https://www.newstide.news',
       'en': 'https://www.newstide.news/en',
       'en-US': 'https://www.newstide.news/en',
       'en-GB': 'https://www.newstide.news/en',
@@ -32,7 +34,8 @@ export const metadata: Metadata = {
     siteName: 'NewsTide',
     locale: 'es_ES',
     type: 'website',
-    url: 'https://www.newstide.news/es',
+    // FIX: OG url must match the real canonical
+    url: 'https://www.newstide.news',
     title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
     description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
     images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide — Noticias de IA y Tech' }],
