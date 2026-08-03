@@ -2,8 +2,6 @@ name: SEO Audit — Newstide
 
 on:
   workflow_dispatch:        # lanzar manualmente desde móvil/GitHub
-  schedule:
-    - cron: '0 8 * * 1'    # cada lunes a las 08:00 UTC
 
 permissions:
   contents: write
