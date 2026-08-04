@@ -6,7 +6,10 @@ import ReactMarkdown from 'react-markdown'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
-export const revalidate = 300
+// A3: artículos individuales ES → 24 horas. El contenido editorial no cambia
+// con frecuencia tras publicarse. Si en el futuro hay ediciones frecuentes,
+// añadir revalidatePath() en el pipeline de publicación de Supabase.
+export const revalidate = 86400
 
 type RelatedArticle = { title: string; slug: string; category: string; published_at: string }
 
@@ -42,10 +45,8 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// C3 fix: returns only the base title (no "| NewsTide") to avoid duplicate suffix
-// from the layout template's title.template (e.g. "%s | NewsTide")
 function seoTitle(title: string): string {
-  const max = 57 // leave room for " | NewsTide" appended by the layout template
+  const max = 57
   if (title.length <= max) return title
   const cut = title.substring(0, max)
   const lastSpace = cut.lastIndexOf(' ')
@@ -78,11 +79,8 @@ function pickRelatedArticles(
     .map(({ score: _score, ...r }) => r as RelatedArticle)
 }
 
-// Extract FAQ pairs from markdown content (## sections that look like Q&A)
-// Looks for H3 headings followed by a paragraph — common AI-generated article pattern
 function extractFAQs(content: string): Array<{ question: string; answer: string }> {
   const faqs: Array<{ question: string; answer: string }> = []
-  // Match "### Question?" or "**Question?**" patterns
   const h3Regex = /^###\s+(.+\?)\s*\n+([^#]+)/gm
   let match
   while ((match = h3Regex.exec(content)) !== null && faqs.length < 5) {
@@ -131,7 +129,9 @@ export async function generateMetadata(
       canonical: url,
       languages: {
         'es': url,
-        ...(urlEN ? { 'en': urlEN, 'x-default': urlEN } : { 'x-default': url }),
+        ...(urlEN ? { 'en': urlEN } : {}),
+        // A5: x-default → versión EN si existe, sino ES. Nunca apunta a /en genérico.
+        'x-default': urlEN ?? url,
       },
     },
     openGraph: {
@@ -199,10 +199,8 @@ export default async function ArticuloPage({
     .order('published_at', { ascending: false })
     .limit(5)
 
-  // Extract FAQs for structured data (boosts rich results in Google)
   const faqs = extractFAQs(article.content || '')
 
-  // ---- JSON-LD: NewsArticle ----
   const articleSchema = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -230,7 +228,6 @@ export default async function ArticuloPage({
     isPartOf: { '@id': 'https://www.newstide.news/#website' },
   }
 
-  // ---- JSON-LD: BreadcrumbList ----
   const breadcrumbSchema = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -241,7 +238,6 @@ export default async function ArticuloPage({
     ],
   }
 
-  // ---- JSON-LD: FAQPage (only injected when FAQs are found) ----
   const faqSchema = faqs.length > 0 ? {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -264,7 +260,6 @@ export default async function ArticuloPage({
         <div className="article-hero-overlay" />
         <div className="container">
           <div className="article-header">
-            {/* Breadcrumb nav — matches BreadcrumbList JSON-LD above */}
             <nav aria-label="Miga de pan" style={{ marginBottom: 16 }}>
               <ol style={{ display: 'flex', alignItems: 'center', gap: 6, listStyle: 'none', padding: 0, margin: 0, flexWrap: 'wrap' }}>
                 <li><Link href="/" style={{ fontSize: 13, color: 'var(--muted)' }}>Inicio</Link></li>

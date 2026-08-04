@@ -3,14 +3,22 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
-export const revalidate = 300
+// A3: listado de artículos → revalida cada hora (suficiente para un listado)
+export const revalidate = 3600
+// A2: necesario para leer searchParams en un Server Component de página
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: 'Todos los artículos — NewsTide',
   description: 'Todos los artículos de NewsTide sobre IA, startups, herramientas y tecnología.',
   alternates: {
     canonical: 'https://www.newstide.news/articulos',
-    languages: { 'es': 'https://www.newstide.news/articulos', 'en': 'https://www.newstide.news/en/articles' },
+    languages: {
+      'es': 'https://www.newstide.news/articulos',
+      'en': 'https://www.newstide.news/en/articles',
+      // A5: x-default apunta a la homepage ES (mercado principal)
+      'x-default': 'https://www.newstide.news',
+    },
   },
 }
 
@@ -41,12 +49,27 @@ function Badge({ cat }: { cat: string }) {
   )
 }
 
-export default async function ArticulosPage() {
-  const { data: articles } = await supabase
+// A2: recibe searchParams para implementar el buscador que promete el SearchAction
+export default async function ArticulosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>
+}) {
+  const { q } = await searchParams
+  const query = q?.trim() ?? ''
+
+  // A2: si hay query, filtra por title.ilike; si no, devuelve todos
+  let builder = supabase
     .from('articles')
     .select('id,title,slug,excerpt,category,author,published_at,reading_time,featured,cover_image_url')
     .order('published_at', { ascending: false })
     .limit(100)
+
+  if (query) {
+    builder = builder.ilike('title', `%${query}%`)
+  }
+
+  const { data: articles } = await builder
 
   const cats = Array.from(new Set(articles?.map(a => a.category) || []))
 
@@ -71,9 +94,71 @@ export default async function ArticulosPage() {
             Todos los <span className="grad">artículos</span>
           </h1>
           <p style={{ color: 'var(--muted)', fontSize: 16, maxWidth: 480 }}>
-            {articles?.length || 0} artículos sobre IA, startups, herramientas y tecnología.
+            {query
+              ? `${articles?.length || 0} resultado${articles?.length !== 1 ? 's' : ''} para "${query}"`
+              : `${articles?.length || 0} artículos sobre IA, startups, herramientas y tecnología.`
+            }
           </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 28 }}>
+
+          {/* A2: formulario de búsqueda — form GET, Server Component puro, sin JS cliente */}
+          <form
+            method="GET"
+            action="/articulos"
+            style={{ marginTop: 24, display: 'flex', gap: 8, maxWidth: 480 }}
+          >
+            <input
+              type="search"
+              name="q"
+              defaultValue={query}
+              placeholder="Buscar artículos…"
+              aria-label="Buscar artículos"
+              style={{
+                flex: 1,
+                padding: '9px 14px',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text)',
+                fontSize: 14,
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '9px 18px',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'var(--accent)',
+                color: 'var(--bg)',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Buscar
+            </button>
+            {query && (
+              <Link
+                href="/articulos"
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                ✕
+              </Link>
+            )}
+          </form>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 20 }}>
             <Link
               href="/articulos"
               style={{
@@ -143,7 +228,7 @@ export default async function ArticulosPage() {
           </div>
           {(!articles || articles.length === 0) && (
             <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--muted)' }}>
-              No hay artículos todavía.
+              {query ? `No se encontraron artículos para "${query}".` : 'No hay artículos todavía.'}
             </div>
           )}
         </div>

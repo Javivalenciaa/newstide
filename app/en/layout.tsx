@@ -19,7 +19,9 @@ export const metadata: Metadata = {
       'en-GB': 'https://www.newstide.news/en',
       'en-AU': 'https://www.newstide.news/en',
       'es': 'https://www.newstide.news',
-      'x-default': 'https://www.newstide.news/en',
+      // A5: x-default → homepage ES, coherente con root layout y el resto del sitio.
+      // Aunque esta es la home EN, el sitio tiene ES como idioma principal.
+      'x-default': 'https://www.newstide.news',
     },
   },
   openGraph: {
@@ -53,10 +55,6 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// NOTE: The root layout (app/layout.tsx) already defines <html lang="es"> and <body>.
-// Next.js App Router does NOT allow nested layouts to re-declare <html> or <body>.
-// GA4 and AdSense are loaded ONCE in the root layout and apply to all routes including /en/*.
-// Duplicating them here was causing double GA4 event tracking and double AdSense init.
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -89,12 +87,6 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
       />
       <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
       <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
-
-      {/* FIX C2: GA4 and AdSense removed from here — they are loaded once in app/layout.tsx.
-          Having them here AND in the root layout caused:
-          - GA4 events counted twice in Analytics
-          - AdSense double-initialisation (policy violation risk)
-          - Extra render-blocking scripts on every /en/* page */}
 
       <nav id="navbar">
         <Link href="/en" className="nav-logo">

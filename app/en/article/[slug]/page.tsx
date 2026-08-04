@@ -6,7 +6,9 @@ import ReactMarkdown from 'react-markdown'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
-export const revalidate = 300
+// A3: artículos individuales EN → 24 horas, igual que ES para consistencia.
+// Ambas versiones del mismo artículo tienen el mismo TTL de cache.
+export const revalidate = 86400
 export const dynamicParams = true
 
 const CAT_COLORS: Record<string, string> = {
@@ -111,7 +113,6 @@ function extractVisibleSources(content: string, max = 5): Array<{ label: string;
 const FIELDS = 'id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword'
 
 async function getArticle(slug: string) {
-  // 1. Try by slug_en first (primary EN route)
   const { data: byEn } = await supabase
     .from('articles')
     .select(FIELDS)
@@ -119,14 +120,12 @@ async function getArticle(slug: string) {
     .maybeSingle()
   if (byEn) return byEn
 
-  // 2. If slug matches an ES slug but has a slug_en, redirect to correct EN URL
   const { data: byEs } = await supabase
     .from('articles')
     .select(FIELDS)
     .eq('slug', slug)
     .maybeSingle()
   if (byEs) {
-    // Has EN version → redirect to it; otherwise redirect to ES page
     if (byEs.slug_en) {
       permanentRedirect(`/en/article/${byEs.slug_en}`)
     } else {
@@ -134,7 +133,6 @@ async function getArticle(slug: string) {
     }
   }
 
-  // 3. Fuzzy fallback: slug_en contains slug (handles minor mismatches)
   const { data: fuzzy } = await supabase
     .from('articles')
     .select(FIELDS)
@@ -150,7 +148,6 @@ export async function generateStaticParams() {
     .select('slug_en')
     .not('slug_en', 'is', null)
   if (!data) return []
-  // Only pre-render routes for articles that actually have an EN slug
   return data
     .filter((a) => typeof a.slug_en === 'string' && a.slug_en.trim() !== '')
     .map((a) => ({ slug: a.slug_en as string }))
@@ -187,7 +184,12 @@ export async function generateMetadata(
     description,
     alternates: {
       canonical: url,
-      languages: { 'en': url, 'es': urlES, 'x-default': url },
+      languages: {
+        'en': url,
+        'es': urlES,
+        // A5: x-default → URL EN del artículo (su contenido principal es EN en esta ruta)
+        'x-default': url,
+      },
     },
     openGraph: {
       title: rawTitle,
@@ -223,7 +225,6 @@ export default async function ArticlePageEN({
 
   if (!article) notFound()
 
-  // If article has no EN slug, redirect permanently to ES version
   if (!article.slug_en) permanentRedirect(`/articulo/${article.slug}`)
 
   const rawTitle   = article.title_en   || article.title
@@ -288,7 +289,6 @@ export default async function ArticlePageEN({
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
 
-      {/* HERO */}
       {article.cover_image_url && (
         <div className="article-hero">
           <img
@@ -325,7 +325,6 @@ export default async function ArticlePageEN({
         </div>
       )}
 
-      {/* BREADCRUMB */}
       <div className="container" style={{ paddingTop: 16, paddingBottom: 0 }}>
         <nav aria-label="Breadcrumb" style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center' }}>
           <Link href="/en" style={{ color: 'var(--muted)' }}>Home</Link>
@@ -336,7 +335,6 @@ export default async function ArticlePageEN({
         </nav>
       </div>
 
-      {/* BODY */}
       <div className="container">
         <div className="article-body-grid">
           <article className="article-body-wrap" style={{ padding: 0 }}>
@@ -355,33 +353,12 @@ export default async function ArticlePageEN({
             </div>
 
             {visibleSources.length > 0 && (
-              <section
-                aria-label="Sources"
-                style={{
-                  marginTop: 48,
-                  paddingTop: 28,
-                  borderTop: '1px solid var(--border)',
-                }}
-              >
-                <h2 style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  color: 'var(--muted)',
-                  marginBottom: 14,
-                }}>
-                  Sources
-                </h2>
+              <section aria-label="Sources" style={{ marginTop: 48, paddingTop: 28, borderTop: '1px solid var(--border)' }}>
+                <h2 style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Sources</h2>
                 <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {visibleSources.map((s, i) => (
                     <li key={i} style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-                      <a
-                        href={s.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: 'var(--cyan)', textDecoration: 'none' }}
-                      >
+                      <a href={s.href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>
                         {s.label}
                       </a>
                     </li>
@@ -400,35 +377,20 @@ export default async function ArticlePageEN({
             <NewsletterForm />
           </article>
 
-          {/* SIDEBAR */}
           <aside>
-            <div style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, padding: 24,
-            }}>
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
               <p style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16 }}>More in {catLabelEN}</p>
               <Link
                 href={`/en/articles/${catSlugEN}`}
-                style={{
-                  display: 'block', padding: '10px 14px', background: 'rgba(110,207,202,0.06)',
-                  border: '1px solid rgba(110,207,202,0.15)', borderRadius: 8,
-                  fontSize: 13, color: 'var(--cyan)', textDecoration: 'none', textAlign: 'center',
-                }}
+                style={{ display: 'block', padding: '10px 14px', background: 'rgba(110,207,202,0.06)', border: '1px solid rgba(110,207,202,0.15)', borderRadius: 8, fontSize: 13, color: 'var(--cyan)', textDecoration: 'none', textAlign: 'center' }}
               >
                 Browse all {catLabelEN} articles →
               </Link>
             </div>
 
-            <div style={{
-              marginTop: 20,
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, padding: 24,
-            }}>
+            <div style={{ marginTop: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
               <p style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Written by</p>
-              <Link
-                href={AUTHOR_PAGE_EN}
-                style={{ display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none' }}
-              >
+              <Link href={AUTHOR_PAGE_EN} style={{ display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none' }}>
                 <div style={{
                   width: 40, height: 40, borderRadius: '50%',
                   background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',

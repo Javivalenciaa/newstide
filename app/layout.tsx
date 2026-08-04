@@ -26,7 +26,10 @@ export const metadata: Metadata = {
       'en-US': 'https://www.newstide.news/en',
       'en-GB': 'https://www.newstide.news/en',
       'en-AU': 'https://www.newstide.news/en',
-      'x-default': 'https://www.newstide.news/en',
+      // A5: x-default → homepage ES. La home en / sirve contenido ES por defecto
+      // y es el mercado principal del sitio (más artículos ES, canonical en /).
+      // x-default NO debe apuntar a /en — eso contradecía el canonical de esta página.
+      'x-default': 'https://www.newstide.news',
     },
   },
   openGraph: {
@@ -121,13 +124,6 @@ const siteSchema = {
   ],
 }
 
-// FIX C1: Resolve correct lang per request at SSR time using next/headers.
-// next/headers().get('x-invoke-path') returns the matched route path in
-// Next.js / Vercel. We fall back to the referer header as a secondary signal.
-// For any path starting with /en we emit lang="en"; everything else is lang="es".
-// suppressHydrationWarning on <html> silences React's hydration mismatch warning
-// that would fire because the attribute value differs between server and client
-// renders when using this per-request pattern.
 async function getLang(): Promise<'en' | 'es'> {
   const headersList = await headers()
   const pathname =
@@ -153,7 +149,6 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(siteSchema) }}
         />
-        {/* RSS autodiscovery */}
         <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
         <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
       </head>

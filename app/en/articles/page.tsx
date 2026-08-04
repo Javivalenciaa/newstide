@@ -3,14 +3,20 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
-export const revalidate = 300
+// A3: listado EN → revalida cada hora
+export const revalidate = 3600
 
 export const metadata: Metadata = {
   title: 'All Articles — NewsTide',
   description: 'All NewsTide articles on AI, startups, tools and technology.',
   alternates: {
     canonical: 'https://www.newstide.news/en/articles',
-    languages: { 'es': 'https://www.newstide.news/articulos', 'en': 'https://www.newstide.news/en/articles', 'x-default': 'https://www.newstide.news/en/articles' },
+    languages: {
+      'es': 'https://www.newstide.news/articulos',
+      'en': 'https://www.newstide.news/en/articles',
+      // A5: x-default → homepage ES (mercado principal del sitio)
+      'x-default': 'https://www.newstide.news',
+    },
   },
 }
 
