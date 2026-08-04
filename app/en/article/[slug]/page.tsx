@@ -47,7 +47,6 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// seoTitle returns bare title only; template: '%s | NewsTide' in layout adds the suffix
 function seoTitle(title: string): string {
   const max = 57
   if (title.length <= max) return title
@@ -64,7 +63,6 @@ function seoDescription(excerpt: string, fallback: string): string {
   return `${cut.substring(0, lastSpace > 50 ? lastSpace : 152)}...`
 }
 
-// Build dynamic keywords from article data: category + title tokens + keyword field
 function buildKeywords(cat: string, title: string, keyword?: string | null): string[] {
   const catLabel = CAT_EN[cat] || cat
   const stopWords = new Set(['the','a','an','and','or','of','in','on','to','for','is','are','was','were','with','at','by','from','as','how','why','what','when','where'])
@@ -81,30 +79,20 @@ function buildKeywords(cat: string, title: string, keyword?: string | null): str
     .slice(0, 8)
 }
 
-/**
- * Extract the first N markdown links from content that look like real sources.
- * Returns schema.org CreativeWork citation objects.
- * Only includes links whose href starts with https:// (no relative links).
- */
 function extractCitations(content: string, max = 5): Array<{ '@type': string; url: string; name: string }> {
   if (!content) return []
-  // Match [label](https://...) patterns in markdown
   const mdLinkRe = /\[([^\]]{3,80})\]\((https:\/\/[^)]+)\)/g
   const results: Array<{ '@type': string; url: string; name: string }> = []
   let m: RegExpExecArray | null
   while ((m = mdLinkRe.exec(content)) !== null && results.length < max) {
     const label = m[1].trim()
     const href  = m[2].trim()
-    // Skip internal links
     if (href.includes('newstide.news')) continue
     results.push({ '@type': 'CreativeWork', name: label, url: href })
   }
   return results
 }
 
-/**
- * Extract the first N markdown links to render as a visible Sources section.
- */
 function extractVisibleSources(content: string, max = 5): Array<{ label: string; href: string }> {
   if (!content) return []
   const mdLinkRe = /\[([^\]]{3,80})\]\((https:\/\/[^)]+)\)/g
@@ -119,6 +107,25 @@ function extractVisibleSources(content: string, max = 5): Array<{ label: string;
   return results
 }
 
+const FIELDS = 'id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword'
+
+async function getArticle(slug: string) {
+  // Try by slug_en first
+  const { data } = await supabase
+    .from('articles')
+    .select(FIELDS)
+    .eq('slug_en', slug)
+    .maybeSingle()
+  if (data) return data
+  // Fallback: try by ES slug — will redirect to ES version
+  const { data: byEs } = await supabase
+    .from('articles')
+    .select(FIELDS)
+    .eq('slug', slug)
+    .maybeSingle()
+  return byEs || null
+}
+
 export async function generateStaticParams() {
   const { data } = await supabase.from('articles').select('slug_en').not('slug_en', 'is', null)
   return (data || []).map((a) => ({ slug: a.slug_en }))
@@ -128,11 +135,7 @@ export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-  const { data: article } = await supabase
-    .from('articles')
-    .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, updated_at, cover_image_url')
-    .eq('slug_en', slug)
-    .maybeSingle()
+  const article = await getArticle(slug)
 
   if (!article) return {
     title: 'Article not found',
@@ -146,7 +149,9 @@ export async function generateMetadata(
     'Technology, AI and trends for founders, developers and professionals. Updated daily on NewsTide.'
   )
   const enSlug = article.slug_en
-  const url    = `https://www.newstide.news/en/article/${enSlug}`
+  const url    = enSlug
+    ? `https://www.newstide.news/en/article/${enSlug}`
+    : `https://www.newstide.news/articulo/${article.slug}`
   const urlES  = `https://www.newstide.news/articulo/${article.slug}`
   const images = article.cover_image_url
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: rawTitle }]
@@ -189,14 +194,11 @@ export default async function ArticlePageEN({
 }) {
   const { slug } = await params
 
-  const { data: article } = await supabase
-    .from('articles')
-    .select('id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword')
-    .eq('slug_en', slug)
-    .maybeSingle()
+  const article = await getArticle(slug)
 
   if (!article) notFound()
 
+  // If article has no EN slug, redirect permanently to ES version
   if (!article.slug_en) permanentRedirect(`/articulo/${article.slug}`)
 
   const rawTitle   = article.title_en   || article.title
@@ -210,8 +212,7 @@ export default async function ArticlePageEN({
   const urlES      = `https://www.newstide.news/articulo/${article.slug}`
   const keywords   = buildKeywords(cat, rawTitle, article.keyword)
 
-  // E-E-A-T: extract real outbound citations from article content
-  const citations     = extractCitations(rawContent)
+  const citations      = extractCitations(rawContent)
   const visibleSources = extractVisibleSources(rawContent)
 
   const articleSchema = {
@@ -233,7 +234,6 @@ export default async function ArticlePageEN({
       : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
     author: {
       '@type': 'Person',
-      // Points to EN canonical author page — consistent @id across all EN article schemas
       '@id': AUTHOR_PAGE_EN,
       name: 'Javier Valencia',
       url: AUTHOR_PAGE_EN,
@@ -245,7 +245,6 @@ export default async function ArticlePageEN({
     articleSection: catSection,
     keywords,
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
-    // E-E-A-T: citation array — populated from real outbound links in the article body
     ...(citations.length > 0 && { citation: citations }),
   }
 
@@ -330,10 +329,6 @@ export default async function ArticlePageEN({
               <ReactMarkdown>{rawContent}</ReactMarkdown>
             </div>
 
-            {/* ── E-E-A-T: Visible Sources section ─────────────────────────────
-                Only rendered when the article content contains real outbound links.
-                This makes sources visible to both readers and Google crawlers,
-                which is a direct EEAT trust signal. */}
             {visibleSources.length > 0 && (
               <section
                 aria-label="Sources"
@@ -370,7 +365,6 @@ export default async function ArticlePageEN({
               </section>
             )}
 
-            {/* HREFLANG notice */}
             <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <p style={{ fontSize: 13, color: 'var(--muted)' }}>
                 🇪🇸 Also available in Spanish: <Link href={urlES} style={{ color: 'var(--cyan)' }}>Leer en español</Link>
@@ -400,7 +394,6 @@ export default async function ArticlePageEN({
               </Link>
             </div>
 
-            {/* E-E-A-T: Author card in sidebar — visible trust signal */}
             <div style={{
               marginTop: 20,
               background: 'var(--surface)', border: '1px solid var(--border)',
