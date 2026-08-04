@@ -72,6 +72,21 @@ CATEGORIES = {
     "noticia": "Noticias", "lanza": "Noticias", "anuncia": "Noticias",
 }
 
+# ── EDITORIAL NOTE (EEAT transparency) ───────────────────────────────────────
+EDITORIAL_NOTE_ES = """
+
+---
+
+*Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y revisado por Javier Valencia. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
+"""
+
+EDITORIAL_NOTE_EN = """
+
+---
+
+*Editorial note: This article was produced with AI assistance and reviewed by Javier Valencia. Verified facts are distinguished from editorial opinion throughout the text. External sources linked are independent of NewsTide.*
+"""
+
 # ── INDEXNOW ──────────────────────────────────────────────────────────────────
 INDEXNOW_KEY      = "964bf589528b466cace60749e05cfcb6"
 INDEXNOW_HOST     = "www.newstide.news"
@@ -151,8 +166,25 @@ def already_published_hash(keyword):
     res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
     return len(res.data) > 0
 
-def normalize_year(text: str) -> str:
-    return re.sub(r'\b(2023|2024|2025)\b', '2026', text)
+def normalize_publication_date_refs(text: str) -> str:
+    """
+    SAFE version: only updates 'published in', 'updated in', 'as of', 'en', 'actualizado en'
+    date references when they clearly refer to the publication date — NOT historical facts.
+    Replaces standalone years only when preceded by publication-context phrases.
+    Never rewrites historical references like 'GPT-4 launched in 2023'.
+    """
+    # Only match years after explicit publication/currency signals
+    publication_patterns = [
+        (r'(actualizado en|actualizado:)\s*(2023|2024|2025)', r'\1 2026'),
+        (r'(updated in|updated:)\s*(2023|2024|2025)', r'\1 2026'),
+        (r'(as of)\s*(2023|2024|2025)', r'\1 2026'),
+        (r'(\()\s*(2023|2024|2025)\s*(\))', r'\g<1>2026\3'),  # e.g. "(2025 edition)" → "(2026)"
+        (r'(\bguía\b.*?)\b(2023|2024|2025)\b', r'\g<1>2026'),
+        (r'(\bguide\b.*?)\b(2023|2024|2025)\b', r'\g<1>2026'),
+    ]
+    for pattern, replacement in publication_patterns:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
 
 def strip_code_fences(text: str) -> str:
     text = text.strip()
@@ -170,6 +202,14 @@ def is_truncated(content_en: str, content_es: str) -> bool:
     words_es = len(content_es.split())
     if words_es > 0 and words_en < words_es * 0.60:
         return True
+    return False
+
+def has_external_link(content: str) -> bool:
+    """Verify article contains at least one real external link (not newstide.news)."""
+    links = re.findall(r'https?://[^\s\)\"\']+', content)
+    for link in links:
+        if "newstide.news" not in link and "unsplash.com" not in link:
+            return True
     return False
 
 # ── COST GUARD ────────────────────────────────────────────────────────────────
@@ -212,6 +252,9 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
         print(f"  ❌ VALIDATION FAIL [{label}]: content starts mid-sentence (truncation detected)")
         ok = False
+    if not has_external_link(content):
+        print(f"  ⚠️  VALIDATION WARN [{label}]: no external link found — EEAT risk")
+        # Warning only, not hard fail — some valid articles may not need external links
     if ok:
         print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2 sections")
     return ok
@@ -258,8 +301,13 @@ def fetch_serpapi_news() -> list[str]:
             for r in data.get("news_results", data.get("organic_results", []))[:4]:
                 title = r.get("title", "")
                 snippet = r.get("snippet", "")
+                source = r.get("source", "")
                 if title and len(title) > 20:
-                    results.append(f"{title} — {snippet[:100]}" if snippet else title)
+                    # Store source alongside title for EEAT traceability
+                    entry = f"{title} — {snippet[:100]}" if snippet else title
+                    if source:
+                        entry = f"[{source}] {entry}"
+                    results.append(entry)
         except Exception as e:
             print(f"  SerpAPI error ({q[:30]}): {e}")
         time.sleep(0.8)
@@ -268,7 +316,7 @@ def fetch_serpapi_news() -> list[str]:
 # ── SOURCE 2: SERPAPI TRENDING SEARCHES ──────────────────────────────────────
 def fetch_serpapi_trends() -> list[str]:
     queries = [
-        "AI tools make money online 2026",
+        "AI tools developers productivity 2026",
         "best AI startup to watch 2026",
         "AI productivity tools developers founders",
         "LLM comparison GPT Claude Gemini 2026",
@@ -311,8 +359,12 @@ def fetch_funding_news() -> list[str]:
             for r in data.get("news_results", data.get("organic_results", []))[:4]:
                 title = r.get("title", "")
                 snippet = r.get("snippet", "")
+                source = r.get("source", "")
                 if title and len(title) > 20:
-                    results.append(f"{title} — {snippet[:120]}" if snippet else title)
+                    entry = f"{title} — {snippet[:120]}" if snippet else title
+                    if source:
+                        entry = f"[{source}] {entry}"
+                    results.append(entry)
         except Exception as e:
             print(f"  SerpAPI funding error ({q[:30]}): {e}")
         time.sleep(0.8)
@@ -327,20 +379,24 @@ def generate_niche_topics(recent_articles: list[dict], n: int = 15) -> list[str]
 Already published (DO NOT repeat or use similar angle):
 {recent_titles if recent_titles else "None yet."}
 
-Generate exactly {n} highly specific, different article ideas optimized for HIGH CTR on Google Search.
+Generate exactly {n} highly specific article ideas that will rank well on Google Search and be genuinely useful for developers and founders.
 
-RULES:
-1. NEVER generate generic titles like "Las mejores herramientas de IA" or "El futuro de la IA"
-2. Each idea must mention a REAL, concrete tool/model/company (Claude 3.5, Cursor, Supabase, Linear, Vercel, Mistral, Perplexity, n8n, etc.)
-3. Distribute across these HIGH-PERFORMING types:
-   - 4 ideas: "Cómo ganar/ahorrar dinero con [herramienta específica]" (e.g. "Cómo ganar 5.000€/mes automatizando informes con la API de Claude")
-   - 4 ideas: Noticias de financiación/inversión con estadísticas sorprendentes (e.g. "La apuesta de 2.000M$ en Agentes IA de la que nadie habla")
-   - 4 ideas: Comparativas específicas o revelaciones impactantes (e.g. "Por qué Cursor venció a GitHub Copilot en 3 startups de YC")
-   - 3 ideas: Guías evergreen con números contundentes (e.g. "7 flujos de n8n que reemplazan a un desarrollador de 3.000€/mes")
-4. Titles must be punchy, emotional, specific — optimized for clicks, NOT for accuracy theater
-5. Use tension, contrast, numbers, stakes: "Por qué X falla cuando...", "El verdadero coste de...", "X vs Y: quién ganó en [empresa]"
-6. NO tutorial-style generic titles (avoid: "Cómo empezar con X", "Introducción a Y", "Guía de Z")
-7. Write all titles IN SPANISH
+EEAT RULES (non-negotiable):
+1. Every number, statistic or claim in the title MUST be something Claude can verify or attribute to a real source when writing the article. If you cannot attribute a figure to a real source, do NOT put it in the title.
+2. NEVER invent funding amounts, percentages or user counts in titles (e.g. avoid "Cómo ganar 5.000€/mes" — there is no verifiable source for that).
+3. Titles must describe something real and specific — not a promise or a fabrication.
+
+TITLE QUALITY RULES:
+1. Each idea must mention a REAL, concrete tool/model/company (Claude, Cursor, Supabase, Linear, Vercel, Mistral, Perplexity, n8n, Stripe, etc.)
+2. Distribute across these types:
+   - 4 ideas: Practical how-to with a clear, real outcome (e.g. "Cómo integrar Claude en tu stack de Supabase sin perder contexto")
+   - 4 ideas: Real news analysis — funding, launches, pivots with verifiable events
+   - 4 ideas: Direct comparisons between two specific tools with a clear question (e.g. "Cursor vs Copilot: cuál conviene en un equipo de 3 devs")
+   - 3 ideas: Evergreen explainers with real depth (e.g. "RAG vs fine-tuning: cuándo usar cada uno según tu caso de uso")
+3. Titles must be specific, clear and compelling — they should make a developer or founder want to click because the content sounds useful and credible, not because it sounds dramatic.
+4. Use tension and contrast when it reflects something real: "Por qué X falla cuando...", "X vs Y en producción", "El coste real de..."
+5. NO invented numbers in titles. NO "gana X€/mes" promises. NO "de la que nadie habla" drama.
+6. Write all titles IN SPANISH.
 
 Format: one idea per line, no numbering, no explanation. Just the article title/angle."""
 
@@ -348,7 +404,7 @@ Format: one idea per line, no numbering, no explanation. Just the article title/
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.92,
+            temperature=0.88,
             max_tokens=800,
         )
         lines = [l.strip() for l in resp.choices[0].message.content.strip().splitlines() if l.strip()]
@@ -358,25 +414,28 @@ Format: one idea per line, no numbering, no explanation. Just the article title/
         print(f"  ⚠️  Error generating niches: {e}")
         return []
 
-# ── SOURCE 5: EMERGENCY FALLBACK TOPICS ──────────────────────────────────────
+# ── SOURCE 5: SAFE FALLBACK TOPICS (no invented stats) ───────────────────────
 def get_fallback_topics() -> list[str]:
-    today = datetime.now().strftime("%B %Y")
+    """
+    Safe fallback topics with no fabricated figures or unverifiable claims.
+    All titles describe real, researchable questions — not invented outcomes.
+    """
     return [
-        f"Cómo ganar 4.000€/mes automatizando informes de clientes con la API de Claude",
-        f"Cursor vs GitHub Copilot: cuál ganó en 5 startups de YC en {today}",
-        f"La verdadera razón por la que el 80% de los agentes IA fallan en producción",
-        f"Cómo Supabase está reemplazando equipos de backend de 2.000€/mes en startups",
-        f"Mistral vs Claude Haiku: el desglose de costes que nadie te muestra",
-        f"7 flujos de n8n que reemplazan a un desarrollador a tiempo completo",
-        f"La apuesta de 500M$ en Agentes IA: en qué están invirtiendo realmente los VCs en {today}",
-        f"Por qué Perplexity está comiendo silenciosamente la cuota de mercado de búsqueda de Google",
-        f"Cómo construir un SaaS con Vercel AI SDK en 48 horas",
-        f"La burbuja de las startups de IA: 89 nuevos unicornios ocultan un patrón peligroso",
-        f"Anthropic vs OpenAI: qué API ahorra más dinero a escala",
-        f"Cómo las startups europeas están superando a Silicon Valley con LLMs más pequeños",
-        f"El coste oculto de GPT-4o que los fundadores descubren demasiado tarde",
-        f"Cómo 3 fundadores usaron n8n + Claude para prescindir de su equipo de operaciones",
-        f"Fine-tuning vs RAG en {today}: la decisión que define tu stack de IA",
+        "Cursor vs GitHub Copilot: diferencias reales para equipos pequeños",
+        "Cómo integrar la API de Claude en un proyecto de Next.js paso a paso",
+        "RAG vs fine-tuning: cuándo usar cada enfoque según tu caso de uso",
+        "Mistral vs Claude Haiku: comparativa de costes y rendimiento en producción",
+        "Cómo Supabase simplifica el backend de startups sin equipo dedicado",
+        "n8n vs Zapier vs Make: comparativa real para automatizar flujos de trabajo",
+        "Qué es un agente IA y por qué la mayoría falla en producción",
+        "Anthropic vs OpenAI: diferencias de política, API y precios en 2026",
+        "Cómo construir un pipeline RAG con Supabase y LangChain",
+        "Por qué Perplexity está ganando terreno en búsqueda frente a Google",
+        "Vercel AI SDK vs LangChain: cuál elegir para tu próximo proyecto",
+        "Cómo evaluar el coste real de GPT-4o antes de escalar tu producto",
+        "Qué enseña el crecimiento de Linear sobre product-led growth en B2B",
+        "Fine-tuning en 2026: cuándo compensa y cuándo es un error costoso",
+        "Cómo las startups europeas están compitiendo con modelos abiertos más ligeros",
     ]
 
 # ── DEDUPLICATION ENGINE ──────────────────────────────────────────────────────
@@ -411,12 +470,12 @@ Reply ONLY: YES or NO"""
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
     recent_titles = "\n".join(f"- {a['title']}" for a in recent_articles[:20])
     angles = [
-        "un tutorial técnico paso a paso con cifras reales",
-        "una comparativa directa entre dos herramientas concretas con un ganador claro",
-        "un caso de uso real de una empresa o startup conocida",
-        "un error común o problema del que nadie habla sobre este tema",
-        "un dato contraintuitivo o estadística sorprendente",
-        "un ángulo de monetización: cómo los fundadores ganan o ahorran dinero con esto",
+        "un tutorial técnico paso a paso con ejemplos de código real",
+        "una comparativa directa entre dos herramientas concretas con un ganador claro según el caso de uso",
+        "un análisis de un caso real documentado de una empresa o startup conocida",
+        "un error común o limitación técnica real de este tema que pocos explican bien",
+        "una comparación de costes reales usando precios públicos de las herramientas",
+        "un explainer técnico: cómo funciona por dentro, para desarrolladores",
     ]
     angle = angles[attempt % len(angles)]
     prompt = f"""Tienes este tema: "{original}"
@@ -429,7 +488,7 @@ Transfórmalo en un artículo completamente diferente usando este ángulo espec�
 El nuevo tema debe:
 - Ser concreto y diferente de los artículos publicados
 - Mencionar una herramienta, empresa o caso de uso real
-- Tener un título clickable para desarrolladores o fundadores con tensión/stakes/números
+- Tener un título claro y útil para desarrolladores o fundadores — sin números inventados, sin promesas falsas
 - Estar escrito EN ESPAÑOL
 
 Responde SOLO con el nuevo título/ángulo (1 línea, máx 120 caracteres)."""
@@ -463,10 +522,11 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     trends = fetch_serpapi_trends()
     print(f"     → {len(trends)} trends fetched")
     pool.extend(trends)
-    print("  🧠 Source 4: Niche ideas — CTR-optimized (GPT-4o-mini)...")
+    print("  🧠 Source 4: Niche ideas — EEAT-compliant (GPT-4o-mini)...")
     niche = generate_niche_topics(recent_articles, n=15)
     print(f"     → {len(niche)} niche ideas generated")
     pool.extend(niche)
+    # Safe fallback — no invented stats
     fallback = get_fallback_topics()
     pool.extend(fallback)
     seen = set()
@@ -475,7 +535,7 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
         key = p.lower().strip()[:60]
         if key not in seen and len(p) > 20:
             seen.add(key)
-            unique.append(normalize_year(p))
+            unique.append(normalize_publication_date_refs(p))
     print(f"  ✅ Total pool: {len(unique)} unique candidates")
     return unique
 
@@ -492,35 +552,43 @@ YA PUBLICADO EN NEWSTIDE (no repitas estos temas ni ángulos):
 {recent_context}
 
 ESTRUCTURA (usa markdown):
-- Título H1: llamativo, específico, alto CTR (NO el keyword en bruto)
-- Introducción: 2 párrafos que enganchen desde la primera frase — empieza con la tensión, el número o la sorpresa
+- Título H1: específico, descriptivo y con gancho real (NO el keyword en bruto)
+- Párrafo de apertura "answer-first": responde en 2-3 frases directamente la pregunta del título
 - 4 o 5 secciones H2 con profundidad y valor real
 - Subsecciones H3 donde sea necesario
-- Ejemplos concretos, datos reales, comparativas o código donde aplique
-- Conclusión con perspectiva personal y una pregunta al lector
+- Tabla comparativa en Markdown cuando haya datos reales que comparar
+- Ejemplos concretos, código real o referencias verificables donde aplique
+- Sección FAQ con 3-4 preguntas H3 y respuestas al final
+- Conclusión con perspectiva editorial y una pregunta al lector
 
-REQUISITOS:
+REGLAS DE EEAT (NO NEGOCIABLES):
+1. Toda cifra concreta (€, %, usuarios, parámetros) DEBE atribuirse a una fuente real en el mismo párrafo.
+   Formato: "(según [Nombre de la fuente], [año])". Si no tienes la fuente, usa lenguaje cualitativo.
+2. NUNCA inventes datos. Si no sabes el dato exacto, escribe "según estimaciones del sector" o "datos no publicados oficialmente".
+3. Incluye al menos 1 enlace externo real a una fuente primaria (documentación oficial, blog de la empresa, estudio verificado).
+   Usa el formato markdown: [texto del enlace](https://url-real.com)
+4. Separa claramente: (a) hechos verificados con fuente, (b) declaraciones atribuidas a alguien, (c) opinión editorial.
+5. NO empieces frases con cifras inventadas como "El 80% de los agentes IA fallan" salvo que tengas fuente real.
+
+REQUISITOS DE CONTENIDO:
 - MÍNIMO {min_words} palabras (obligatorio — los artículos cortos serán rechazados)
-- Objetivo ideal: entre {min_words} y {min_words + 400} palabras
-- Datos concretos, ejemplos reales, perspectiva personal
-- Tono: experto pero accesible, no corporativo
+- Objetivo ideal: entre {min_words} y {min_words + 500} palabras
+- Tono: experto pero accesible, directo, con criterio propio — no corporativo
 - Nunca empieces con "En el mundo de..." ni frases genéricas
 - Categoría del artículo: {category}
-- El año actual es 2026. Actualiza referencias de años anteriores a 2026 salvo que sean históricamente esenciales.
-- El artículo DEBE ofrecer un ángulo diferente a los ya publicados — profundiza en los detalles
+- El artículo DEBE ofrecer un ángulo diferente a los ya publicados
 
-SEO / CTR — TÍTULO H1 (CRÍTICO):
-- El H1 DEBE tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres (contando espacios)
-- LÍMITE DURO: nunca superes {TITLE_MAX_CHARS} caracteres en el título
-- Si dudas entre dos versiones, elige siempre la más corta
-- Debe ser extremadamente clickable, específico y emocional — incluso agresivo/clickbait, pero SIN mentir
-- Usa contraste, sorpresa, conflicto, números o una promesa clara cuando encaje
-- Evita títulos vagos o largos
+TÍTULO H1 — REGLAS (CRÍTICO):
+- DEBE tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres (contando espacios)
+- LÍMITE DURO: nunca superes {TITLE_MAX_CHARS} caracteres
+- Debe ser específico, descriptivo y atractivo — que genere curiosidad o resuelva una duda real
+- Usa contraste, preguntas, comparaciones o ángulos concretos: "X vs Y", "Por qué X...", "Cómo funciona X en..."
+- PROHIBIDO: títulos con números inventados ("gana X€", "el 80%..."), frases de drama vacío o promesas sin base
 - Sin comillas en el título
-- Cuenta los caracteres del título antes de escribir — si supera {TITLE_SOFT_MAX} caracteres, acórtalo
+- Cuenta los caracteres antes de escribir — si supera {TITLE_SOFT_MAX}, acórtalo
 
 Al final, en una línea separada escribe exactamente:
-EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y adecuado como meta descripción — hazlo tan convincente que alguien DEBA hacer clic]"""
+EXCERPT: [resumen de 120 a 155 caracteres: describe con precisión qué resuelve el artículo y para quién — claro, útil y con gancho real]"""
 
     message = claude_client.messages.create(
         model=MODEL_GENERATE, max_tokens=6000,
@@ -528,12 +596,14 @@ EXCERPT: [resumen de 120 a 155 caracteres, con gancho, claro y adecuado como met
         system=(
             f"Eres un periodista tecnológico senior especializado en IA, startups y herramientas para desarrolladores. "
             f"Escribes para NewsTide, un medio tech premium en ESPAÑOL para fundadores y desarrolladores. "
-            f"Tu estilo es claro, directo y con opinión. El año actual es 2026. "
-            f"Cada artículo debe tener un ángulo único y concreto. Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos. "
+            f"Tu estilo es claro, directo y con opinión editorial fundamentada. El año actual es 2026. "
+            f"REGLA ABSOLUTA: NUNCA inventas datos, cifras o estadísticas. Si no tienes la fuente, usas lenguaje cualitativo. "
+            f"Cada artículo debe tener al menos un enlace externo real a una fuente primaria verificable. "
+            f"Los artículos deben ser exhaustivos y bien desarrollados — nunca cortos. "
             f"IMPORTANTE: Los títulos H1 deben tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres, "
-            f"nunca más de {TITLE_MAX_CHARS}. "
+            f"nunca más de {TITLE_MAX_CHARS}. Títulos específicos y útiles — no dramáticos ni inventados. "
             f"TODOS los artículos deben estar escritos completamente en ESPAÑOL. "
-            f"Los excerpts deben ser irresistiblemente clickables — aparecen como fragmentos de búsqueda de Google."
+            f"Los excerpts deben describir con precisión qué resuelve el artículo — clickables por utilidad, no por drama."
         )
     )
     output_tokens = message.usage.output_tokens if hasattr(message, 'usage') else 6000
@@ -553,17 +623,19 @@ def humanize(text: str) -> str:
         model=MODEL_HUMANIZE,
         messages=[
             {"role": "system", "content": """Eres un editor humano con 15 años de experiencia en medios digitales en español.
-Reescribe el artículo aplicando estas reglas SIN cambiar el contenido ni los datos:
+Reescribe el artículo aplicando estas reglas SIN cambiar el contenido, los datos ni las fuentes:
 - Mezcla frases cortas (5-8 palabras) con largas (18-28 palabras)
-- Usa conectores variados: "sin embargo", "dicho esto", "lo que más me sorprendió", "vale la pena señalar"
-- Añade opinión ocasional: "lo que más me sorprendió", "honestamente", "en mi experiencia"
+- Usa conectores variados: "sin embargo", "dicho esto", "lo que más me sorprende aquí", "vale la pena señalar", "en la práctica"
+- Añade voz editorial puntual: "lo que más llama la atención", "honestamente", "desde mi punto de vista"
 - Incluye 1-2 preguntas retóricas naturales
-- "fundamental" → "clave", "en conclusión" → "en resumen", "robusto" → "sólido"
+- Simplifica jerga: "fundamental" → "clave", "en conclusión" → "en definitiva", "robusto" → "sólido"
+- CRÍTICO: NO añadas ni elimines datos, NO inventes cifras, NO cambies ninguna fuente citada
 - IMPORTANTE: Mantén el texto completamente en ESPAÑOL. No traduzcas ni cambies el idioma.
-Conserva todos los encabezados markdown. Devuelve SOLO el artículo, sin explicaciones."""},
+- Conserva todos los encabezados markdown, tablas, FAQs y enlaces externos.
+Devuelve SOLO el artículo, sin explicaciones."""},
             {"role": "user", "content": text}
         ],
-        temperature=0.88, max_tokens=6000
+        temperature=0.85, max_tokens=6000
     )
     return response.choices[0].message.content
 
@@ -575,12 +647,12 @@ def _run_translation(es_content: str, es_excerpt: str, es_title: str) -> dict:
             {"role": "system", "content": (
                 "You are a professional tech journalist and translator. "
                 "Translate the following Spanish tech article to natural, fluent American English. "
-                "Keep all markdown formatting. Adapt idioms naturally. "
+                "Keep all markdown formatting, tables, FAQ sections and external links intact. Adapt idioms naturally. "
                 f"IMPORTANT: Start your response with exactly these two lines before the article body:\n"
                 f"TITLE_EN: [translated H1 title, between {TITLE_SOFT_MIN} and {TITLE_SOFT_MAX} characters, "
-                f"NEVER more than {TITLE_MAX_CHARS} characters including spaces, highly clickable, specific, no quotes — "
+                f"NEVER more than {TITLE_MAX_CHARS} characters including spaces, specific and useful, no quotes — "
                 f"count the characters before writing, if it exceeds {TITLE_SOFT_MAX} characters shorten it]\n"
-                f"EXCERPT_EN: [one sentence summary, 120 to 155 characters, strong click-through appeal, suitable as a meta description]\n"
+                f"EXCERPT_EN: [one sentence summary, 120 to 155 characters, describes what the article resolves and for whom — compelling by utility, not drama]\n"
                 "Then a blank line, then the full translated article body (without the H1 title line)."
             )},
             {"role": "user", "content": f"TITLE: {es_title}\nEXCERPT: {es_excerpt}\n\n{es_content}"}
@@ -784,17 +856,22 @@ def save_article(keyword, content_es, excerpt_es, category, idx, content_en, tit
         rt = MIN_READING_TIME
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     slug_es = slugify(title_es)
+
+    # Append editorial transparency notes
+    content_es_final = content_es + EDITORIAL_NOTE_ES
+    content_en_final = content_en + EDITORIAL_NOTE_EN
+
     data = {
         "title":           title_es,
         "slug":            slug_es,
-        "content":         content_es,
+        "content":         content_es_final,
         "excerpt":         excerpt_es,
         "title_en":        title_en,
         "slug_en":         slug_en or slugify_en(title_en),
-        "content_en":      content_en,
+        "content_en":      content_en_final,
         "excerpt_en":      excerpt_en,
         "category":        category,
-        "author":          AUTHOR,          # always "Javier Valencia"
+        "author":          AUTHOR,
         "keyword":         keyword,
         "keyword_hash":    md5(keyword),
         "reading_time":    rt,
@@ -902,6 +979,8 @@ def main():
                 )
                 candidate_pool.extend(extra)
                 if not extra:
+                    # Safe fallback only — no pool expansion with fake stats
+                    print("  ⚠️  GPT niche generation returned empty — using safe fallback topics")
                     candidate_pool.extend(get_fallback_topics())
                 continue
             topic = candidate_pool[pool_index]
