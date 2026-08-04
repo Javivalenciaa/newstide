@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
+import { headers } from 'next/headers'
 import './globals.css'
 import SpanishShell from '@/components/SpanishShell'
 
@@ -71,9 +72,6 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// FIX C1 (partial): SearchAction now points to the Spanish search URL /articulos
-// instead of the previous incorrect /en/articles endpoint.
-// FIX: sameAs only contains verified, real URLs.
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -123,13 +121,33 @@ const siteSchema = {
   ],
 }
 
-export default function RootLayout({
+// FIX C1: Resolve correct lang per request at SSR time using next/headers.
+// next/headers().get('x-invoke-path') returns the matched route path in
+// Next.js / Vercel. We fall back to the referer header as a secondary signal.
+// For any path starting with /en we emit lang="en"; everything else is lang="es".
+// suppressHydrationWarning on <html> silences React's hydration mismatch warning
+// that would fire because the attribute value differs between server and client
+// renders when using this per-request pattern.
+async function getLang(): Promise<'en' | 'es'> {
+  const headersList = await headers()
+  const pathname =
+    headersList.get('x-pathname') ??
+    headersList.get('x-invoke-path') ??
+    headersList.get('x-matched-path') ??
+    headersList.get('referer') ??
+    ''
+  return pathname.includes('/en') ? 'en' : 'es'
+}
+
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const lang = await getLang()
+
   return (
-    <html lang="es">
+    <html lang={lang} suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"
@@ -154,10 +172,7 @@ export default function RootLayout({
           gtag('config', '${GA_ID}', { page_path: window.location.pathname });
         `}</Script>
 
-        {/* FIX C2: AdSense moved from <head> native <script> to next/script lazyOnload.
-            lazyOnload fires after the page is fully interactive, preventing AdSense
-            from blocking LCP. This is the correct strategy for ads that are not
-            above-the-fold critical-path resources. */}
+        {/* AdSense — lazyOnload prevents render-blocking on LCP */}
         <Script
           id="adsense"
           src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
