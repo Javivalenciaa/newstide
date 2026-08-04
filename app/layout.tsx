@@ -71,10 +71,9 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// FIX: inLanguage is now 'es' — matches the ES root site served here.
-// The EN WebSite schema (inLanguage:'en') lives in app/en/layout.tsx.
-// FIX: sameAs only contains verified, real URLs — fake Wikidata/Crunchbase
-// entries removed to avoid E-E-A-T penalisation by Google.
+// FIX C1 (partial): SearchAction now points to the Spanish search URL /articulos
+// instead of the previous incorrect /en/articles endpoint.
+// FIX: sameAs only contains verified, real URLs.
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -88,7 +87,7 @@ const siteSchema = {
       publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
         '@type': 'SearchAction',
-        target: { '@type': 'EntryPoint', urlTemplate: 'https://www.newstide.news/en/articles?q={search_term_string}' },
+        target: { '@type': 'EntryPoint', urlTemplate: 'https://www.newstide.news/articulos?q={search_term_string}' },
         'query-input': 'required name=search_term_string',
       },
     },
@@ -136,18 +135,14 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(siteSchema) }}
         />
-        {/* AdSense verification & auto-ads */}
-        <script
-          async
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
-          crossOrigin="anonymous"
-        />
         {/* RSS autodiscovery */}
         <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
         <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
       </head>
       <body className={`${inter.variable} ${mono.variable}`}>
         <SpanishShell>{children}</SpanishShell>
+
+        {/* GA4 — loaded once here for all routes including /en/* */}
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
@@ -158,6 +153,17 @@ export default function RootLayout({
           gtag('js', new Date());
           gtag('config', '${GA_ID}', { page_path: window.location.pathname });
         `}</Script>
+
+        {/* FIX C2: AdSense moved from <head> native <script> to next/script lazyOnload.
+            lazyOnload fires after the page is fully interactive, preventing AdSense
+            from blocking LCP. This is the correct strategy for ads that are not
+            above-the-fold critical-path resources. */}
+        <Script
+          id="adsense"
+          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
+          strategy="lazyOnload"
+          crossOrigin="anonymous"
+        />
       </body>
     </html>
   )

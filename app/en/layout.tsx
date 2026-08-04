@@ -1,12 +1,8 @@
 import type { Metadata } from 'next'
-import Script from 'next/script'
 import Link from 'next/link'
 import LangSwitcher from '@/components/LangSwitcher'
 import MobileNav from '@/components/MobileNav'
 import SubNav from '@/components/SubNav'
-
-const GA_ID = 'G-C0Z8YQC18J'
-const ADSENSE_ID = 'ca-pub-1896957677866192'
 
 export const metadata: Metadata = {
   title: {
@@ -22,7 +18,6 @@ export const metadata: Metadata = {
       'en-US': 'https://www.newstide.news/en',
       'en-GB': 'https://www.newstide.news/en',
       'en-AU': 'https://www.newstide.news/en',
-      // FIX: /es does not exist. Spanish root IS https://www.newstide.news (no /es segment)
       'es': 'https://www.newstide.news',
       'x-default': 'https://www.newstide.news/en',
     },
@@ -58,14 +53,10 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// FIX: The root layout (app/layout.tsx) already defines <html lang="es"> and <body>.
-// Next.js App Router does NOT allow a nested layout to re-declare <html> or <body> —
-// doing so causes the inner tags to be ignored by the browser and forces all /en/*
-// pages to inherit lang="es" from the root. The lang override for English pages is
-// handled by Next.js automatically via the metadata alternates above + the
-// websiteSchemaEN JSON-LD injected via a <script> tag here.
-// The EN shell (nav + footer) is rendered as a plain React fragment/div wrapper.
-
+// NOTE: The root layout (app/layout.tsx) already defines <html lang="es"> and <body>.
+// Next.js App Router does NOT allow nested layouts to re-declare <html> or <body>.
+// GA4 and AdSense are loaded ONCE in the root layout and apply to all routes including /en/*.
+// Duplicating them here was causing double GA4 event tracking and double AdSense init.
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -96,22 +87,14 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
       />
-      {/* AdSense */}
-      <script
-        async
-        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
-        crossOrigin="anonymous"
-      />
       <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
       <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
 
-      <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-        strategy="afterInteractive"
-      />
-      <Script id="google-analytics-en" strategy="afterInteractive">
-        {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{page_path:window.location.pathname});`}
-      </Script>
+      {/* FIX C2: GA4 and AdSense removed from here — they are loaded once in app/layout.tsx.
+          Having them here AND in the root layout caused:
+          - GA4 events counted twice in Analytics
+          - AdSense double-initialisation (policy violation risk)
+          - Extra render-blocking scripts on every /en/* page */}
 
       <nav id="navbar">
         <Link href="/en" className="nav-logo">

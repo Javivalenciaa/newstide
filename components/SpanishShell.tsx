@@ -67,9 +67,12 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
             <span>© 2026 NewsTide · Todos los derechos reservados</span>
             <span style={{ color: 'var(--faint)' }}>newstide.news</span>
           </div>
-          <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '12px', opacity: 0.5 }}>
-            <a href="http://www.blogarama.com/fashion-blogs/1351624-blog/" title="Blogarama.com - Follow me on Blogarama">Blogarama - Blog Directory</a>
-          </div>
+          {/* FIX C4: Blogarama directory link removed.
+              It was a low-quality fashion blog directory link that:
+              - Leaked PageRank to an irrelevant external domain
+              - Sent contradictory niche signals (fashion vs tech/AI)
+              - Damaged E-E-A-T in Google Quality Rater evaluations
+              - Used http:// (not HTTPS) */}
         </div>
       </footer>
       <script dangerouslySetInnerHTML={{ __html: `
