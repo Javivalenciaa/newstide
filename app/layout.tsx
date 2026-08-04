@@ -18,10 +18,8 @@ export const metadata: Metadata = {
   description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales. Actualizado cada día.',
   metadataBase: new URL('https://www.newstide.news'),
   alternates: {
-    // FIX: /es does not exist — canonical must point to the real root URL
     canonical: 'https://www.newstide.news',
     languages: {
-      // FIX: 'es' hreflang must point to a real page (root, not /es)
       'es': 'https://www.newstide.news',
       'en': 'https://www.newstide.news/en',
       'en-US': 'https://www.newstide.news/en',
@@ -34,7 +32,6 @@ export const metadata: Metadata = {
     siteName: 'NewsTide',
     locale: 'es_ES',
     type: 'website',
-    // FIX: OG url must match the real canonical
     url: 'https://www.newstide.news',
     title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
     description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
@@ -74,7 +71,10 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
-// Single authoritative @graph schema — WebSite + NewsMediaOrganization
+// FIX: inLanguage is now 'es' — matches the ES root site served here.
+// The EN WebSite schema (inLanguage:'en') lives in app/en/layout.tsx.
+// FIX: sameAs only contains verified, real URLs — fake Wikidata/Crunchbase
+// entries removed to avoid E-E-A-T penalisation by Google.
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -83,8 +83,8 @@ const siteSchema = {
       '@id': 'https://www.newstide.news/#website',
       url: 'https://www.newstide.news',
       name: 'NewsTide',
-      description: 'Daily AI, startup and tech news for founders, developers and professionals.',
-      inLanguage: 'en',
+      description: 'Noticias diarias de inteligencia artificial, startups y tecnología para founders, developers y profesionales.',
+      inLanguage: 'es',
       publisher: { '@id': 'https://www.newstide.news/#organization' },
       potentialAction: {
         '@type': 'SearchAction',
@@ -103,8 +103,6 @@ const siteSchema = {
         'https://twitter.com/newstide',
         'https://x.com/newstide',
         'https://linkedin.com/company/newstide',
-        'https://www.wikidata.org/wiki/NewsTide',
-        'https://www.crunchbase.com/organization/newstide-co',
         'https://www.newstide.news',
       ],
       publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
