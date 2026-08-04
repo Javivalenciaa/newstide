@@ -111,7 +111,7 @@ function extractVisibleSources(content: string, max = 5): Array<{ label: string;
 const FIELDS = 'id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword'
 
 async function getArticle(slug: string) {
-  // 1. Try by slug_en
+  // 1. Try by slug_en first (primary EN route)
   const { data: byEn } = await supabase
     .from('articles')
     .select(FIELDS)
@@ -119,15 +119,22 @@ async function getArticle(slug: string) {
     .maybeSingle()
   if (byEn) return byEn
 
-  // 2. Try by ES slug (will redirect to ES version in the page)
+  // 2. If slug matches an ES slug but has a slug_en, redirect to correct EN URL
   const { data: byEs } = await supabase
     .from('articles')
     .select(FIELDS)
     .eq('slug', slug)
     .maybeSingle()
-  if (byEs) return byEs
+  if (byEs) {
+    // Has EN version → redirect to it; otherwise redirect to ES page
+    if (byEs.slug_en) {
+      permanentRedirect(`/en/article/${byEs.slug_en}`)
+    } else {
+      permanentRedirect(`/articulo/${byEs.slug}`)
+    }
+  }
 
-  // 3. Fuzzy fallback: slug_en contains the slug (handles minor mismatches)
+  // 3. Fuzzy fallback: slug_en contains slug (handles minor mismatches)
   const { data: fuzzy } = await supabase
     .from('articles')
     .select(FIELDS)
@@ -140,11 +147,13 @@ async function getArticle(slug: string) {
 export async function generateStaticParams() {
   const { data } = await supabase
     .from('articles')
-    .select('slug_en, slug')
+    .select('slug_en')
+    .not('slug_en', 'is', null)
   if (!data) return []
+  // Only pre-render routes for articles that actually have an EN slug
   return data
-    .filter((a) => a.slug_en || a.slug)
-    .map((a) => ({ slug: a.slug_en || a.slug }))
+    .filter((a) => typeof a.slug_en === 'string' && a.slug_en.trim() !== '')
+    .map((a) => ({ slug: a.slug_en as string }))
 }
 
 export async function generateMetadata(
