@@ -7,6 +7,7 @@ import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
 export const revalidate = 300
+export const dynamicParams = true
 
 const CAT_COLORS: Record<string, string> = {
   'IA': '#6ecfca', 'Startups': '#9b8cef',
@@ -110,25 +111,40 @@ function extractVisibleSources(content: string, max = 5): Array<{ label: string;
 const FIELDS = 'id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword'
 
 async function getArticle(slug: string) {
-  // Try by slug_en first
-  const { data } = await supabase
+  // 1. Try by slug_en
+  const { data: byEn } = await supabase
     .from('articles')
     .select(FIELDS)
     .eq('slug_en', slug)
     .maybeSingle()
-  if (data) return data
-  // Fallback: try by ES slug — will redirect to ES version
+  if (byEn) return byEn
+
+  // 2. Try by ES slug (will redirect to ES version in the page)
   const { data: byEs } = await supabase
     .from('articles')
     .select(FIELDS)
     .eq('slug', slug)
     .maybeSingle()
-  return byEs || null
+  if (byEs) return byEs
+
+  // 3. Fuzzy fallback: slug_en contains the slug (handles minor mismatches)
+  const { data: fuzzy } = await supabase
+    .from('articles')
+    .select(FIELDS)
+    .ilike('slug_en', `%${slug}%`)
+    .limit(1)
+    .maybeSingle()
+  return fuzzy || null
 }
 
 export async function generateStaticParams() {
-  const { data } = await supabase.from('articles').select('slug_en').not('slug_en', 'is', null)
-  return (data || []).map((a) => ({ slug: a.slug_en }))
+  const { data } = await supabase
+    .from('articles')
+    .select('slug_en, slug')
+  if (!data) return []
+  return data
+    .filter((a) => a.slug_en || a.slug)
+    .map((a) => ({ slug: a.slug_en || a.slug }))
 }
 
 export async function generateMetadata(
