@@ -47,9 +47,9 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// C3 — seoTitle returns bare title only; template: '%s | NewsTide' in layout adds the suffix
+// seoTitle returns bare title only; template: '%s | NewsTide' in layout adds the suffix
 function seoTitle(title: string): string {
-  const max = 57 // ~60 chars total; template adds ' | NewsTide' (10 chars)
+  const max = 57
   if (title.length <= max) return title
   const cut = title.substring(0, max)
   const lastSpace = cut.lastIndexOf(' ')
@@ -77,8 +77,46 @@ function buildKeywords(cat: string, title: string, keyword?: string | null): str
   const extra = keyword ? [keyword] : []
   return [catLabel, 'NewsTide', ...extra, ...titleTokens]
     .map((k) => k.trim())
-    .filter((k, i, arr) => k && arr.indexOf(k) === i) // dedupe
+    .filter((k, i, arr) => k && arr.indexOf(k) === i)
     .slice(0, 8)
+}
+
+/**
+ * Extract the first N markdown links from content that look like real sources.
+ * Returns schema.org CreativeWork citation objects.
+ * Only includes links whose href starts with https:// (no relative links).
+ */
+function extractCitations(content: string, max = 5): Array<{ '@type': string; url: string; name: string }> {
+  if (!content) return []
+  // Match [label](https://...) patterns in markdown
+  const mdLinkRe = /\[([^\]]{3,80})\]\((https:\/\/[^)]+)\)/g
+  const results: Array<{ '@type': string; url: string; name: string }> = []
+  let m: RegExpExecArray | null
+  while ((m = mdLinkRe.exec(content)) !== null && results.length < max) {
+    const label = m[1].trim()
+    const href  = m[2].trim()
+    // Skip internal links
+    if (href.includes('newstide.news')) continue
+    results.push({ '@type': 'CreativeWork', name: label, url: href })
+  }
+  return results
+}
+
+/**
+ * Extract the first N markdown links to render as a visible Sources section.
+ */
+function extractVisibleSources(content: string, max = 5): Array<{ label: string; href: string }> {
+  if (!content) return []
+  const mdLinkRe = /\[([^\]]{3,80})\]\((https:\/\/[^)]+)\)/g
+  const results: Array<{ label: string; href: string }> = []
+  let m: RegExpExecArray | null
+  while ((m = mdLinkRe.exec(content)) !== null && results.length < max) {
+    const label = m[1].trim()
+    const href  = m[2].trim()
+    if (href.includes('newstide.news')) continue
+    results.push({ label, href })
+  }
+  return results
 }
 
 export async function generateStaticParams() {
@@ -159,7 +197,6 @@ export default async function ArticlePageEN({
 
   if (!article) notFound()
 
-  // Redirect to canonical if accessed without slug_en (shouldn't happen but safety)
   if (!article.slug_en) permanentRedirect(`/articulo/${article.slug}`)
 
   const rawTitle   = article.title_en   || article.title
@@ -171,8 +208,11 @@ export default async function ArticlePageEN({
   const catSection = CAT_SECTION_EN[cat] || 'Technology'
   const url        = `https://www.newstide.news/en/article/${article.slug_en}`
   const urlES      = `https://www.newstide.news/articulo/${article.slug}`
-  // FIX: keywords derived from the article itself, not hardcoded generic values
   const keywords   = buildKeywords(cat, rawTitle, article.keyword)
+
+  // E-E-A-T: extract real outbound citations from article content
+  const citations     = extractCitations(rawContent)
+  const visibleSources = extractVisibleSources(rawContent)
 
   const articleSchema = {
     '@context': 'https://schema.org',
@@ -181,12 +221,9 @@ export default async function ArticlePageEN({
     description: rawExcerpt,
     url,
     datePublished: article.published_at,
-    // FIX: dateModified uses updated_at when available, falls back to published_at
     dateModified: article.updated_at || article.published_at,
     inLanguage: 'en',
-    // FIX: isAccessibleForFree signals to Google this is not paywalled (boosts rich results)
     isAccessibleForFree: true,
-    // FIX: speakable targets the headline and excerpt for Google Assistant / voice search
     speakable: {
       '@type': 'SpeakableSpecification',
       cssSelector: ['.article-main-title', '.article-byline'],
@@ -196,18 +233,20 @@ export default async function ArticlePageEN({
       : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
     author: {
       '@type': 'Person',
+      // Points to EN canonical author page — consistent @id across all EN article schemas
+      '@id': AUTHOR_PAGE_EN,
       name: 'Javier Valencia',
       url: AUTHOR_PAGE_EN,
       jobTitle: 'Founder & Editor-in-Chief',
       worksFor: { '@id': 'https://www.newstide.news/#organization' },
     },
     publisher: { '@id': 'https://www.newstide.news/#organization' },
-    // FIX: isPartOf must point to the EN WebSite node defined in app/en/layout.tsx
     isPartOf: { '@id': 'https://www.newstide.news/en#website' },
     articleSection: catSection,
-    // FIX: dynamic keywords built from category + title tokens + keyword field
     keywords,
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    // E-E-A-T: citation array — populated from real outbound links in the article body
+    ...(citations.length > 0 && { citation: citations }),
   }
 
   const breadcrumbSchema = {
@@ -257,7 +296,7 @@ export default async function ArticlePageEN({
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDate(article.published_at)}</span>
             </div>
             <h1 className="article-main-title" style={{ marginTop: 16 }}>{rawTitle}</h1>
-            <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 8 }}>By Javier Valencia · NewsTide</p>
+            <p className="article-byline" style={{ fontSize: 14, color: 'var(--muted)', marginTop: 8 }}>By Javier Valencia · NewsTide</p>
           </div>
         </div>
       )}
@@ -291,8 +330,48 @@ export default async function ArticlePageEN({
               <ReactMarkdown>{rawContent}</ReactMarkdown>
             </div>
 
+            {/* ── E-E-A-T: Visible Sources section ─────────────────────────────
+                Only rendered when the article content contains real outbound links.
+                This makes sources visible to both readers and Google crawlers,
+                which is a direct EEAT trust signal. */}
+            {visibleSources.length > 0 && (
+              <section
+                aria-label="Sources"
+                style={{
+                  marginTop: 48,
+                  paddingTop: 28,
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <h2 style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: 'var(--muted)',
+                  marginBottom: 14,
+                }}>
+                  Sources
+                </h2>
+                <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {visibleSources.map((s, i) => (
+                    <li key={i} style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+                      <a
+                        href={s.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'var(--cyan)', textDecoration: 'none' }}
+                      >
+                        {s.label}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
             {/* HREFLANG notice */}
-            <div style={{ marginTop: 48, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
+            <div style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
               <p style={{ fontSize: 13, color: 'var(--muted)' }}>
                 🇪🇸 Also available in Spanish: <Link href={urlES} style={{ color: 'var(--cyan)' }}>Leer en español</Link>
               </p>
@@ -318,6 +397,30 @@ export default async function ArticlePageEN({
                 }}
               >
                 Browse all {catLabelEN} articles →
+              </Link>
+            </div>
+
+            {/* E-E-A-T: Author card in sidebar — visible trust signal */}
+            <div style={{
+              marginTop: 20,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: 24,
+            }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Written by</p>
+              <Link
+                href={AUTHOR_PAGE_EN}
+                style={{ display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none' }}
+              >
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--cyan), #9b8cef)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14, fontWeight: 800, color: 'var(--bg)', flexShrink: 0,
+                }}>JV</div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Javier Valencia</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Founder & Editor-in-Chief</div>
+                </div>
               </Link>
             </div>
           </aside>

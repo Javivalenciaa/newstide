@@ -5,7 +5,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 
 const AUTHOR_MAP: Record<string, {
-  name: string; bio: string; title: string; sameAs?: string[]; image?: string; credentials?: string[]
+  name: string; bio: string; title: string; sameAs?: string[]; image?: string
+  credentials?: string[]; alumniOf?: string; knowsAbout?: string[]
 }> = {
   'javier-valencia': {
     name: 'Javier Valencia',
@@ -17,12 +18,25 @@ const AUTHOR_MAP: Record<string, {
       'https://github.com/Javivalenciaa',
       'https://twitter.com/newstide',
     ],
+    alumniOf: 'Universidad',
     credentials: [
       'Computer Science Engineering (in progress)',
       'Founder of NewsTide',
       'Full-stack: Next.js, Python, Supabase',
       'Digital twin simulation projects',
       'Freelance developer for tech companies',
+    ],
+    knowsAbout: [
+      'Artificial Intelligence',
+      'Large Language Models',
+      'Startups',
+      'Software Engineering',
+      'Next.js',
+      'Python',
+      'Digital Twins',
+      'SEO',
+      'Content Automation',
+      'Financial Technology',
     ],
   },
 }
@@ -37,6 +51,7 @@ export async function generateMetadata(
   const { slug } = await params
   const author = AUTHOR_MAP[slug]
   if (!author) return { title: 'Author not found' }
+  // EN canonical — this is the authoritative EN profile URL
   const url   = `https://www.newstide.news/en/authors/${slug}`
   const esUrl = `https://www.newstide.news/autores/${slug}`
   return {
@@ -69,6 +84,7 @@ export default async function AuthorPageEN({
   const author = AUTHOR_MAP[slug]
   if (!author) notFound()
 
+  // EN canonical URL — used as @id for the Person node on this page
   const url = `https://www.newstide.news/en/authors/${slug}`
 
   const { data: articles } = await supabase
@@ -81,18 +97,26 @@ export default async function AuthorPageEN({
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'ProfilePage',
+    '@id': `${url}#profilepage`,
     url,
+    name: `${author.name} — Author profile at NewsTide`,
+    isPartOf: { '@id': 'https://www.newstide.news/en#website' },
     mainEntity: {
       '@type': 'Person',
-      '@id': `https://www.newstide.news/autores/javier-valencia`,
+      // FIX: @id uses the EN canonical author URL (previously pointed to the ES /autores/ route)
+      '@id': url,
       name: author.name,
       jobTitle: author.title,
       description: author.bio,
-      url: `https://www.newstide.news/autores/javier-valencia`,
+      url,
       image: author.image
         ? { '@type': 'ImageObject', url: `https://www.newstide.news${author.image}`, width: 400, height: 400 }
         : undefined,
-      sameAs: author.sameAs || [],
+      sameAs: [
+        ...(author.sameAs || []),
+        // Cross-link to the ES profile so Google sees both language nodes as the same entity
+        `https://www.newstide.news/autores/${slug}`,
+      ],
       hasCredential: (author.credentials || []).map((c) => ({
         '@type': 'EducationalOccupationalCredential',
         credentialCategory: c,
@@ -103,15 +127,7 @@ export default async function AuthorPageEN({
         name: 'NewsTide',
         url: 'https://www.newstide.news',
       },
-      knowsAbout: [
-        'Artificial Intelligence',
-        'Startups',
-        'Software Engineering',
-        'Next.js',
-        'Python',
-        'Digital Twins',
-        'SEO',
-      ],
+      knowsAbout: author.knowsAbout || [],
     },
   }
 
