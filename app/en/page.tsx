@@ -3,7 +3,6 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import NewsletterForm from '@/components/NewsletterForm'
-import SectionNavCard from '@/components/SectionNavCard'
 
 export const revalidate = 300
 
@@ -55,19 +54,11 @@ function Badge({ cat }: { cat: string }) {
   )
 }
 
-const SECTIONS = [
-  { href: '/en/articles', icon: '📰', label: 'All Articles', desc: 'Browse every article' },
-  { href: '/en/fin', icon: '💰', label: 'Personal Finance', desc: 'Money, investing & more' },
-  { href: '/en/compare', icon: '⚖️', label: 'Comparisons', desc: 'Tools & products compared' },
-  { href: '/en/authors', icon: '✍️', label: 'Authors', desc: 'Meet our editorial team' },
-  { href: '/en/about', icon: '🌊', label: 'About', desc: 'Our mission & vision' },
-  { href: '/en/contact', icon: '✉️', label: 'Contact', desc: 'Get in touch with us' },
-]
-
 export default async function HomeEN() {
   const { data: articles } = await supabase
     .from('articles')
     .select('id,title,title_en,slug,slug_en,excerpt,excerpt_en,category,author,published_at,reading_time,featured,cover_image_url')
+    .not('slug_en', 'is', null)
     .order('published_at', { ascending: false })
     .limit(7)
 
@@ -77,7 +68,7 @@ export default async function HomeEN() {
   const t = (a: Article) => ({
     title: a.title_en || a.title,
     excerpt: a.excerpt_en || a.excerpt,
-    href: `/en/article/${a.slug_en || a.slug}`,
+    href: `/en/article/${a.slug_en}`,
   })
 
   return (
@@ -112,25 +103,6 @@ export default async function HomeEN() {
           </div>
         </div>
         <div className="hero-scroll">Scroll<div className="hero-scroll-line" /></div>
-      </section>
-
-      {/* SECTIONS NAV */}
-      <section style={{ padding: '48px 0 32px', borderBottom: '1px solid var(--border)' }}>
-        <div className="container">
-          <div style={{ marginBottom: 24 }}>
-            <div className="section-label" style={{ marginBottom: 6 }}>Explore</div>
-            <h2 className="section-title" style={{ margin: 0 }}>All Sections</h2>
-          </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: 16,
-          }}>
-            {SECTIONS.map(({ href, icon, label, desc }) => (
-              <SectionNavCard key={href} href={href} icon={icon} label={label} desc={desc} />
-            ))}
-          </div>
-        </div>
       </section>
 
       {/* FEATURED */}
