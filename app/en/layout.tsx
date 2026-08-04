@@ -22,7 +22,8 @@ export const metadata: Metadata = {
       'en-US': 'https://www.newstide.news/en',
       'en-GB': 'https://www.newstide.news/en',
       'en-AU': 'https://www.newstide.news/en',
-      'es': 'https://www.newstide.news/es',
+      // FIX: /es does not exist. Spanish root IS https://www.newstide.news (no /es segment)
+      'es': 'https://www.newstide.news',
       'x-default': 'https://www.newstide.news/en',
     },
   },
@@ -57,6 +58,14 @@ export const metadata: Metadata = {
   category: 'technology',
 }
 
+// FIX: The root layout (app/layout.tsx) already defines <html lang="es"> and <body>.
+// Next.js App Router does NOT allow a nested layout to re-declare <html> or <body> —
+// doing so causes the inner tags to be ignored by the browser and forces all /en/*
+// pages to inherit lang="es" from the root. The lang override for English pages is
+// handled by Next.js automatically via the metadata alternates above + the
+// websiteSchemaEN JSON-LD injected via a <script> tag here.
+// The EN shell (nav + footer) is rendered as a plain React fragment/div wrapper.
+
 const websiteSchemaEN = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -82,102 +91,99 @@ const websiteSchemaEN = {
 
 export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
-        />
-        {/* AdSense verification & auto-ads */}
-        <script
-          async
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
-          crossOrigin="anonymous"
-        />
-        <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
-        <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
-      </head>
-      <body>
-        <Script
-          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-          strategy="afterInteractive"
-        />
-        <Script id="google-analytics-en" strategy="afterInteractive">
-          {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{page_path:window.location.pathname});`}
-        </Script>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchemaEN) }}
+      />
+      {/* AdSense */}
+      <script
+        async
+        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
+        crossOrigin="anonymous"
+      />
+      <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
+      <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
 
-        <nav id="navbar">
-          <Link href="/en" className="nav-logo">
-            <div className="nav-logo-mark">NT</div>
-            NewsTide
-          </Link>
-          <div className="nav-links">
-            <Link href="/en">Home</Link>
-            <Link href="/en/articles">Articles</Link>
-            <Link href="/en/compare">Guides</Link>
-            <Link href="/en#newsletter">Newsletter</Link>
-          </div>
-          <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <LangSwitcher />
-            <Link href="/en#newsletter" className="nav-cta">Subscribe</Link>
-            <MobileNav lang="en" />
-          </div>
-        </nav>
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+        strategy="afterInteractive"
+      />
+      <Script id="google-analytics-en" strategy="afterInteractive">
+        {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{page_path:window.location.pathname});`}
+      </Script>
 
-        <SubNav />
+      <nav id="navbar">
+        <Link href="/en" className="nav-logo">
+          <div className="nav-logo-mark">NT</div>
+          NewsTide
+        </Link>
+        <div className="nav-links">
+          <Link href="/en">Home</Link>
+          <Link href="/en/articles">Articles</Link>
+          <Link href="/en/compare">Guides</Link>
+          <Link href="/en#newsletter">Newsletter</Link>
+        </div>
+        <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <LangSwitcher />
+          <Link href="/en#newsletter" className="nav-cta">Subscribe</Link>
+          <MobileNav lang="en" />
+        </div>
+      </nav>
 
-        {children}
+      <SubNav />
 
-        <footer>
-          <div className="container">
-            <div className="footer-top">
-              <div className="footer-brand">
-                <Link href="/en" className="nav-logo" style={{ marginBottom: '12px' }}>
-                  <div className="nav-logo-mark">NT</div>NewsTide
-                </Link>
-                <p className="footer-tagline">AI, startups & tech news<br />for those who stay ahead.</p>
+      {children}
+
+      <footer>
+        <div className="container">
+          <div className="footer-top">
+            <div className="footer-brand">
+              <Link href="/en" className="nav-logo" style={{ marginBottom: '12px' }}>
+                <div className="nav-logo-mark">NT</div>NewsTide
+              </Link>
+              <p className="footer-tagline">AI, startups & tech news<br />for those who stay ahead.</p>
+            </div>
+            <div className="footer-links">
+              <div className="footer-col">
+                <div className="footer-col-title">Categories</div>
+                <Link href="/en/articles/ai">AI &amp; Models</Link>
+                <Link href="/en/articles/startups">Startups</Link>
+                <Link href="/en/articles/tools">Tools</Link>
+                <Link href="/en/articles/tutorials">Tutorials</Link>
+                <Link href="/en/articles/news">News</Link>
               </div>
-              <div className="footer-links">
-                <div className="footer-col">
-                  <div className="footer-col-title">Categories</div>
-                  <Link href="/en/articles/ai">AI &amp; Models</Link>
-                  <Link href="/en/articles/startups">Startups</Link>
-                  <Link href="/en/articles/tools">Tools</Link>
-                  <Link href="/en/articles/tutorials">Tutorials</Link>
-                  <Link href="/en/articles/news">News</Link>
-                </div>
-                <div className="footer-col">
-                  <div className="footer-col-title">Guides</div>
-                  <Link href="/en/compare">All Guides</Link>
-                  <Link href="/en/compare?filter=comparisons">⚔️ Comparisons</Link>
-                  <Link href="/en/compare?filter=alternatives">🔄 Alternatives</Link>
-                  <Link href="/en/compare?filter=guides">📖 Guides</Link>
-                  <Link href="/en/compare?filter=for-profession">👤 For Pros</Link>
-                </div>
-                <div className="footer-col">
-                  <div className="footer-col-title">Company</div>
-                  <Link href="/en/about">About us</Link>
-                  <Link href="/en/editorial-policy">Editorial Policy</Link>
-                  <Link href="/en/authors/javier-valencia">Javier Valencia</Link>
-                  <Link href="/en/contact">Contact</Link>
-                  <Link href="/en/privacy">Privacy</Link>
-                </div>
-                <div className="footer-col">
-                  <div className="footer-col-title">Feeds</div>
-                  <Link href="/en/rss.xml">RSS Feed (EN)</Link>
-                  <Link href="/rss.xml">RSS Feed (ES)</Link>
-                  <Link href="/news-sitemap.xml">News Sitemap</Link>
-                </div>
+              <div className="footer-col">
+                <div className="footer-col-title">Guides</div>
+                <Link href="/en/compare">All Guides</Link>
+                <Link href="/en/compare?filter=comparisons">⚔️ Comparisons</Link>
+                <Link href="/en/compare?filter=alternatives">🔄 Alternatives</Link>
+                <Link href="/en/compare?filter=guides">📖 Guides</Link>
+                <Link href="/en/compare?filter=for-profession">👤 For Pros</Link>
+              </div>
+              <div className="footer-col">
+                <div className="footer-col-title">Company</div>
+                <Link href="/en/about">About us</Link>
+                <Link href="/en/editorial-policy">Editorial Policy</Link>
+                <Link href="/en/authors/javier-valencia">Javier Valencia</Link>
+                <Link href="/en/contact">Contact</Link>
+                <Link href="/en/privacy">Privacy</Link>
+              </div>
+              <div className="footer-col">
+                <div className="footer-col-title">Feeds</div>
+                <Link href="/en/rss.xml">RSS Feed (EN)</Link>
+                <Link href="/rss.xml">RSS Feed (ES)</Link>
+                <Link href="/news-sitemap.xml">News Sitemap</Link>
               </div>
             </div>
-            <div className="footer-bottom">
-              <span>© 2026 NewsTide · All rights reserved</span>
-              <span style={{ color: 'var(--faint)' }}>newstide.news</span>
-            </div>
           </div>
-        </footer>
-        <script dangerouslySetInnerHTML={{ __html: `const nav=document.getElementById('navbar');if(nav)window.addEventListener('scroll',()=>nav.classList.toggle('scrolled',window.scrollY>20),{passive:true});` }} />
-      </body>
-    </html>
+          <div className="footer-bottom">
+            <span>© 2026 NewsTide · All rights reserved</span>
+            <span style={{ color: 'var(--faint)' }}>newstide.news</span>
+          </div>
+        </div>
+      </footer>
+      <script dangerouslySetInnerHTML={{ __html: `const nav=document.getElementById('navbar');if(nav)window.addEventListener('scroll',()=>nav.classList.toggle('scrolled',window.scrollY>20),{passive:true});` }} />
+    </>
   )
 }
