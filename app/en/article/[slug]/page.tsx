@@ -64,6 +64,23 @@ function seoDescription(excerpt: string, fallback: string): string {
   return `${cut.substring(0, lastSpace > 50 ? lastSpace : 152)}...`
 }
 
+// Build dynamic keywords from article data: category + title tokens + keyword field
+function buildKeywords(cat: string, title: string, keyword?: string | null): string[] {
+  const catLabel = CAT_EN[cat] || cat
+  const stopWords = new Set(['the','a','an','and','or','of','in','on','to','for','is','are','was','were','with','at','by','from','as','how','why','what','when','where'])
+  const titleTokens = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter((t) => t.length > 3 && !stopWords.has(t))
+    .slice(0, 4)
+  const extra = keyword ? [keyword] : []
+  return [catLabel, 'NewsTide', ...extra, ...titleTokens]
+    .map((k) => k.trim())
+    .filter((k, i, arr) => k && arr.indexOf(k) === i) // dedupe
+    .slice(0, 8)
+}
+
 export async function generateStaticParams() {
   const { data } = await supabase.from('articles').select('slug_en').not('slug_en', 'is', null)
   return (data || []).map((a) => ({ slug: a.slug_en }))
@@ -75,7 +92,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data: article } = await supabase
     .from('articles')
-    .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url')
+    .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, updated_at, cover_image_url')
     .eq('slug_en', slug)
     .maybeSingle()
 
@@ -112,6 +129,7 @@ export async function generateMetadata(
       locale: 'en_US',
       type: 'article',
       publishedTime: article.published_at,
+      modifiedTime: article.updated_at || article.published_at,
       authors: ['Javier Valencia'],
       images,
     },
@@ -135,13 +153,13 @@ export default async function ArticlePageEN({
 
   const { data: article } = await supabase
     .from('articles')
-    .select('id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, cover_image_url, author')
+    .select('id, title, title_en, excerpt, excerpt_en, content, content_en, slug, slug_en, category, published_at, updated_at, cover_image_url, author, keyword')
     .eq('slug_en', slug)
     .maybeSingle()
 
   if (!article) notFound()
 
-  // Redirect to canonical if accessed without slug_en (shouldn’t happen but safety)
+  // Redirect to canonical if accessed without slug_en (shouldn't happen but safety)
   if (!article.slug_en) permanentRedirect(`/articulo/${article.slug}`)
 
   const rawTitle   = article.title_en   || article.title
@@ -153,6 +171,8 @@ export default async function ArticlePageEN({
   const catSection = CAT_SECTION_EN[cat] || 'Technology'
   const url        = `https://www.newstide.news/en/article/${article.slug_en}`
   const urlES      = `https://www.newstide.news/articulo/${article.slug}`
+  // FIX: keywords derived from the article itself, not hardcoded generic values
+  const keywords   = buildKeywords(cat, rawTitle, article.keyword)
 
   const articleSchema = {
     '@context': 'https://schema.org',
@@ -161,8 +181,16 @@ export default async function ArticlePageEN({
     description: rawExcerpt,
     url,
     datePublished: article.published_at,
-    dateModified: article.published_at,
+    // FIX: dateModified uses updated_at when available, falls back to published_at
+    dateModified: article.updated_at || article.published_at,
     inLanguage: 'en',
+    // FIX: isAccessibleForFree signals to Google this is not paywalled (boosts rich results)
+    isAccessibleForFree: true,
+    // FIX: speakable targets the headline and excerpt for Google Assistant / voice search
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.article-main-title', '.article-byline'],
+    },
     image: article.cover_image_url
       ? { '@type': 'ImageObject', url: article.cover_image_url, width: 1200, height: 630 }
       : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
@@ -170,11 +198,15 @@ export default async function ArticlePageEN({
       '@type': 'Person',
       name: 'Javier Valencia',
       url: AUTHOR_PAGE_EN,
+      jobTitle: 'Founder & Editor-in-Chief',
+      worksFor: { '@id': 'https://www.newstide.news/#organization' },
     },
     publisher: { '@id': 'https://www.newstide.news/#organization' },
+    // FIX: isPartOf must point to the EN WebSite node defined in app/en/layout.tsx
     isPartOf: { '@id': 'https://www.newstide.news/en#website' },
     articleSection: catSection,
-    keywords: [catLabelEN, 'AI', 'Startups', 'Tech', 'NewsTide'],
+    // FIX: dynamic keywords built from category + title tokens + keyword field
+    keywords,
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
   }
 
