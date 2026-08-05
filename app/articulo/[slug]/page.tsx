@@ -2,14 +2,15 @@ import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import ReactMarkdown from 'react-markdown'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
-// A3: artículos individuales ES → 24 horas. El contenido editorial no cambia
-// con frecuencia tras publicarse. Si en el futuro hay ediciones frecuentes,
-// añadir revalidatePath() en el pipeline de publicación de Supabase.
-export const revalidate = 86400
+// 1 hora: artículos se regeneran frecuentemente (relacionados frescos, fuentes).
+// El publish-hook llama revalidatePath('/articulo/[slug]') en cada nueva publicación
+// así que los artículos populares siempre tienen los relacionados actualizados.
+export const revalidate = 3600
 
 type RelatedArticle = { title: string; slug: string; category: string; published_at: string }
 
@@ -130,7 +131,6 @@ export async function generateMetadata(
       languages: {
         'es': url,
         ...(urlEN ? { 'en': urlEN } : {}),
-        // A5: x-default → versión EN si existe, sino ES. Nunca apunta a /en genérico.
         'x-default': urlEN ?? url,
       },
     },
@@ -176,10 +176,10 @@ export default async function ArticuloPage({
     notFound()
   }
 
-  const catSlug     = CAT_SLUG_ES[article.category] || article.category.toLowerCase()
-  const enSlug      = article.slug_en
-  const url         = `https://www.newstide.news/articulo/${article.slug}`
-  const urlEN       = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
+  const catSlug       = CAT_SLUG_ES[article.category] || article.category.toLowerCase()
+  const enSlug        = article.slug_en
+  const url           = `https://www.newstide.news/articulo/${article.slug}`
+  const urlEN         = enSlug ? `https://www.newstide.news/en/article/${enSlug}` : null
   const authorPageUrl = `https://www.newstide.news/autores/${AUTHOR_SLUG}`
 
   const { data: related } = await supabase
@@ -293,19 +293,43 @@ export default async function ArticuloPage({
       <div className="container">
         <div className="article-body-grid">
           <article lang="es">
+            {/* Cover image: next/image with priority prevents LCP delay and reserves
+                exact dimensions to eliminate CLS (no layout shift on load). */}
+            {article.cover_image_url && (
+              <div style={{ position: 'relative', width: '100%', aspectRatio: '1200 / 630', borderRadius: 12, overflow: 'hidden', marginBottom: 32, border: '1px solid var(--border)' }}>
+                <Image
+                  src={article.cover_image_url}
+                  alt={article.title}
+                  fill
+                  priority
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 70vw, 800px"
+                  style={{ objectFit: 'cover' }}
+                />
+              </div>
+            )}
+
             <ReactMarkdown
               components={{
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
                 img: ({ src, alt }) => {
+                  if (!src) return null
                   const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
                     ? alt : `${article.title} — NewsTide`
-                  return src ? (
-                    <span style={{ display: 'block', margin: '32px 0' }}>
-                      <img src={src} alt={cleanAlt} loading="lazy" style={{ width: '100%', height: 'auto', borderRadius: 12, objectFit: 'cover', maxHeight: 480, display: 'block', border: '1px solid var(--border)' }} />
+                  // Inline images inside Markdown: lazy-loaded, explicit dimensions to avoid CLS
+                  return (
+                    <span style={{ display: 'block', margin: '32px 0', position: 'relative', width: '100%', aspectRatio: '16/9', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                      <Image
+                        src={src}
+                        alt={cleanAlt}
+                        fill
+                        loading="lazy"
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 70vw, 800px"
+                        style={{ objectFit: 'cover' }}
+                      />
                     </span>
-                  ) : null
+                  )
                 },
                 ul: ({ children }) => <ul style={{ margin: '16px 0 20px 24px' }}>{children}</ul>,
                 ol: ({ children }) => <ol style={{ margin: '16px 0 20px 24px' }}>{children}</ol>,

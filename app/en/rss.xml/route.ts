@@ -1,7 +1,13 @@
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-export const revalidate = 3600
+// 30 min revalidation — aligns with ES feed and news-sitemap.
+export const revalidate = 1800
+
+const CAT_EN: Record<string, string> = {
+  'IA': 'AI', 'Tutoriales': 'Tutorials',
+  'Herramientas': 'Tools', 'Startups': 'Startups', 'Noticias': 'News',
+}
 
 export async function GET() {
   const { data: articles } = await supabase
@@ -11,17 +17,12 @@ export async function GET() {
     .order('published_at', { ascending: false })
     .limit(50)
 
-  const CAT_EN: Record<string, string> = {
-    'IA': 'AI', 'Tutoriales': 'Tutorials',
-    'Herramientas': 'Tools', 'Startups': 'Startups', 'Noticias': 'News',
-  }
-
   const items = (articles || []).map((a) => {
-    const title = a.title_en || a.title
+    const title       = a.title_en || a.title
     const description = a.excerpt_en || a.excerpt || ''
-    const slug = a.slug_en || a.slug
-    const url = `https://www.newstide.news/en/article/${slug}`
-    const cat = CAT_EN[a.category] || a.category
+    const slug        = a.slug_en || a.slug
+    const url         = `https://www.newstide.news/en/article/${slug}`
+    const cat         = CAT_EN[a.category] || a.category
     return `  <item>
     <title>${escapeXml(title)}</title>
     <link>${url}</link>
@@ -45,7 +46,7 @@ export async function GET() {
     <webMaster>hello@newstide.news</webMaster>
     <copyright>© 2026 NewsTide</copyright>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-    <ttl>60</ttl>
+    <ttl>30</ttl>
     <image>
       <url>https://www.newstide.news/favicon-192x192.png</url>
       <title>NewsTide</title>
@@ -59,7 +60,7 @@ ${items}
   return new NextResponse(xml, {
     headers: {
       'Content-Type': 'application/rss+xml; charset=utf-8',
-      'Cache-Control': 's-maxage=3600, stale-while-revalidate',
+      'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=300',
     },
   })
 }

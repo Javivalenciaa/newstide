@@ -1,7 +1,9 @@
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-export const revalidate = 3600
+// 30 min revalidation: RSS readers and Google Discover poll frequently.
+// Aligns with news-sitemap; was 3600 (too stale for a news site).
+export const revalidate = 1800
 
 export async function GET() {
   const { data: articles } = await supabase
@@ -32,7 +34,7 @@ export async function GET() {
     <webMaster>hola@newstide.news</webMaster>
     <copyright>© 2026 NewsTide</copyright>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-    <ttl>60</ttl>
+    <ttl>30</ttl>
     <image>
       <url>https://www.newstide.news/favicon-192x192.png</url>
       <title>NewsTide</title>
@@ -46,7 +48,7 @@ ${items}
   return new NextResponse(xml, {
     headers: {
       'Content-Type': 'application/rss+xml; charset=utf-8',
-      'Cache-Control': 's-maxage=3600, stale-while-revalidate',
+      'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=300',
     },
   })
 }

@@ -2,13 +2,13 @@ import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import ReactMarkdown from 'react-markdown'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
-// A3: artículos individuales EN → 24 horas, igual que ES para consistencia.
-// Ambas versiones del mismo artículo tienen el mismo TTL de cache.
-export const revalidate = 86400
+// 1 hora: aligns with ES counterpart. publish-hook calls revalidatePath on each publish.
+export const revalidate = 3600
 export const dynamicParams = true
 
 const CAT_COLORS: Record<string, string> = {
@@ -187,7 +187,6 @@ export async function generateMetadata(
       languages: {
         'en': url,
         'es': urlES,
-        // A5: x-default → URL EN del artículo (su contenido principal es EN en esta ruta)
         'x-default': url,
       },
     },
@@ -291,11 +290,17 @@ export default async function ArticlePageEN({
 
       {article.cover_image_url && (
         <div className="article-hero">
-          <img
-            src={article.cover_image_url}
-            alt={rawTitle}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          {/* Cover image: next/image with priority for LCP + fill to reserve space and prevent CLS */}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <Image
+              src={article.cover_image_url}
+              alt={rawTitle}
+              fill
+              priority
+              sizes="100vw"
+              style={{ objectFit: 'cover' }}
+            />
+          </div>
           <div className="article-hero-overlay" />
           <div className="container">
             <div className="article-header">
