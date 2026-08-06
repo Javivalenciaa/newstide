@@ -315,13 +315,14 @@ export default async function ArticuloPage({
                 p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
                 img: ({ src, alt }) => {
                   if (!src) return null
+                  const srcString = String(src)
                   const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
                     ? alt : `${article.title} — NewsTide`
                   // Inline images inside Markdown: lazy-loaded, explicit dimensions to avoid CLS
                   return (
                     <span style={{ display: 'block', margin: '32px 0', position: 'relative', width: '100%', aspectRatio: '16/9', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
                       <Image
-                        src={src}
+                        src={srcString}
                         alt={cleanAlt}
                         fill
                         loading="lazy"
