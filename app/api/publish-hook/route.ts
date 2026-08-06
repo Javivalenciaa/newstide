@@ -61,7 +61,10 @@ export async function POST(req: NextRequest) {
 
     // Revalidate sitemap and feeds so Google finds the article in < 5 min
     // (news-sitemap is force-dynamic so this is a belt-and-suspenders measure)
-    revalidateTag('sitemap')
+    // Next.js 16 requires a second argument for revalidateTag.
+    // expire:0 = immediate eviction; this is a webhook (not a Server Action),
+    // so updateTag() would be semantically wrong here.
+    revalidateTag('sitemap', { expire: 0 })
 
     console.log('[publish-hook] IndexNow pinged + ISR revalidated for:', urls)
     return NextResponse.json({ success: true, pinged: urls })
