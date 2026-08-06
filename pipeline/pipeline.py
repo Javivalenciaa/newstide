@@ -218,7 +218,7 @@ def is_truncated(content: str, reference: str) -> bool:
 
 
 def has_external_link(content: str) -> bool:
-    links = re.findall(r'https?://[^\s\)\"\']+', content)
+    links = re.findall(r'https?://[^\s\)\"\' ]+', content)
     for link in links:
         if "newstide.news" not in link and "unsplash.com" not in link:
             return True
@@ -816,6 +816,186 @@ ARTICLE:
         return content
 
 
+# ── CONTENT GUARDRAILS (Google June 2026 spam update) ─────────────────────────
+# Mirrors pipeline/content-guardrails.ts in pure Python — no external deps.
+# Called from save_article() before every Supabase insert.
+# Returns: ('ok'|'needs_review'|'blocked', list[str] flags, dict article_data)
+
+_FIRST_PERSON_RE = re.compile(
+    r"\b(i've|i have|i'm|i am|we've|we have|our team|after \d+ years?|"
+    r"in my \d+ years?|from my experience|my experience|i tested|i tried|"
+    r"i built|i launched|i earned|i made \$)\b",
+    re.IGNORECASE,
+)
+_PRICING_RE = re.compile(r"\$\d+|\d+\s?(usd|eur|€)", re.IGNORECASE)
+
+_GUARDRAIL_STOP = {
+    "a","an","the","and","or","but","in","on","at","to","for","of","with",
+    "by","from","is","are","was","were","be","been","being","have","has",
+    "had","do","does","did","will","would","can","could","should","may",
+    "might","shall","how","what","why","when","where","which","who","your",
+    "our","vs","vs.",
+}
+
+GUARDRAIL_DUPLICATE_THRESHOLD  = 0.90
+GUARDRAIL_STRUCTURE_THRESHOLD  = 0.60
+GUARDRAIL_STRUCTURE_WINDOW     = 20
+
+
+def _trigrams(text: str) -> set:
+    t = re.sub(r"\s+", " ", text.lower()).strip()
+    return {t[i:i+3] for i in range(len(t) - 2)}
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    return intersection / (len(a) + len(b) - intersection)
+
+
+def _extract_headings(content: str) -> list[str]:
+    return [
+        re.sub(r"[^a-z0-9\s]", "", m.group(1).strip().lower())
+        for m in re.finditer(r"^#{2,3}\s+(.+)$", content, re.MULTILINE)
+    ]
+
+
+def _derive_keyword_slug(title: str) -> str:
+    tokens = [
+        w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+        if len(w) > 1 and w not in _GUARDRAIL_STOP
+    ]
+    selected = tokens[:5]
+    if len(selected) < 3 and len(tokens) >= 3:
+        return "-".join(tokens[:3])
+    return "-".join(selected)
+
+
+def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
+    """
+    Validate article data before insert.
+
+    Parameters
+    ----------
+    data : dict  — the article dict about to be sent to Supabase
+
+    Returns
+    -------
+    status  : 'ok' | 'needs_review' | 'blocked'
+    flags   : human-readable list of issues found
+    data    : (possibly mutated) copy of the input dict
+    """
+    data   = dict(data)   # shallow copy — don't mutate caller's dict
+    flags  = []
+    status = "ok"
+
+    def escalate(s: str) -> None:
+        nonlocal status
+        if s == "blocked":
+            status = "blocked"
+        elif s == "needs_review" and status != "blocked":
+            status = "needs_review"
+
+    content    = data.get("content", "")
+    content_en = data.get("content_en", "")
+    title      = data.get("title", "")
+    keyword    = data.get("keyword", "")
+
+    # ── CHECK A: first-person unverified phrases ───────────────────────────
+    if not data.get("first_party_verified"):
+        matches = _FIRST_PERSON_RE.findall(content)
+        if matches:
+            unique_matches = list(dict.fromkeys(m.lower() for m in matches))[:5]
+            flags.append(
+                f"[A] Unverified first-person phrases: {', '.join(unique_matches)} — "
+                f"set first_party_verified=True or rewrite those passages."
+            )
+            escalate("needs_review")
+
+    # ── CHECK B: ES/EN duplicate content ──────────────────────────────────
+    if content_en and content:
+        sim = _jaccard(_trigrams(content), _trigrams(content_en))
+        if sim >= GUARDRAIL_DUPLICATE_THRESHOLD:
+            flags.append(
+                f"[B] ES/EN similarity {sim*100:.1f}% >= {GUARDRAIL_DUPLICATE_THRESHOLD*100:.0f}% — "
+                f"content_en must be a genuine translation, not a copy."
+            )
+            escalate("blocked")
+
+    # ── CHECK C: keyword must be a search-intent slug ─────────────────────
+    kw_norm    = keyword.lower().strip()
+    title_norm = title.lower().strip()
+    word_count = len(keyword.split())
+    if kw_norm == title_norm or word_count > 6:
+        suggested = _derive_keyword_slug(title)
+        flags.append(
+            f"[C] keyword '{keyword[:60]}' is "
+            f"{'identical to title' if kw_norm == title_norm else f'too long ({word_count} words)'}. "
+            f"Auto-replaced with search-intent slug: '{suggested}'."
+        )
+        data["keyword"] = suggested
+        escalate("needs_review")
+
+    # ── CHECK D: pricing without verification timestamp ────────────────────
+    if _PRICING_RE.search(content) and not data.get("pricing_verified_at"):
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data["pricing_verified_at"] = now_iso
+        flags.append(
+            f"[D] Prices found but pricing_verified_at was missing — auto-stamped {now_iso}. "
+            f"Re-verify prices before next pipeline run if they may be stale."
+        )
+        escalate("needs_review")
+
+    # ── CHECK E: repetitive section structure ─────────────────────────────
+    try:
+        res = (
+            supabase_client.table("articles")
+            .select("content, content_en")
+            .order("published_at", desc=True)
+            .limit(GUARDRAIL_STRUCTURE_WINDOW)
+            .execute()
+        )
+        recent_rows = res.data or []
+        if len(recent_rows) >= 3:
+            candidate_headings = " ".join(_extract_headings(content))
+            if candidate_headings:
+                match_count = 0
+                for row in recent_rows:
+                    existing = " ".join(_extract_headings(row.get("content") or row.get("content_en") or ""))
+                    if existing and _jaccard(_trigrams(candidate_headings), _trigrams(existing)) >= GUARDRAIL_STRUCTURE_THRESHOLD:
+                        match_count += 1
+                fraction = match_count / len(recent_rows)
+                if fraction >= GUARDRAIL_STRUCTURE_THRESHOLD:
+                    msg = (
+                        f"[E] Repetitive structure: {match_count}/{len(recent_rows)} recent articles "
+                        f"share this heading layout ({fraction*100:.0f}% match). "
+                        f"Vary H2 order or section topics."
+                    )
+                    flags.append(msg)
+                    print(f"  ⚠️  GUARDRAIL[E] {msg}")
+                    escalate("needs_review")
+    except Exception as e:
+        print(f"  ⚠️  Guardrail [E] structure check failed (non-critical): {e}")
+
+    # ── Apply needs_review flag to data ───────────────────────────────────
+    if status == "needs_review":
+        data["needs_review"] = True
+
+    # ── Summary log ───────────────────────────────────────────────────────
+    if flags:
+        label = "🔴 BLOCKED" if status == "blocked" else "🟡 NEEDS REVIEW"
+        print(f"  {label} guardrails for: {title[:60]}")
+        for f in flags:
+            print(f"    • {f}")
+    else:
+        print(f"  🟢 Guardrails OK: {title[:60]}")
+
+    return status, flags, data
+
+
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 def save_article(
     keyword: str,
@@ -859,9 +1039,22 @@ def save_article(
         "published_at":    now_iso,
         "cover_image_url": cover_image_url,
     }
+
+    # ── PRE-PUBLISH CONTENT GUARDRAILS ────────────────────────────────────
+    guardrail_status, guardrail_flags, data = run_content_guardrails(data)
+
+    if guardrail_status == "blocked":
+        print(f"  🚫 INSERT BLOCKED by guardrails — article NOT saved: {title[:60]}")
+        print(f"     Fix required: {guardrail_flags[0] if guardrail_flags else 'see flags above'}")
+        return None
+
+    # If needs_review, the data dict already has needs_review=True;
+    # insert proceeds so the article lands in Supabase for manual review.
+
     try:
         supabase_client.table("articles").insert(data).execute()
-        print(f"  ✅ Saved: {title[:70]}")
+        status_emoji = "⚠️ " if guardrail_status == "needs_review" else "✅"
+        print(f"  {status_emoji} Saved{' (needs_review=True)' if guardrail_status == 'needs_review' else ''}: {title[:70]}")
         ping_indexnow([f"https://www.newstide.news/en/article/{slug}"])
         return title
     except Exception as e:
