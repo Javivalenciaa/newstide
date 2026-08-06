@@ -287,9 +287,10 @@ export async function validateArticle(
   // Work on a shallow copy so we can mutate safely
   const article: ArticleInput = { ...articleInput }
   const flags: string[] = []
+  // Explicit type annotation prevents TypeScript from narrowing to 'never'
   let worstStatus: GuardrailStatus = 'ok'
 
-  function escalate(s: GuardrailStatus) {
+  function escalate(s: GuardrailStatus): void {
     if (s === 'blocked') worstStatus = 'blocked'
     else if (s === 'needs_review' && worstStatus !== 'blocked') worstStatus = 'needs_review'
   }
@@ -316,7 +317,7 @@ export async function validateArticle(
   if (worstStatus !== 'ok') {
     if (worstStatus === 'needs_review') article.needs_review = true
     console.warn(
-      `[guardrails] Article "${article.title?.slice(0, 60)}" → ${worstStatus.toUpperCase()}\n` +
+      `[guardrails] Article "${article.title?.slice(0, 60)}" → ${(worstStatus as string).toUpperCase()}\n` +
         flags.map((f) => `  • ${f}`).join('\n'),
     )
   } else {
