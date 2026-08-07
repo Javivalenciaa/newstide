@@ -254,14 +254,17 @@ def _register_claude_call(output_tokens: int) -> None:
 
 # ── CONTENT VALIDATION ────────────────────────────────────────────────────────
 def validate_article_content(content: str, label: str = "article") -> bool:
-    words    = len(content.split())
-    h2_count = len(re.findall(r'^## ', content, re.MULTILINE))
+    words = len(content.split())
+    # FIX 2: Count H2 *and* H3 headers combined so Claude articles using ###
+    # sub-sections are not incorrectly rejected. MIN_H2_SECTIONS still applies
+    # as the minimum total structured sections required for EEAT compliance.
+    h2_count = len(re.findall(r'^#{2,3} ', content, re.MULTILINE))
     ok = True
     if words < MIN_WORD_COUNT:
         print(f"  ❌ VALIDATION FAIL [{label}]: {words} words < {MIN_WORD_COUNT}")
         ok = False
     if h2_count < MIN_H2_SECTIONS:
-        print(f"  ❌ VALIDATION FAIL [{label}]: {h2_count} H2 sections (need >= {MIN_H2_SECTIONS})")
+        print(f"  ❌ VALIDATION FAIL [{label}]: {h2_count} H2/H3 sections (need >= {MIN_H2_SECTIONS})")
         ok = False
     stripped = content.strip()
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
@@ -270,7 +273,7 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if not has_external_link(content):
         print(f"  ⚠️  VALIDATION WARN [{label}]: no external link — EEAT risk")
     if ok:
-        print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2 sections")
+        print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2/H3 sections")
     return ok
 
 
@@ -301,8 +304,37 @@ def format_recent_context(articles: list[dict]) -> str:
 
 
 def already_published_hash(keyword: str) -> bool:
-    res = supabase_client.table("articles").select("id").eq("keyword_hash", md5(keyword)).execute()
+    # FIX 4: Check both the raw keyword hash AND its derived slug hash to
+    # catch cases where Supabase stored the slug form (after Check C ran on
+    # a previous run). Prevents false negatives from hash mismatch.
+    raw_hash  = md5(keyword)
+    slug_hash = md5(_derive_keyword_slug_for_hash(keyword))
+    res = (
+        supabase_client.table("articles")
+        .select("id")
+        .in_("keyword_hash", [raw_hash, slug_hash])
+        .execute()
+    )
     return len(res.data) > 0
+
+
+def _derive_keyword_slug_for_hash(title: str) -> str:
+    """Mirrors _derive_keyword_slug in guardrails — used for hash consistency check."""
+    _stop = {
+        "a","an","the","and","or","but","in","on","at","to","for","of","with",
+        "by","from","is","are","was","were","be","been","being","have","has",
+        "had","do","does","did","will","would","can","could","should","may",
+        "might","shall","how","what","why","when","where","which","who","your",
+        "our","vs","vs.",
+    }
+    tokens = [
+        w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+        if len(w) > 1 and w not in _stop
+    ]
+    selected = tokens[:5]
+    if len(selected) < 3 and len(tokens) >= 3:
+        return "-".join(tokens[:3])
+    return "-".join(selected)
 
 
 # ── SERPAPI SOURCES ────────────────────────────────────────────────────────────
@@ -484,7 +516,11 @@ def is_duplicate_topic(
     ] + published_this_run
     if not all_existing:
         return False
-    existing_str = "\n".join(f"- {t}" for t in all_existing[:50] if t)
+    # FIX 1: Limit context to 20 most recent articles (was 50).
+    # With 50+ articles at temperature=0, GPT-4o-mini over-triggers YES on any
+    # topic sharing general keywords (saas, solopreneur, tool). 20 articles keeps
+    # deduplication meaningful while avoiding false positives.
+    existing_str = "\n".join(f"- {t}" for t in all_existing[:20] if t)
     prompt = f"""Candidate article: "{candidate}"
 
 Existing articles:
@@ -931,6 +967,9 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
             escalate("needs_review")  # changed from "blocked" — EN-only pipeline
 
     # ── CHECK C: keyword must be a search-intent slug ─────────────────────
+    # FIX 3: After replacing keyword with slug, recalculate keyword_hash so
+    # Supabase stores the slug hash. This ensures already_published_hash()
+    # finds duplicates correctly on the next run.
     kw_norm    = keyword.lower().strip()
     title_norm = title.lower().strip()
     word_count = len(keyword.split())
@@ -941,7 +980,8 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
             f"{'identical to title' if kw_norm == title_norm else f'too long ({word_count} words)'}. "
             f"Auto-replaced with search-intent slug: '{suggested}'."
         )
-        data["keyword"] = suggested
+        data["keyword"]      = suggested
+        data["keyword_hash"] = md5(suggested)  # FIX 3: keep hash in sync with slug
         escalate("needs_review")
 
     # ── CHECK D: pricing without verification timestamp ────────────────────
