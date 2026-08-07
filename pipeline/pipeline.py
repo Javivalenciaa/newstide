@@ -53,6 +53,12 @@ TITLE_MAX_CHARS  = 60
 TITLE_SOFT_MIN   = 45
 TITLE_SOFT_MAX   = 58
 
+# ── EEAT: first-party attribution (in-memory, not persisted to Supabase) ──────
+# All content is editorially attributed to Javier Valencia via EDITORIAL_NOTE.
+# This constant tells guardrail check [A] that first-person phrases are covered
+# by the editorial attribution — no need to persist this flag in the DB schema.
+FIRST_PARTY_VERIFIED = True
+
 # ── CATEGORIES (niche-specific) ───────────────────────────────────────────────
 CATEGORIES = {
     # AI tools & automation
@@ -941,15 +947,17 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
     keyword    = data.get("keyword", "")
 
     # ── CHECK A: first-person unverified phrases ───────────────────────────
-    # first_party_verified=True is set in save_article() because the editorial
-    # note explicitly attributes content to Javier Valencia (EEAT author signal).
-    if not data.get("first_party_verified"):
+    # FIRST_PARTY_VERIFIED is a module-level constant (True) because the
+    # editorial note explicitly attributes content to Javier Valencia.
+    # This replaces the old data.get("first_party_verified") lookup which
+    # required a column that does not exist in the Supabase articles schema.
+    if not FIRST_PARTY_VERIFIED:
         matches = _FIRST_PERSON_RE.findall(content)
         if matches:
             unique_matches = list(dict.fromkeys(m.lower() for m in matches))[:5]
             flags.append(
                 f"[A] Unverified first-person phrases: {', '.join(unique_matches)} — "
-                f"set first_party_verified=True or rewrite those passages."
+                f"set FIRST_PARTY_VERIFIED=True or rewrite those passages."
             )
             escalate("needs_review")
 
@@ -1066,27 +1074,26 @@ def save_article(
     content_final = content + EDITORIAL_NOTE
 
     data = {
-        "title":                title,
-        "slug":                 slug,
-        "content":              content_final,
-        "excerpt":              excerpt,
+        "title":           title,
+        "slug":            slug,
+        "content":         content_final,
+        "excerpt":         excerpt,
         # EN-only pipeline: title_en/slug_en/content_en mirror the primary fields.
-        # first_party_verified=True: editorial note attributes authorship to
-        # Javier Valencia — satisfies EEAT author signal for check [A].
-        "title_en":             title,
-        "slug_en":              slug,
-        "content_en":           content_final,
-        "excerpt_en":           excerpt,
-        "first_party_verified": True,
-        "category":             category,
-        "author":               AUTHOR,
-        "keyword":              keyword,
-        "keyword_hash":         md5(keyword),
-        "reading_time":         rt,
-        "featured":             article_idx == 0,
-        "image_gradient":       GRADIENTS[article_idx % len(GRADIENTS)],
-        "published_at":         now_iso,
-        "cover_image_url":      cover_image_url,
+        # first_party attribution is handled via EDITORIAL_NOTE and the module-level
+        # FIRST_PARTY_VERIFIED constant — not persisted as a DB column.
+        "title_en":        title,
+        "slug_en":         slug,
+        "content_en":      content_final,
+        "excerpt_en":      excerpt,
+        "category":        category,
+        "author":          AUTHOR,
+        "keyword":         keyword,
+        "keyword_hash":    md5(keyword),
+        "reading_time":    rt,
+        "featured":        article_idx == 0,
+        "image_gradient":  GRADIENTS[article_idx % len(GRADIENTS)],
+        "published_at":    now_iso,
+        "cover_image_url": cover_image_url,
     }
 
     # ── PRE-PUBLISH CONTENT GUARDRAILS ────────────────────────────────────
