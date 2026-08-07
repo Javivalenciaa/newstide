@@ -993,12 +993,13 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
         escalate("needs_review")
 
     # ── CHECK D: pricing without verification timestamp ────────────────────
-    if _PRICING_RE.search(content) and not data.get("pricing_verified_at"):
+    # pricing_verified_at does not exist in the articles schema — prices found
+    # in content are logged as a flag for manual review but not persisted to DB.
+    if _PRICING_RE.search(content):
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        data["pricing_verified_at"] = now_iso
         flags.append(
-            f"[D] Prices found but pricing_verified_at was missing — auto-stamped {now_iso}. "
-            f"Re-verify prices before next pipeline run if they may be stale."
+            f"[D] Prices found in content — manually verify before next pipeline run "
+            f"(detected at {now_iso})."
         )
         escalate("needs_review")
 
@@ -1032,10 +1033,6 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
                     escalate("needs_review")
     except Exception as e:
         print(f"  ⚠️  Guardrail [E] structure check failed (non-critical): {e}")
-
-    # ── Apply needs_review flag to data ───────────────────────────────────
-    if status == "needs_review":
-        data["needs_review"] = True
 
     # ── Summary log ───────────────────────────────────────────────────────
     if flags:
@@ -1104,13 +1101,13 @@ def save_article(
         print(f"     Fix required: {guardrail_flags[0] if guardrail_flags else 'see flags above'}")
         return None
 
-    # If needs_review, the data dict already has needs_review=True;
-    # insert proceeds so the article lands in Supabase for manual review.
+    # If needs_review, guardrail_status is logged but no extra column is inserted.
+    # Review articles via the guardrail flags printed above.
 
     try:
         supabase_client.table("articles").insert(data).execute()
         status_emoji = "⚠️ " if guardrail_status == "needs_review" else "✅"
-        print(f"  {status_emoji} Saved{' (needs_review=True)' if guardrail_status == 'needs_review' else ''}: {title[:70]}")
+        print(f"  {status_emoji} Saved{' (needs_review flagged in logs)' if guardrail_status == 'needs_review' else ''}: {title[:70]}")
         ping_indexnow([f"https://www.newstide.news/en/article/{slug}"])
         return title
     except Exception as e:
