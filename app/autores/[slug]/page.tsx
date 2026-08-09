@@ -5,12 +5,12 @@ import Link from 'next/link'
 import Image from 'next/image'
 
 const AUTHOR_MAP: Record<string, {
-  name: string; bio: string; title: string; sameAs?: string[]; image?: string; credentials?: string[]
+  name: string; bio: string; title: string; sameAs?: string[]; image?: string; credentials?: string[]; expertise?: string[]; education?: string[]
 }> = {
   'javier-valencia': {
     name: 'Javier Valencia',
-    title: 'Fundador y Editor en Jefe de NewsTide',
-    bio: 'Javier Valencia es ingeniero de software y estudiante de Ingeniería Informática. Fundó NewsTide para explorar la intersección entre pipelines de automatización de contenido con IA y el periodismo de calidad. Ha trabajado como freelance para empresas tech, desarrollado proyectos de gemelos digitales y participado en concursos de innovación y startups. Combina su experiencia en desarrollo full-stack (Next.js, Python, Supabase) con supervisión editorial en cada artículo publicado.',
+    title: 'Fundador, Editor en Jefe e Ingeniero en NewsTide',
+    bio: 'Javier Valencia es Ingeniero Informático y Administrador de Empresas (doble titulación en curso), fundador de NewsTide y desarrollador full-stack con experiencia probada en sistemas de automatización de contenido con IA, arquitecturas backend (Next.js, Python, Supabase) y proyectos de gemelos digitales. Ha desarrollado pipelines de generación de artículos que combinan LLMs con criterios editoriales estrictos para producir contenido verificable y útil. Supervisa personalmente cada pieza publicada en la vertical de finanzas para hispanos en USA, asegurando que los datos sean verificables, las fuentes sean primarias y el contenido sea relevante para la comunidad latina en Estados Unidos.',
     image: '/authors/7e13d624-55ae-4d72-b4aa-27aac63b4c14.jpeg',
     sameAs: [
       'https://www.linkedin.com/in/javier-valencia-mu%C3%B1oz-b193ab2ba',
@@ -19,10 +19,23 @@ const AUTHOR_MAP: Record<string, {
     ],
     credentials: [
       'Ingeniería Informática (en curso)',
-      'Fundador de NewsTide',
+      'Administración de Empresas (en curso)',
+      'Fundador y Editor en Jefe de NewsTide',
       'Desarrollo full-stack: Next.js, Python, Supabase',
-      'Proyectos de gemelos digitales e IA',
-      'Freelance tech para empresas',
+      'Sistemas de automatización con IA y LLMs',
+      'Proyectos de gemelos digitales e IA aplicada',
+    ],
+    expertise: [
+      'Finanzas personales para hispanos en USA',
+      'Sistemas bancarios americanos e ITIN',
+      'Automatización de contenido con IA',
+      'Arquitectura de software y backend',
+      'SEO y medios digitales',
+      'Startups y modelos de negocio digitales',
+    ],
+    education: [
+      'Grado en Ingeniería Informática',
+      'Grado en Administración y Dirección de Empresas',
     ],
   },
 }
@@ -41,14 +54,14 @@ export async function generateMetadata(
   const enUrl = `https://www.newstide.news/en/authors/${slug}`
   return {
     title: `${author.name} — ${author.title} | NewsTide`,
-    description: author.bio,
+    description: author.bio.slice(0, 160),
     alternates: {
       canonical: url,
       languages: { 'es': url, 'en': enUrl, 'x-default': enUrl },
     },
     openGraph: {
       title: `${author.name} — NewsTide`,
-      description: author.bio,
+      description: author.bio.slice(0, 160),
       url,
       siteName: 'NewsTide',
       locale: 'es_ES',
@@ -71,11 +84,25 @@ export default async function AutorPage({
 
   const url = `https://www.newstide.news/autores/${slug}`
 
-  const { data: articles } = await supabase
+  // Load articles from both tables to show full editorial scope
+  const { data: financeArticles } = await supabase
+    .from('finance_articles')
+    .select('title, slug, published_at, category, excerpt')
+    .eq('author', author.name)
+    .order('published_at', { ascending: false })
+    .limit(30)
+
+  const { data: mainArticles } = await supabase
     .from('articles')
     .select('title, slug, published_at, category, excerpt')
     .order('published_at', { ascending: false })
-    .limit(50)
+    .limit(20)
+
+  // Merge and sort by date
+  const allArticles = [
+    ...(financeArticles || []).map(a => ({ ...a, section: 'fin' })),
+    ...(mainArticles || []).map(a => ({ ...a, section: 'articulo' })),
+  ].sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime()).slice(0, 40)
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -96,13 +123,11 @@ export default async function AutorPage({
         '@type': 'EducationalOccupationalCredential',
         credentialCategory: c,
       })),
-      worksFor: {
-        '@type': 'NewsMediaOrganization',
-        '@id': 'https://www.newstide.news/#organization',
-        name: 'NewsTide',
-        url: 'https://www.newstide.news',
-      },
-      knowsAbout: [
+      alumniOf: (author.education || []).map((e) => ({
+        '@type': 'EducationalOrganization',
+        name: e,
+      })),
+      knowsAbout: author.expertise || [
         'Inteligencia Artificial',
         'Startups',
         'Ingeniería de Software',
@@ -110,7 +135,14 @@ export default async function AutorPage({
         'Python',
         'Gemelos Digitales',
         'SEO',
+        'Finanzas personales para hispanos en USA',
       ],
+      worksFor: {
+        '@type': 'NewsMediaOrganization',
+        '@id': 'https://www.newstide.news/#organization',
+        name: 'NewsTide',
+        url: 'https://www.newstide.news',
+      },
     },
   }
 
@@ -124,6 +156,8 @@ export default async function AutorPage({
         <div style={{ marginBottom: 40 }}>
           <Link href="/" style={{ color: 'var(--muted)', fontSize: 13, textDecoration: 'none' }}>← Inicio</Link>
         </div>
+
+        {/* Author header */}
         <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', marginBottom: 48, flexWrap: 'wrap' }}>
           {author.image ? (
             <Image
@@ -146,16 +180,54 @@ export default async function AutorPage({
             <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>{author.name}</h1>
             <p style={{ fontSize: 14, color: 'var(--cyan)', fontWeight: 600, marginBottom: 12 }}>{author.title}</p>
             <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.7, maxWidth: 620 }}>{author.bio}</p>
-            {author.credentials && (
-              <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {author.credentials.map((c) => (
-                  <span key={c} style={{
-                    fontSize: 11, padding: '3px 10px', borderRadius: 20,
-                    border: '1px solid var(--border)', color: 'var(--muted)',
-                  }}>{c}</span>
-                ))}
+
+            {/* Education */}
+            {author.education && (
+              <div style={{ marginTop: 16 }}>
+                <p style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Formación</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {author.education.map((e) => (
+                    <span key={e} style={{
+                      fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                      background: 'rgba(110,207,202,0.08)',
+                      border: '1px solid rgba(110,207,202,0.3)', color: 'var(--cyan)',
+                    }}>{e}</span>
+                  ))}
+                </div>
               </div>
             )}
+
+            {/* Credentials */}
+            {author.credentials && (
+              <div style={{ marginTop: 14 }}>
+                <p style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Experiencia y roles</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {author.credentials.map((c) => (
+                    <span key={c} style={{
+                      fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                      border: '1px solid var(--border)', color: 'var(--muted)',
+                    }}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Expertise areas */}
+            {author.expertise && (
+              <div style={{ marginTop: 14 }}>
+                <p style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Áreas de conocimiento</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {author.expertise.map((e) => (
+                    <span key={e} style={{
+                      fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                      border: '1px solid var(--border)', color: 'var(--muted)',
+                    }}>{e}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Social links */}
             <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {linkedin && (
                 <a href={linkedin} target="_blank" rel="noopener noreferrer"
@@ -172,10 +244,26 @@ export default async function AutorPage({
             </div>
           </div>
         </div>
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 24 }}>Artículos recientes</h2>
+
+        {/* Editorial note */}
+        <div style={{
+          padding: '16px 20px', marginBottom: 40,
+          background: 'rgba(110,207,202,0.05)',
+          border: '1px solid rgba(110,207,202,0.15)',
+          borderRadius: 10,
+        }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+            <strong style={{ color: 'var(--text)' }}>Política editorial:</strong> Los artículos de finanzas personales publicados bajo la supervisión de Javier Valencia siguen criterios E-E-A-T estrictos. Todos los datos incluyen fuentes primarias verificables (IRS, CFPB, FDIC). El contenido generado con asistencia de IA es revisado manualmente antes de publicarse.
+          </p>
+        </div>
+
+        {/* Articles */}
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 24 }}>Artículos publicados</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {(articles || []).map((a) => (
-            <Link key={a.slug} href={`/articulo/${a.slug}`}
+          {allArticles.map((a) => (
+            <Link
+              key={`${a.section}-${a.slug}`}
+              href={a.section === 'fin' ? `/en/fin/${a.slug}` : `/articulo/${a.slug}`}
               style={{ display: 'block', padding: '20px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, textDecoration: 'none', transition: 'border-color 0.2s' }}
             >
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>

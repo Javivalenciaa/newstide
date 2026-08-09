@@ -31,7 +31,7 @@ UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 
 NICHE_LABEL  = "finanzas personales hispanos USA"
 SITE_LANG    = "es"
-AUTHOR       = "Ana Martínez"   # finance vertical byline
+AUTHOR       = "Javier Valencia"   # finance vertical byline — fundador y editor
 
 ARTICLES_PER_RUN  = 3
 MODEL_GENERATE    = "claude-sonnet-4-5"
@@ -117,7 +117,7 @@ EDITORIAL_NOTE_ES = """
 
 ---
 
-*Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y revisado por Ana Martínez. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
+*Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y supervisado por Javier Valencia, fundador de NewsTide e Ingeniero Informático. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
 """
 
 # ── INDEXNOW ──────────────────────────────────────────────────────────────────
@@ -272,23 +272,61 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     return ok
 
 
-# ── LOAD RECENT ARTICLES FROM SUPABASE ────────────────────────────────────────
+# ── LOAD RECENT ARTICLES FROM SUPABASE (BOTH TABLES) ─────────────────────────
 def get_recent_articles() -> list[dict]:
-    """Load last 90 days from finance_articles to maximise dedup coverage."""
-    since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    """
+    Load published titles from BOTH finance_articles AND the main articles table
+    to prevent cross-table topic duplication.
+    Returns last 180 days (extended from 90) for maximum dedup coverage.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
+    combined: list[dict] = []
+
+    # 1. Finance articles table
     try:
         res = (
             supabase_client.table("finance_articles")
             .select("title_en, keyword, category, excerpt_en, keyword_hash")
             .gte("published_at", since)
             .order("published_at", desc=True)
-            .limit(150)
+            .limit(300)
             .execute()
         )
-        return res.data or []
+        combined.extend(res.data or [])
+        print(f"  📚 finance_articles: {len(res.data or [])} artículos cargados")
     except Exception as e:
-        print(f"  ⚠️  Error reading Supabase finance_articles: {e}")
-        return []
+        print(f"  ⚠️  Error reading finance_articles: {e}")
+
+    # 2. Main articles table — pull ALL finance-category titles to avoid overlap
+    try:
+        res2 = (
+            supabase_client.table("articles")
+            .select("title, keyword, category")
+            .in_("category", [
+                "Crédito", "Impuestos", "Ahorro", "Presupuesto",
+                "Inversión", "Remesas", "Deudas", "Vivienda",
+                "Ingresos Extra", "Finanzas", "Economía",
+            ])
+            .gte("published_at", since)
+            .order("published_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        # Normalise keys so dedup logic works on both tables
+        for row in (res2.data or []):
+            combined.append({
+                "title_en": row.get("title", ""),
+                "keyword":  row.get("keyword", ""),
+                "category": row.get("category", ""),
+                "excerpt_en": "",
+                "keyword_hash": "",
+            })
+        print(f"  📚 articles (finance cats): {len(res2.data or [])} títulos cargados")
+    except Exception as e:
+        print(f"  ⚠️  Error reading main articles table: {e}")
+
+    print(f"  📊 Total títulos en contexto de dedup: {len(combined)}")
+    return combined
 
 
 def format_recent_context(articles: list[dict]) -> str:
@@ -399,14 +437,14 @@ def fetch_serpapi_inversion_impuestos() -> list[str]:
 # ── GPT NICHE TOPIC GENERATOR ─────────────────────────────────────────────────
 def generate_niche_topics(recent_articles: list[dict], n: int = 18) -> list[str]:
     recent_titles = "\n".join(
-        f"- {a.get('title_en') or a.get('keyword', '')}" for a in recent_articles[:40]
+        f"- {a.get('title_en') or a.get('keyword', '')}" for a in recent_articles[:60]
     )
     today = datetime.now().strftime("%B %d, %Y")
     prompt = f"""Hoy es {today}. Eres editor jefe de NewsTide Finanzas, un medio de finanzas personales EN ESPAÑOL para hispanos que viven en Estados Unidos.
 
 AUDIENCIA: inmigrantes y segunda generación hispana en USA. Muchos tienen poco historial crediticio, envían remesas, trabajan con salarios bajos o medios, quieren invertir pero no saben cómo. La mayoría no encuentra contenido en español sobre productos AMERICANOS (no europeos ni latinoamericanos).
 
-YA PUBLICADO (NO repetir ni usar ángulo similar):
+YA PUBLICADO (NO repetir ni usar ángulo similar — esto incluye artículos de TODAS las secciones del sitio):
 {recent_titles if recent_titles else "Nada todavía."}
 
 Genera exactamente {n} ideas de artículo que rankeen bien en Google para este nicho.
@@ -481,10 +519,10 @@ def is_duplicate_topic(
     ] + published_this_run
     if not all_existing:
         return False
-    existing_str = "\n".join(f"- {t}" for t in all_existing[:50] if t)
+    existing_str = "\n".join(f"- {t}" for t in all_existing[:80] if t)
     prompt = f"""Artículo candidato: "{candidate}"
 
-Artículos ya publicados:
+Artículos ya publicados en el sitio (incluye TODAS las secciones, no solo finanzas):
 {existing_str}
 
 ¿El candidato cubre EL MISMO tema específico o un ángulo muy similar a algún artículo existente?
@@ -588,7 +626,7 @@ def generate_article(keyword: str, recent_context: str) -> dict:
 
     prompt = f"""Escribe un artículo completo EN ESPAÑOL sobre finanzas personales para hispanos en USA: "{keyword}"
 
-YA PUBLICADO — no repetir estos temas ni ángulos:
+YA PUBLICADO EN EL SITIO — no repetir estos temas ni ángulos (incluye todas las secciones del sitio):
 {recent_context}
 
 AUDIENCIA: Hispanos viviendo en Estados Unidos — muchos inmigrantes de primera generación, trabajadores con salarios bajos o medios, personas que quieren entender el sistema financiero americano pero no encuentran contenido en español sobre productos US específicos.
@@ -961,7 +999,7 @@ def main():
         f"{MAX_CLAUDE_TOKENS_PER_RUN:,} output tokens"
     )
 
-    print("📚 Cargando artículos recientes de Supabase (últimos 90 días)...")
+    print("📚 Cargando artículos recientes de Supabase (últimos 180 días, ambas tablas)...")
     recent_articles = get_recent_articles()
     print(f"   {len(recent_articles)} artículos cargados para deduplicación")
 
