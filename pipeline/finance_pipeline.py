@@ -43,9 +43,12 @@ MIN_H2_SECTIONS             = 3
 TOPIC_CLUSTER_COOLDOWN_DAYS = 14   # same cluster can't publish twice in 14 days
 
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
-TITLE_MAX_CHARS = 60
-TITLE_SOFT_MIN  = 45
-TITLE_SOFT_MAX  = 58
+# Hard limit raised to 75 so the AI has room to write a complete sentence.
+# The soft target (55-70) is communicated to the LLM via prompts.
+# smart_trim at TITLE_MAX_CHARS is the last-resort safety net only.
+TITLE_MAX_CHARS = 75
+TITLE_SOFT_MIN  = 55
+TITLE_SOFT_MAX  = 70
 
 # ── CATEGORIES ────────────────────────────────────────────────────────────────
 FIN_CATEGORIES = {
@@ -142,6 +145,9 @@ def ping_indexnow(urls: list) -> None:
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def smart_trim(text: str, limit: int) -> str:
+    """Trim text to at most `limit` chars, cutting only at a word boundary.
+    Used as a LAST-RESORT safety net — do NOT call this on titles before the
+    LLM has had a chance to produce a complete sentence."""
     text = re.sub(r"\s+", " ", (text or "").strip())
     if len(text) <= limit:
         return text
@@ -165,12 +171,27 @@ def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
 
 
 def slugify(text: str) -> str:
-    text = smart_trim(text, 60).lower()
+    """Convert text to a URL-safe slug. Cap at 75 chars AFTER slugification
+    so the slug represents the complete title, not a mid-word truncation."""
+    # Do NOT smart_trim before processing — let the full title become the slug
+    text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
-    return text[:60].strip("-")
+    # Cap slug at 75 chars, cutting only at a hyphen boundary
+    if len(text) > 75:
+        cut = text[:76]
+        if "-" in cut:
+            cut = cut.rsplit("-", 1)[0]
+        text = cut
+    return text.strip("-")
+
+
+def fix_double_quotes(text: str) -> str:
+    """Remove double-escaped quotes introduced by some json serialisation paths.
+    Converts any occurrence of two consecutive double-quote chars into one."""
+    return text.replace('""', '"')
 
 
 def md5(text: str) -> str:
@@ -285,6 +306,10 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     stripped = content.strip()
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
         print(f"  ❌ VALIDATION FAIL [{label}]: starts mid-sentence (truncation)")
+        ok = False
+    # Detect trailing truncation markers
+    if content.rstrip().endswith("..."):
+        print(f"  ❌ VALIDATION FAIL [{label}]: content ends with '...' — likely truncated")
         ok = False
     if not has_external_link(content):
         print(f"  ⚠️  VALIDATION WARN [{label}]: no external link — EEAT risk")
@@ -431,6 +456,8 @@ Genera exactamente {n} ideas de artículo que rankeen bien en Google.
 - Productos y leyes AMERICANAS reales.
 - Sin números inventados en el título.
 - Todo en ESPAÑOL.
+- Cada título debe ser una frase COMPLETA entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
+- NUNCA cortes un título a la mitad. NUNCA uses puntos suspensivos.
 
 Formato: un título por línea, sin numeración, sin explicación."""
     try:
@@ -449,24 +476,24 @@ Formato: un título por línea, sin numeración, sin explicación."""
 
 def get_fallback_topics() -> list[str]:
     return [
-        "Cómo construir crédito en USA sin historial crediticio",
-        "Tarjetas de crédito para inmigrantes sin Social Security",
-        "Cómo declarar impuestos con ITIN en Estados Unidos",
-        "Wise vs Remitly: cuál conviene para enviar dinero a México",
-        "Cómo abrir cuenta bancaria sin documentos en USA 2026",
-        "Roth IRA explicado para hispanos que viven en USA",
-        "Cómo subir tu credit score en USA sin endeudarte",
-        "Mejores bancos para hispanos en Estados Unidos 2026",
-        "Cómo hacer un presupuesto familiar viviendo en USA",
-        "Cómo invertir en bolsa siendo inmigrante en América",
-        "Chime vs Bank of America para hispanos en USA",
-        "Cómo comprar casa siendo inmigrante en Estados Unidos",
-        "Qué es el ITIN y para qué sirve en USA",
-        "Mejores apps para ahorrar dinero en Estados Unidos",
-        "Cómo enviar remesas baratas desde USA a Latinoamérica",
-        "Deudas médicas en USA: qué derechos tienes como hispano",
-        "401k explicado en español para trabajadores en USA",
-        "Cómo salir de deudas de tarjeta de crédito en USA",
+        "Cómo construir crédito en USA sin historial crediticio desde cero",
+        "Tarjetas de crédito para inmigrantes sin Social Security en USA",
+        "Cómo declarar impuestos con ITIN en Estados Unidos paso a paso",
+        "Wise vs Remitly: cuál conviene para enviar dinero a México en 2026",
+        "Cómo abrir cuenta bancaria sin documentos en USA en 2026",
+        "Roth IRA explicado para hispanos que viven en Estados Unidos",
+        "Cómo subir tu credit score en USA sin endeudarte en 2026",
+        "Mejores bancos para hispanos en Estados Unidos en 2026",
+        "Cómo hacer un presupuesto familiar viviendo en USA con poco dinero",
+        "Cómo invertir en bolsa siendo inmigrante en América sin experiencia",
+        "Chime vs Bank of America: cuál es mejor para hispanos en USA",
+        "Cómo comprar casa siendo inmigrante en Estados Unidos con ITIN",
+        "Qué es el ITIN y para qué sirve en Estados Unidos en 2026",
+        "Mejores apps para ahorrar dinero en Estados Unidos este año",
+        "Cómo enviar remesas baratas desde USA a Latinoamérica en 2026",
+        "Deudas médicas en USA: derechos que tienes como hispano residente",
+        "Cómo funciona el 401k explicado en español para trabajadores en USA",
+        "Cómo salir de deudas de tarjeta de crédito en USA sin arruinarte",
     ]
 
 
@@ -523,6 +550,8 @@ Es demasiado similar a los ya publicados:
 {recent_titles}
 
 Transfórmalo usando este ángulo: {angle}
+El nuevo título debe ser una frase COMPLETA entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
+NUNCA cortes a la mitad. NUNCA uses puntos suspensivos.
 Responde SOLO con el nuevo título (1 línea)."""
     try:
         resp = openai_client.chat.completions.create(
@@ -563,7 +592,7 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 # ── GENERATE ARTICLE WITH CLAUDE ──────────────────────────────────────────────
 def generate_article(keyword: str, recent_context: str) -> dict:
     category = detect_category(keyword)
-    _check_claude_budget(output_tokens=6000)
+    _check_claude_budget(output_tokens=8000)
 
     prompt = f"""Escribe un artículo completo EN ESPAÑOL sobre finanzas personales para hispanos en USA: "{keyword}"
 
@@ -577,19 +606,24 @@ ESTE ES YMYL — sigue E-E-A-T estrictamente.
 - 4-5 H2 y FAQ con 3-4 H3.
 - Sección honesta "Cuándo esto NO funciona".
 - Todo en ESPAÑOL.
+- El H1 del artículo DEBE ser una frase completa entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres. NUNCA lo cortes a la mitad. NUNCA uses puntos suspensivos en el título.
 - Al final escribe: EXCERPT: [120 a 155 caracteres en español]"""
 
     message = claude_client.messages.create(
         model=MODEL_GENERATE,
-        max_tokens=6000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
         system=(
             f"Eres un periodista financiero senior para hispanos en USA. "
             f"Nunca inventas datos. Todas las leyes y productos son americanos. "
-            f"Títulos H1: {TITLE_SOFT_MIN}–{TITLE_SOFT_MAX} chars, límite duro {TITLE_MAX_CHARS}."
+            f"REGLA DE TÍTULOS: el H1 debe tener entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres. "
+            f"NUNCA cortes un título a la mitad. NUNCA uses puntos suspensivos en ningún título. "
+            f"El título DEBE ser siempre una oración o frase nominal COMPLETA con sentido propio. "
+            f"REGLA DE CONTENIDO: NUNCA uses '...' dentro del cuerpo del artículo para indicar que hay más texto. "
+            f"Si una sección queda incompleta, complétala o elimínala. El artículo debe terminar con una conclusión o sección final completa."
         ),
     )
-    output_tokens = message.usage.output_tokens if hasattr(message, "usage") else 6000
+    output_tokens = message.usage.output_tokens if hasattr(message, "usage") else 8000
     _register_claude_call(output_tokens)
 
     raw = message.content[0].text
@@ -610,12 +644,14 @@ def humanize(text: str) -> str:
             {"role": "system", "content": (
                 "Reescribe el artículo en español con estilo humano y natural. "
                 "NO cambies datos, cifras ni fuentes. "
-                "Mantén todos los encabezados markdown, tablas, FAQs y enlaces externos."
+                "Mantén todos los encabezados markdown, tablas, FAQs y enlaces externos. "
+                "NUNCA uses puntos suspensivos '...' en el cuerpo del artículo. "
+                "NUNCA cortes secciones a la mitad — si una sección empieza, termínala completamente."
             )},
             {"role": "user", "content": text}
         ],
         temperature=0.85,
-        max_tokens=6000,
+        max_tokens=8000,
     )
     return response.choices[0].message.content
 
@@ -649,6 +685,7 @@ def get_image_queries(title: str, excerpt: str) -> list[str]:
     prompt = (
         f"Título: {title}\nResumen: {excerpt}\n\n"
         "Dame 3 búsquedas cortas en INGLÉS (2-4 palabras) para fotos de Unsplash. "
+        "Las búsquedas deben ser MUY específicas al tema del artículo, no genéricas. "
         "Responde SOLO con las 3 búsquedas, una por línea."
     )
     try:
@@ -737,6 +774,7 @@ REGLAS:
 1. Inserta solo dentro de párrafos, nunca en encabezados.
 2. Máximo 3 enlaces. Usa solo las URLs listadas.
 3. Devuelve el ARTÍCULO COMPLETO con enlaces insertados. Sin explicaciones.
+4. NUNCA uses puntos suspensivos '...' ni cortes el contenido.
 
 ARTÍCULO:
 {content}"""
@@ -745,7 +783,7 @@ ARTÍCULO:
             model=MODEL_FAST,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=6000,
+            max_tokens=8000,
         )
         result = strip_code_fences(resp.choices[0].message.content.strip())
         if len(result) >= len(content) * 0.80:
@@ -772,7 +810,12 @@ def save_article(
     if lines and lines[0].strip().startswith("# "):
         content = "\n".join(lines[1:]).strip()
 
+    # Apply smart_trim ONLY as last-resort safety net — title should already
+    # be a complete sentence produced by the LLM within the soft limit.
     title = smart_trim(title, TITLE_MAX_CHARS)
+
+    # Fix double-escaped quotes introduced during json/string handling
+    content = fix_double_quotes(content)
 
     # Always store a clean slug as keyword — never raw SerpAPI text
     clean_keyword = slugify(clean_serp_candidate(keyword))
@@ -848,12 +891,14 @@ def process_topic(
             print("  ⚠️  Humanizado inválido — usando output original")
             humanized = raw_content
 
+        # Extract title from H1 WITHOUT truncating — smart_trim is applied at
+        # save time only, so the LLM's complete title is preserved here.
         title_preview = candidate[:100]
         for line in humanized.strip().split("\n")[:5]:
             if line.strip().startswith("# "):
                 title_preview = line.strip()[2:].strip()
                 break
-        title_preview = smart_trim(title_preview, TITLE_MAX_CHARS)
+        # Do NOT call smart_trim here — save_article will enforce TITLE_MAX_CHARS
         slug = slugify(title_preview)
 
         print("  🔍 Buscando imágenes en Unsplash...")
