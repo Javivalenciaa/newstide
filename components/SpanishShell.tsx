@@ -54,6 +54,8 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
                 <Link href="/autores/javier-valencia">Javier Valencia</Link>
                 <Link href="/contacto">Contacto</Link>
                 <Link href="/privacidad">Privacidad</Link>
+                <Link href="/aviso-legal">Aviso legal</Link>
+                <Link href="/terminos-de-uso">Términos de uso</Link>
               </div>
               <div className="footer-col">
                 <div className="footer-col-title">Feeds</div>
@@ -67,12 +69,6 @@ export default function SpanishShell({ children }: { children: React.ReactNode }
             <span>© 2026 NewsTide · Todos los derechos reservados</span>
             <span style={{ color: 'var(--faint)' }}>newstide.news</span>
           </div>
-          {/* FIX C4: Blogarama directory link removed.
-              It was a low-quality fashion blog directory link that:
-              - Leaked PageRank to an irrelevant external domain
-              - Sent contradictory niche signals (fashion vs tech/AI)
-              - Damaged E-E-A-T in Google Quality Rater evaluations
-              - Used http:// (not HTTPS) */}
         </div>
       </footer>
       <script dangerouslySetInnerHTML={{ __html: `

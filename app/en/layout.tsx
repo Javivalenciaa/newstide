@@ -19,8 +19,6 @@ export const metadata: Metadata = {
       'en-GB': 'https://www.newstide.news/en',
       'en-AU': 'https://www.newstide.news/en',
       'es': 'https://www.newstide.news',
-      // A5: x-default → homepage ES, coherente con root layout y el resto del sitio.
-      // Aunque esta es la home EN, el sitio tiene ES como idioma principal.
       'x-default': 'https://www.newstide.news',
     },
   },
@@ -143,6 +141,8 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
                 <Link href="/en/authors/javier-valencia">Javier Valencia</Link>
                 <Link href="/en/contact">Contact</Link>
                 <Link href="/en/privacy">Privacy</Link>
+                <Link href="/en/legal-notice">Legal Notice</Link>
+                <Link href="/en/terms-of-use">Terms of Use</Link>
               </div>
               <div className="footer-col">
                 <div className="footer-col-title">Feeds</div>
