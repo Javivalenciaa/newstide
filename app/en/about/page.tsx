@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   },
 }
 
-// ── Structured Data ──────────────────────────────────────────────────────────
 const orgSchema = {
   '@context': 'https://schema.org',
   '@type': ['NewsMediaOrganization', 'Organization'],
@@ -43,7 +42,6 @@ const orgSchema = {
   ethicsPolicy: 'https://www.newstide.news/en/editorial-policy',
   correctionsPolicy: 'https://www.newstide.news/en/editorial-policy#corrections',
   verificationFactCheckingPolicy: 'https://www.newstide.news/en/editorial-policy#verification',
-  diversityPolicy: 'https://www.newstide.news/en/editorial-policy#diversity',
   sameAs: [
     'https://twitter.com/newstide',
     'https://www.linkedin.com/company/newstide',
@@ -70,6 +68,22 @@ const orgSchema = {
     '@id': 'https://www.newstide.news/en/authors/javier-valencia',
     name: 'Javier Valencia',
     url: 'https://www.newstide.news/en/authors/javier-valencia',
+    jobTitle: 'Founder & Editor',
+    description:
+      'Computer Science and Business Administration student with hands-on experience in software development, digital twins, AI-powered systems, and innovation programs at IBM and Techstars.',
+    alumniOf: [
+      { '@type': 'Organization', name: 'IBM' },
+      { '@type': 'Organization', name: 'Techstars' },
+    ],
+    knowsAbout: [
+      'Artificial Intelligence',
+      'Software Development',
+      'Next.js',
+      'Python',
+      'Supabase',
+      'Digital Twins',
+      'Startups',
+    ],
   },
 }
 
@@ -108,7 +122,6 @@ export default function AboutEN() {
 
         <div style={{ fontSize: 16, lineHeight: 1.85, color: 'rgba(240,240,238,0.85)' }}>
 
-          {/* ── What is NewsTide ── */}
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>What is NewsTide?</h2>
           <p>
             NewsTide is a digital publication specialising in artificial intelligence, developer tools,
@@ -118,7 +131,21 @@ export default function AboutEN() {
             intelligence of our audience — no fluff, no filler.
           </p>
 
-          {/* ── How we create content ── */}
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>The team</h2>
+          <p>
+            NewsTide was founded by{' '}
+            <Link href="/en/authors/javier-valencia" style={{ color: 'var(--cyan)' }}>Javier Valencia</Link>,
+            a student of Computer Science and Business Administration. Javier has hands-on experience as a
+            freelance web and software developer, has participated in startup and innovation programs run by
+            <strong> IBM</strong> and <strong>Techstars</strong>, and has competed in programming and
+            business innovation contests. His technical work spans digital twin development, AI-powered
+            automation systems, and self-built web platforms — including NewsTide itself.
+          </p>
+          <p style={{ marginTop: 16 }}>
+            Javier oversees editorial direction, technical infrastructure and quality control on every
+            article published on the platform.
+          </p>
+
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>How we create our content</h2>
           <p>
             NewsTide uses AI language models to assist in the drafting, structuring and translation
@@ -147,12 +174,12 @@ export default function AboutEN() {
           </p>
           <p style={{ marginTop: 16 }}>
             Our AI-assisted workflow is transparent by design: every article displays the date
-            it was published and last modified, and links to the primary sources used. When a
-            human editor adds significant context or corrects a claim, that change is logged
-            and visible in the article footer.
+            it was published and last modified, and links to the primary sources used. If you
+            find an error, email us at{' '}
+            <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>{' '}
+            — we commit to reviewing and correcting inaccuracies within 48 hours.
           </p>
 
-          {/* ── Our editorial pillars ── */}
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>Our editorial pillars</h2>
           <ul style={{ margin: '0 0 20px 24px' }}>
             <li style={{ marginBottom: 10 }}>
@@ -173,27 +200,12 @@ export default function AboutEN() {
             </li>
           </ul>
 
-          {/* ── Editorial transparency ── */}
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>Editorial transparency</h2>
           <p>
             We believe in radical transparency about how this publication operates. NewsTide
             clearly labels AI-assisted content, links directly to primary sources, and maintains
-            a public corrections policy. If you find an error, email us at{' '}
-            <a href="mailto:newstideco@gmail.com" style={{ color: 'var(--cyan)' }}>newstideco@gmail.com</a>{' '}
-            — we commit to reviewing and correcting inaccuracies within 48 hours. Our full
-            standards are detailed in our{' '}
+            a public corrections policy. Our full standards are detailed in our{' '}
             <Link href="/en/editorial-policy" style={{ color: 'var(--cyan)' }}>Editorial Policy</Link>.
-          </p>
-
-          {/* ── Team ── */}
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 16, marginTop: 40 }}>Team</h2>
-          <p>
-            NewsTide was founded by{' '}
-            <Link href="/en/authors/javier-valencia" style={{ color: 'var(--cyan)' }}>Javier Valencia</Link>,
-            a software engineer and Computer Science student with hands-on experience in
-            full-stack development (Next.js, Python, Supabase), digital twin simulation and
-            AI-powered content systems. Javier oversees editorial direction, technical
-            infrastructure and quality control on every published article.
           </p>
 
           <div style={{ marginTop: 48, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
