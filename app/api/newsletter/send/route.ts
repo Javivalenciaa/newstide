@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 // Called every Friday at 09:00 UTC by Vercel Cron (see vercel.json)
-// Also callable manually: GET /api/newsletter/send?secret=CRON_SECRET
+// Also callable manually: GET /api/newsletter/send
+// Vercel Cron authenticates via Authorization: Bearer <CRON_SECRET> header automatically
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
@@ -64,7 +65,7 @@ function buildEmailHtml(articles: Article[]): string {
         <tr>
           <td style="background:#0a0a0f;border-radius:0 0 14px 14px;padding:24px 40px;border-top:1px solid #1a2a2a;">
             <p style="margin:0 0 8px;font-size:12px;color:#555;line-height:1.6;">
-              You’re receiving this because you subscribed at
+              You're receiving this because you subscribed at
               <a href="https://www.newstide.news" style="color:#6ecfca;text-decoration:none;">newstide.news</a>.
             </p>
             <p style="margin:0;font-size:12px;color:#555;">
@@ -90,11 +91,17 @@ interface Article {
 }
 
 export async function GET(req: NextRequest) {
-  // Protect manual calls with a secret
-  const secret = req.nextUrl.searchParams.get('secret')
+  // Vercel Cron sends Authorization: Bearer <CRON_SECRET> automatically
+  // Manual calls also accepted if the header matches, or if CRON_SECRET is not set (dev)
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && secret !== cronSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (cronSecret) {
+    const authHeader = req.headers.get('authorization')
+    const expectedHeader = `Bearer ${cronSecret}`
+    // Also allow legacy ?secret= query param for manual testing
+    const querySecret = req.nextUrl.searchParams.get('secret')
+    if (authHeader !== expectedHeader && querySecret !== cronSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
   }
 
   const supabase = createClient(
@@ -106,11 +113,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'RESEND_API_KEY not set' }, { status: 500 })
   }
 
-  // 1. Get active subscribers
+  // 1. Get all subscribers (table has: id, email, created_at, confirmed)
   const { data: subscribers, error: subErr } = await supabase
     .from('newsletter_subscribers')
     .select('email')
-    .eq('active', true)
 
   if (subErr) {
     console.error('[newsletter/send] subscribers error:', subErr.message)
@@ -141,12 +147,11 @@ export async function GET(req: NextRequest) {
   const html = buildEmailHtml(articles as Article[])
   const subject = `NewsTide Weekly — ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
 
-  // 3. Send to all subscribers via Resend batch
+  // 3. Send to all subscribers via Resend in batches of 50
   let sent = 0
   let failed = 0
-
-  // Send in batches of 50 to avoid rate limits
   const BATCH = 50
+
   for (let i = 0; i < subscribers.length; i += BATCH) {
     const batch = subscribers.slice(i, i + BATCH)
     await Promise.all(
