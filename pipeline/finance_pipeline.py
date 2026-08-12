@@ -118,6 +118,9 @@ INDEXNOW_KEY     = "964bf589528b466cace60749e05cfcb6"
 INDEXNOW_HOST    = "www.newstide.news"
 INDEXNOW_KEY_LOC = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
 
+# ── Finance articles are served at /es/fin/<slug> ─────────────────────────────
+FINANCE_URL_PREFIX = f"https://{INDEXNOW_HOST}/es/fin"
+
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
 claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -761,8 +764,9 @@ def inject_internal_links(content: str, category: str, slug: str) -> str:
     related = fetch_related_articles(category, slug, limit=12)
     if not related:
         return content
+    # FIX: finance articles are served at /es/fin/<slug>, not /en/fin/<slug>
     candidates_str = "\n".join(
-        f'- Título: "{r["title"]}" | URL: https://www.newstide.news/en/fin/{r["slug"]}'
+        f'- Título: "{r["title"]}" | URL: {FINANCE_URL_PREFIX}/{r["slug"]}'
         for r in related
     )
     prompt = f"""Añade 2-3 enlaces internos naturales al artículo.
@@ -825,15 +829,14 @@ def save_article(
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     content_final = content + EDITORIAL_NOTE_ES + FINANCE_DISCLAIMER_ES
 
+    # FIX: finance_articles table uses title/slug/content/excerpt (no _en columns).
+    # Removed title_en, slug_en, content_en, excerpt_en — those columns do not
+    # exist in finance_articles and were causing Supabase insert errors.
     data = {
         "title":           title,
         "slug":            slug,
         "content":         content_final,
         "excerpt":         excerpt,
-        "title_en":        title,
-        "slug_en":         slug,
-        "content_en":      content_final,
-        "excerpt_en":      excerpt,
         "category":        category,
         "author":          AUTHOR,
         "keyword":         clean_keyword,
@@ -847,7 +850,8 @@ def save_article(
     try:
         supabase_client.table("finance_articles").insert(data).execute()
         print(f"  ✅ Guardado: {title[:70]}")
-        ping_indexnow([f"https://www.newstide.news/en/fin/{slug}"])
+        # FIX: ping correct /es/fin/ URL
+        ping_indexnow([f"{FINANCE_URL_PREFIX}/{slug}"])
         return title
     except Exception as e:
         print(f"  ❌ Error guardando: {e}")
