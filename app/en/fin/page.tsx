@@ -68,6 +68,7 @@ export default async function FinanceHomePage() {
   const { data: articles } = await supabase
     .from('finance_articles')
     .select('id,title,title_en,slug_en,excerpt,excerpt_en,category,author,published_at,reading_time,featured,cover_image_url')
+    .not('slug_en', 'is', null)
     .order('published_at', { ascending: false })
     .limit(7)
 
