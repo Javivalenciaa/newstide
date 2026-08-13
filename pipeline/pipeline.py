@@ -2,6 +2,7 @@ import os
 import hashlib
 import re
 import time
+import unicodedata
 import requests
 from datetime import datetime, timezone, timedelta
 from serpapi import GoogleSearch
@@ -20,10 +21,9 @@ UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 # ── NICHE DEFINITION ──────────────────────────────────────────────────────────
 # TARGET: English-speaking solopreneurs, indie hackers, and first-time founders
 # who build and ship products alone or in micro-teams (1-3 people).
-# LANGUAGE: English only (broader search market, less competition than Spanish tech).
-# CONTENT STRATEGY: actionable "how to build/launch/grow X" + tool comparisons +
-#   real stack decisions. Search intent = transactional / informational with high CTR.
-# URL PATTERN: newstide.news/en/article/[slug]
+# LANGUAGE: Articles generated in English (title_en/slug_en/content_en/excerpt_en),
+#   then translated to Spanish for the primary fields (title/slug/content/excerpt).
+# URL PATTERN: newstide.news/en/article/[slug_en]
 
 NICHE_LABEL  = "solopreneur / indie hacker"
 SITE_LANG    = "en"
@@ -120,12 +120,19 @@ GRADIENTS = [
     "linear-gradient(135deg,#0d1a2e,#2e2a0d)",
 ]
 
-# ── EDITORIAL NOTE (EEAT transparency) ────────────────────────────────────────
+# ── EDITORIAL NOTES (EEAT transparency) ───────────────────────────────────────
 EDITORIAL_NOTE = """
 
 ---
 
 *Editorial note: This article was produced with AI assistance and reviewed by Javier Valencia. Verified facts are distinguished from editorial opinion throughout the text. External sources linked are independent of NewsTide.*
+"""
+
+EDITORIAL_NOTE_ES = """
+
+---
+
+*Nota editorial: Este artículo fue elaborado con asistencia de IA y revisado por Javier Valencia. A lo largo del texto se distinguen los hechos verificados de la opinión editorial. Las fuentes externas enlazadas son independientes de NewsTide.*
 """
 
 # ── INDEXNOW ──────────────────────────────────────────────────────────────────
@@ -185,6 +192,17 @@ def slugify(text: str) -> str:
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
     return text[:60].strip("-")
+
+
+def slugify_es(text: str) -> str:
+    """Generate a clean URL slug from a Spanish title (strips accents)."""
+    text = smart_trim(text, 70).lower()
+    # Normalize unicode: decompose accented chars, then drop combining marks
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"[\s]+", "-", text.strip())
+    return text[:70].strip("-")
 
 
 def md5(text: str) -> str:
@@ -256,6 +274,126 @@ def _register_claude_call(output_tokens: int) -> None:
         f"  📊 Claude usage: {_claude_calls_this_run}/{MAX_CLAUDE_CALLS_PER_RUN} calls, "
         f"{_claude_tokens_this_run:,}/{MAX_CLAUDE_TOKENS_PER_RUN:,} tokens"
     )
+
+
+# ── SPANISH TRANSLATION ───────────────────────────────────────────────────────
+def translate_title_to_spanish(title_en: str) -> str:
+    """Translate an English article title to Spanish (SEO-friendly, ≤70 chars)."""
+    prompt = (
+        f'Translate this article title to Spanish. '
+        f'Keep it SEO-friendly, natural, and under 70 characters. '
+        f'Keep proper nouns, brand names, and technical terms (Next.js, Supabase, etc.) unchanged. '
+        f'Reply ONLY with the translated title, nothing else.\n\nTitle: {title_en}'
+    )
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=80,
+        )
+        translated = resp.choices[0].message.content.strip().strip('"').strip("'")
+        print(f"  🇪🇸 Title ES: {translated[:70]}")
+        return translated if len(translated) > 5 else title_en
+    except Exception as e:
+        print(f"  ⚠️  Title translation failed: {e} — using EN title as fallback")
+        return title_en
+
+
+def translate_excerpt_to_spanish(excerpt_en: str) -> str:
+    """Translate an English excerpt/meta description to Spanish (120–160 chars)."""
+    prompt = (
+        f'Translate this meta description to Spanish. '
+        f'Keep it between 120 and 160 characters. Natural, informative tone. '
+        f'Keep brand names and technical terms unchanged. '
+        f'Reply ONLY with the translated text.\n\nExcerpt: {excerpt_en}'
+    )
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200,
+        )
+        translated = resp.choices[0].message.content.strip().strip('"').strip("'")
+        print(f"  🇪🇸 Excerpt ES ({len(translated)} chars): {translated[:60]}...")
+        return normalize_excerpt(translated, 120, 160) if len(translated) > 10 else excerpt_en
+    except Exception as e:
+        print(f"  ⚠️  Excerpt translation failed: {e} — using EN excerpt as fallback")
+        return excerpt_en
+
+
+def translate_content_to_spanish(content_en: str) -> str:
+    """Translate full markdown article content from English to Spanish.
+
+    Uses chunked GPT calls for long articles to stay within token limits.
+    Markdown structure (headings, links, code blocks) is preserved.
+    """
+    MAX_CHUNK_CHARS = 12_000  # safe limit per GPT call
+
+    system_prompt = (
+        "You are a professional technical translator specialising in software and entrepreneurship content. "
+        "Translate the following markdown article from English to Spanish. "
+        "Rules:\n"
+        "- Preserve ALL markdown formatting: headings (#, ##, ###), bold, italic, lists, code blocks, tables.\n"
+        "- Keep ALL URLs, links, image syntax, and code snippets exactly as they are — do NOT translate them.\n"
+        "- Keep brand names, product names, and technical terms (Next.js, Supabase, Vercel, etc.) in English.\n"
+        "- Use natural, fluent Spanish — not a literal word-for-word translation.\n"
+        "- Do NOT add explanations or comments. Return ONLY the translated markdown."
+    )
+
+    if len(content_en) <= MAX_CHUNK_CHARS:
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_FAST,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content_en},
+                ],
+                temperature=0.2,
+                max_tokens=6000,
+            )
+            translated = resp.choices[0].message.content.strip()
+            print(f"  🇪🇸 Content translated ({len(translated)} chars)")
+            return translated if len(translated) > 200 else content_en
+        except Exception as e:
+            print(f"  ⚠️  Content translation failed: {e} — using EN content as fallback")
+            return content_en
+
+    # Chunk by double-newline paragraphs to keep context intact
+    paragraphs = content_en.split("\n\n")
+    chunks: list[str] = []
+    current = ""
+    for p in paragraphs:
+        if len(current) + len(p) + 2 > MAX_CHUNK_CHARS:
+            if current:
+                chunks.append(current.strip())
+            current = p
+        else:
+            current = (current + "\n\n" + p) if current else p
+    if current:
+        chunks.append(current.strip())
+
+    translated_parts = []
+    for i, chunk in enumerate(chunks):
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_FAST,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": chunk},
+                ],
+                temperature=0.2,
+                max_tokens=6000,
+            )
+            translated_parts.append(resp.choices[0].message.content.strip())
+            print(f"  🇪🇸 Chunk {i+1}/{len(chunks)} translated")
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"  ⚠️  Chunk {i+1} translation failed: {e} — using EN chunk")
+            translated_parts.append(chunk)
+
+    return "\n\n".join(translated_parts)
 
 
 # ── CONTENT VALIDATION ────────────────────────────────────────────────────────
@@ -949,8 +1087,6 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
     # ── CHECK A: first-person unverified phrases ───────────────────────────
     # FIRST_PARTY_VERIFIED is a module-level constant (True) because the
     # editorial note explicitly attributes content to Javier Valencia.
-    # This replaces the old data.get("first_party_verified") lookup which
-    # required a column that does not exist in the Supabase articles schema.
     if not FIRST_PARTY_VERIFIED:
         matches = _FIRST_PERSON_RE.findall(content)
         if matches:
@@ -962,22 +1098,19 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
             escalate("needs_review")
 
     # ── CHECK B: ES/EN duplicate content ──────────────────────────────────
-    # NOTE: This pipeline is English-only — content and content_en are the same
-    # field by design (no Spanish translation). We flag as needs_review (not
-    # blocked) so articles still publish; a bilingual pipeline would use blocked.
+    # Now that this is a bilingual pipeline (ES primary + EN secondary), if
+    # content == content_en it means the Spanish translation was not applied.
+    # Flag as needs_review so the article still publishes but the issue is visible.
     if content_en and content:
         sim = _jaccard(_trigrams(content), _trigrams(content_en))
         if sim >= GUARDRAIL_DUPLICATE_THRESHOLD:
             flags.append(
-                f"[B] EN-only pipeline: content/content_en are identical ({sim*100:.1f}%). "
-                f"This is expected for this niche — flagged for review only."
+                f"[B] Spanish translation may be missing: content ≈ content_en ({sim*100:.1f}% similarity). "
+                f"Check translate_to_spanish() output for this article."
             )
-            escalate("needs_review")  # changed from "blocked" — EN-only pipeline
+            escalate("needs_review")
 
     # ── CHECK C: keyword must be a search-intent slug ─────────────────────
-    # FIX 3: After replacing keyword with slug, recalculate keyword_hash so
-    # Supabase stores the slug hash. This ensures already_published_hash()
-    # finds duplicates correctly on the next run.
     kw_norm    = keyword.lower().strip()
     title_norm = title.lower().strip()
     word_count = len(keyword.split())
@@ -989,12 +1122,10 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
             f"Auto-replaced with search-intent slug: '{suggested}'."
         )
         data["keyword"]      = suggested
-        data["keyword_hash"] = md5(suggested)  # FIX 3: keep hash in sync with slug
+        data["keyword_hash"] = md5(suggested)  # keep hash in sync with slug
         escalate("needs_review")
 
     # ── CHECK D: pricing without verification timestamp ────────────────────
-    # pricing_verified_at does not exist in the articles schema — prices found
-    # in content are logged as a flag for manual review but not persisted to DB.
     if _PRICING_RE.search(content):
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         flags.append(
@@ -1014,11 +1145,11 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
         )
         recent_rows = res.data or []
         if len(recent_rows) >= 3:
-            candidate_headings = " ".join(_extract_headings(content))
+            candidate_headings = " ".join(_extract_headings(content_en or content))
             if candidate_headings:
                 match_count = 0
                 for row in recent_rows:
-                    existing = " ".join(_extract_headings(row.get("content") or row.get("content_en") or ""))
+                    existing = " ".join(_extract_headings(row.get("content_en") or row.get("content") or ""))
                     if existing and _jaccard(_trigrams(candidate_headings), _trigrams(existing)) >= GUARDRAIL_STRUCTURE_THRESHOLD:
                         match_count += 1
                 fraction = match_count / len(recent_rows)
@@ -1061,27 +1192,35 @@ def save_article(
     if lines and lines[0].strip().startswith("# "):
         content = "\n".join(lines[1:]).strip()
 
-    title   = smart_trim(title, TITLE_MAX_CHARS)
-    excerpt = normalize_excerpt(excerpt or title[:150], 120, 155)
+    title_en   = smart_trim(title, TITLE_MAX_CHARS)
+    excerpt_en = normalize_excerpt(excerpt or title[:150], 120, 155)
     rt = reading_time(content)
     if rt < MIN_READING_TIME:
         rt = MIN_READING_TIME
 
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    content_final = content + EDITORIAL_NOTE
+    now_iso        = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    content_en_final = content + EDITORIAL_NOTE
+
+    # ── SPANISH TRANSLATION ───────────────────────────────────────────────
+    print("  🌐 Translating to Spanish...")
+    title_es   = translate_title_to_spanish(title_en)
+    excerpt_es = translate_excerpt_to_spanish(excerpt_en)
+    content_es = translate_content_to_spanish(content)
+    content_es_final = content_es + EDITORIAL_NOTE_ES
+    slug_es    = slugify_es(title_es)
 
     data = {
-        "title":           title,
-        "slug":            slug,
-        "content":         content_final,
-        "excerpt":         excerpt,
-        # EN-only pipeline: title_en/slug_en/content_en mirror the primary fields.
-        # first_party attribution is handled via EDITORIAL_NOTE and the module-level
-        # FIRST_PARTY_VERIFIED constant — not persisted as a DB column.
-        "title_en":        title,
-        "slug_en":         slug,
-        "content_en":      content_final,
-        "excerpt_en":      excerpt,
+        # ── Spanish primary fields ────────────────────────────────────────
+        "title":      title_es,
+        "slug":       slug_es,
+        "content":    content_es_final,
+        "excerpt":    excerpt_es,
+        # ── English secondary fields ──────────────────────────────────────
+        "title_en":   title_en,
+        "slug_en":    slug,
+        "content_en": content_en_final,
+        "excerpt_en": excerpt_en,
+        # ── Shared fields ─────────────────────────────────────────────────
         "category":        category,
         "author":          AUTHOR,
         "keyword":         keyword,
@@ -1097,19 +1236,19 @@ def save_article(
     guardrail_status, guardrail_flags, data = run_content_guardrails(data)
 
     if guardrail_status == "blocked":
-        print(f"  🚫 INSERT BLOCKED by guardrails — article NOT saved: {title[:60]}")
+        print(f"  🚫 INSERT BLOCKED by guardrails — article NOT saved: {title_en[:60]}")
         print(f"     Fix required: {guardrail_flags[0] if guardrail_flags else 'see flags above'}")
         return None
-
-    # If needs_review, guardrail_status is logged but no extra column is inserted.
-    # Review articles via the guardrail flags printed above.
 
     try:
         supabase_client.table("articles").insert(data).execute()
         status_emoji = "⚠️ " if guardrail_status == "needs_review" else "✅"
-        print(f"  {status_emoji} Saved{' (needs_review flagged in logs)' if guardrail_status == 'needs_review' else ''}: {title[:70]}")
+        print(
+            f"  {status_emoji} Saved{' (needs_review flagged in logs)' if guardrail_status == 'needs_review' else ''}: "
+            f"EN='{title_en[:50]}' | ES='{title_es[:50]}'"
+        )
         ping_indexnow([f"https://www.newstide.news/en/article/{slug}"])
-        return title
+        return title_en
     except Exception as e:
         print(f"  ❌ Error saving: {e}")
         return None
