@@ -18,6 +18,10 @@ SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 
+# GSC — optional. Set GOOGLE_ACCESS_TOKEN or GOOGLE_APPLICATION_CREDENTIALS.
+# If absent, fetch_gsc_queries() returns [] and the pipeline continues normally.
+GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:newstide.news")
+
 # ── NICHE DEFINITION ──────────────────────────────────────────────────────────
 # TARGET: English-speaking solopreneurs, indie hackers, and first-time founders
 # who build and ship products alone or in micro-teams (1-3 people).
@@ -574,6 +578,125 @@ def fetch_serpapi_how_to() -> list[str]:
     return results
 
 
+# ── GSC QUICK-WINS SOURCE ─────────────────────────────────────────────────────
+# Fetches search queries from Google Search Console where:
+#   - Page path starts with /en/article/ (solopreneur/EN niche)
+#   - Position between 4 and 20 (ranking but not top 3)
+#   - Impressions >= 30 (real search volume signal)
+# These are "quick-win" queries: Google already shows the site for them,
+# meaning a dedicated article has a high chance of breaking into top 3.
+#
+# Requires ONE of:
+#   GOOGLE_ACCESS_TOKEN           — OAuth2 bearer token (webmasters.readonly scope)
+#   GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON with GSC access
+#
+# If neither is set, returns [] silently — pipeline continues without GSC data.
+def fetch_gsc_queries(
+    site_url: str = GSC_SITE_URL,
+    min_position: float = 4.0,
+    max_position: float = 20.0,
+    min_impressions: int = 30,
+    days: int = 28,
+) -> list[str]:
+    token = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
+    creds_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+
+    if not token and not creds_file:
+        print("  ℹ️  GSC: no credentials set — skipping GSC source")
+        return []
+
+    try:
+        # Resolve bearer token from service account if needed
+        if not token and creds_file:
+            import json
+            import urllib.parse
+            with open(creds_file) as f:
+                sa = json.load(f)
+            # Build JWT for service account OAuth2 flow
+            import base64
+            import struct
+
+            def _b64(data: bytes) -> str:
+                return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+            now = int(time.time())
+            header  = _b64(b'{"alg":"RS256","typ":"JWT"}')
+            payload = _b64(json.dumps({
+                "iss": sa["client_email"],
+                "scope": "https://www.googleapis.com/auth/webmasters.readonly",
+                "aud": "https://oauth2.googleapis.com/token",
+                "exp": now + 3600,
+                "iat": now,
+            }).encode())
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import padding
+            private_key = serialization.load_pem_private_key(
+                sa["private_key"].encode(), password=None
+            )
+            sig = _b64(private_key.sign(f"{header}.{payload}".encode(), padding.PKCS1v15(), hashes.SHA256()))
+            jwt_token = f"{header}.{payload}.{sig}"
+            token_resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data=urllib.parse.urlencode({
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": jwt_token,
+                }),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+            token = token_resp.json().get("access_token", "")
+            if not token:
+                print(f"  ⚠️  GSC: could not obtain access token from service account — skipping")
+                return []
+
+        end_date   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        encoded_site = requests.utils.quote(site_url, safe="")
+        url = f"https://searchconsole.googleapis.com/webmasters/v3/sites/{encoded_site}/searchAnalytics/query"
+
+        payload = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": ["query", "page"],
+            "dimensionFilterGroups": [{
+                "filters": [{
+                    "dimension": "page",
+                    "operator": "contains",
+                    "expression": "/en/article/",
+                }]
+            }],
+            "rowLimit": 100,
+            "startRow": 0,
+        }
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json().get("rows", [])
+
+        quick_wins = [
+            row["keys"][0]          # query string
+            for row in rows
+            if (
+                row.get("impressions", 0) >= min_impressions
+                and min_position <= row.get("position", 99) <= max_position
+                and len(row["keys"][0]) > 15
+            )
+        ]
+        print(f"  ✅ GSC contributed {len(quick_wins)} quick-win queries (pos {min_position}–{max_position}, ≥{min_impressions} impr.)")
+        return quick_wins
+
+    except Exception as e:
+        print(f"  ⚠️  GSC fetch failed (non-critical): {e}")
+        return []
+
+
 # ── GPT NICHE TOPIC GENERATOR ─────────────────────────────────────────────────
 def generate_niche_topics(recent_articles: list[dict], n: int = 18) -> list[str]:
     recent_titles = "\n".join(
@@ -747,6 +870,9 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 
     print("  🧠 Source 4: Niche ideas from GPT...")
     pool.extend(generate_niche_topics(recent_articles, n=18))
+
+    print("  📊 Source 5: GSC quick-wins (positions 4–20 in /en/article/)...")
+    pool.extend(fetch_gsc_queries())
 
     pool.extend(get_fallback_topics())
 
