@@ -11,21 +11,16 @@ jobs:
 
     steps:
       - name: Submit static URLs to IndexNow
-        env:
-          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, urllib.request, sys
+          import json, urllib.request, sys
 
-          key = os.environ["INDEXNOW_KEY"]
-          if not key:
-              print("ERROR: INDEXNOW_KEY secret is empty or not set")
-              sys.exit(1)
+          KEY = "964bf589528b466cace60749e05cfcb6"
 
           payload = {
               "host": "www.newstide.news",
-              "key": key,
-              "keyLocation": f"https://www.newstide.news/{key}.txt",
+              "key": KEY,
+              "keyLocation": f"https://www.newstide.news/{KEY}.txt",
               "urlList": [
                   "https://www.newstide.news/llms.txt",
                   "https://www.newstide.news/llms-full.txt",
@@ -48,7 +43,7 @@ jobs:
           }
 
           body = json.dumps(payload).encode("utf-8")
-          req  = urllib.request.Request(
+          req = urllib.request.Request(
               "https://api.indexnow.org/IndexNow",
               data=body,
               headers={"Content-Type": "application/json; charset=utf-8"},
@@ -62,12 +57,11 @@ jobs:
               status = e.code
               body_resp = e.read().decode()
 
-          print(f"IndexNow HTTP status: {status}")
-          print(f"IndexNow body: {body_resp}")
-
+          print(f"IndexNow HTTP: {status}")
+          print(f"Body: {body_resp}")
           if status in (200, 202):
-              print(f"✅ IndexNow: {len(payload['urlList'])} URLs submitted (HTTP {status})")
+              print(f"✅ {len(payload['urlList'])} URLs enviadas OK")
           else:
-              print(f"⚠️ IndexNow returned HTTP {status}")
+              print("❌ Fallo")
               sys.exit(1)
           PYEOF
