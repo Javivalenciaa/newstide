@@ -29,6 +29,14 @@ const CAT_SECTION: Record<string, string> = {
   'Herramientas': 'Herramientas y Tecnología', 'Tutoriales': 'Tutoriales', 'Noticias': 'Noticias',
 }
 
+const CAT_KEYWORDS: Record<string, string[]> = {
+  'IA': ['inteligencia artificial', 'machine learning', 'LLM', 'modelos de lenguaje', 'IA generativa'],
+  'Startups': ['startups', 'financiación', 'venture capital', 'emprendimiento', 'tecnología'],
+  'Herramientas': ['herramientas tech', 'software para developers', 'productividad', 'automatización'],
+  'Tutoriales': ['tutorial', 'guía técnica', 'cómo hacer', 'desarrollo web', 'programación'],
+  'Noticias': ['noticias tecnología', 'tech news', 'actualidad digital', 'innovación'],
+}
+
 const AUTHOR_SLUG = 'javier-valencia'
 
 function Badge({ cat }: { cat: string }) {
@@ -92,6 +100,29 @@ function extractFAQs(content: string): Array<{ question: string; answer: string 
   return faqs
 }
 
+// Extract first plain-text paragraph for SpeakableSpecification and articleBody preview
+function extractFirstParagraph(content: string): string {
+  const lines = content.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // Skip headings, images, blank lines, horizontal rules
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') || trimmed.startsWith('---') || trimmed.startsWith('|')) continue
+    // Remove markdown bold/italic/links for clean plain text
+    const plain = trimmed
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+    if (plain.length > 40) return plain.substring(0, 500)
+  }
+  return ''
+}
+
+// Count words for wordCount schema property
+function countWords(content: string): number {
+  return content.trim().split(/\s+/).filter(Boolean).length
+}
+
 export async function generateStaticParams() {
   const { data } = await supabase.from('articles').select('slug')
   return (data || []).map((a) => ({ slug: a.slug }))
@@ -103,7 +134,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data: article } = await supabase
     .from('articles')
-    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url')
+    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url, keyword')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -123,9 +154,15 @@ export async function generateMetadata(
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: article.title }]
     : [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide' }]
 
+  // Build keyword list: category defaults + article keyword
+  const catKws = CAT_KEYWORDS[article.category] || []
+  const articleKw = article.keyword ? [article.keyword] : []
+  const keywordsStr = [...new Set([...articleKw, ...catKws])].join(', ')
+
   return {
     title,
     description,
+    keywords: keywordsStr,
     alternates: {
       canonical: url,
       languages: {
@@ -199,7 +236,12 @@ export default async function ArticuloPage({
     .order('published_at', { ascending: false })
     .limit(5)
 
-  const faqs = extractFAQs(article.content || '')
+  const faqs        = extractFAQs(article.content || '')
+  const firstPara   = extractFirstParagraph(article.content || '')
+  const wordCount   = countWords(article.content || '')
+  const catKws      = CAT_KEYWORDS[article.category] || []
+  const articleKw   = article.keyword ? [article.keyword] : []
+  const keywords    = [...new Set([...articleKw, ...catKws])]
 
   const articleSchema = {
     '@context': 'https://schema.org',
@@ -212,9 +254,26 @@ export default async function ArticuloPage({
     inLanguage: 'es',
     isAccessibleForFree: true,
     articleSection: CAT_SECTION[article.category] || article.category,
-    speakable: { '@type': 'SpeakableSpecification', cssSelector: ['.article-main-title', '.article-byline'] },
+    wordCount,
+    keywords: keywords.join(', '),
+    // SpeakableSpecification: 4 selectors so LLMs/voice assistants can extract
+    // the most citable parts — title, byline, first paragraph, and the full article body
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: [
+        '.article-main-title',
+        '.article-byline',
+        '.article-first-paragraph',
+        '.article-body',
+      ],
+    },
+    // articleBody preview: first paragraph as plain text for direct LLM extraction
+    ...(firstPara ? { articleBody: firstPara } : {}),
+    // about: semantic topic linking for LLM context graphs
+    about: keywords.map((kw) => ({ '@type': 'Thing', name: kw })),
     author: {
       '@type': 'Person',
+      '@id': `https://www.newstide.news/autores/${AUTHOR_SLUG}`,
       name: 'Javier Valencia',
       url: authorPageUrl,
       jobTitle: 'Fundador y Editor en Jefe',
@@ -226,6 +285,14 @@ export default async function ArticuloPage({
       : { '@type': 'ImageObject', url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630 },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
     isPartOf: { '@id': 'https://www.newstide.news/#website' },
+    // Mention linked articles as cited entities — helps LLMs build topic graphs
+    ...(relatedSmart.length > 0 ? {
+      citation: relatedSmart.map((r) => ({
+        '@type': 'Article',
+        headline: r.title,
+        url: `https://www.newstide.news/articulo/${r.slug}`,
+      }))
+    } : {}),
   }
 
   const breadcrumbSchema = {
@@ -234,7 +301,7 @@ export default async function ArticuloPage({
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Inicio', item: 'https://www.newstide.news' },
       { '@type': 'ListItem', position: 2, name: article.category, item: `https://www.newstide.news/articulos/${catSlug}` },
-      { '@type': 'ListItem', position: 3, name: article.title },
+      { '@type': 'ListItem', position: 3, name: article.title, item: url },
     ],
   }
 
@@ -247,6 +314,9 @@ export default async function ArticuloPage({
       acceptedAnswer: { '@type': 'Answer', text: answer },
     })),
   } : null
+
+  // Track paragraph index to mark only the first real <p> with the speakable class
+  let firstParaRendered = false
 
   return (
     <div className="article-page">
@@ -292,7 +362,8 @@ export default async function ArticuloPage({
 
       <div className="container">
         <div className="article-body-grid">
-          <article lang="es">
+          {/* article-body class enables the SpeakableSpecification cssSelector for LLMs */}
+          <article lang="es" className="article-body">
             {/* Cover image: next/image with priority prevents LCP delay and reserves
                 exact dimensions to eliminate CLS (no layout shift on load). */}
             {article.cover_image_url && (
@@ -312,13 +383,27 @@ export default async function ArticuloPage({
               components={{
                 h2: ({ children }) => (<h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.03em', margin: '40px 0 16px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>{children}</h2>),
                 h3: ({ children }) => (<h3 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '28px 0 12px', color: 'var(--text)' }}>{children}</h3>),
-                p: ({ children }) => (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>),
+                p: ({ children }) => {
+                  // Mark the very first rendered paragraph as article-first-paragraph
+                  // so SpeakableSpecification and LLM crawlers can extract the lede directly
+                  if (!firstParaRendered) {
+                    firstParaRendered = true
+                    return (
+                      <p
+                        className="article-first-paragraph"
+                        style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}
+                      >
+                        {children}
+                      </p>
+                    )
+                  }
+                  return (<p style={{ fontSize: 17, lineHeight: 1.8, color: 'rgba(240,240,238,0.85)', marginBottom: 20 }}>{children}</p>)
+                },
                 img: ({ src, alt }) => {
                   if (!src) return null
                   const srcString = String(src)
                   const cleanAlt = (alt && alt.length > 10 && !alt.startsWith('a ') && !alt.startsWith('an '))
                     ? alt : `${article.title} — NewsTide`
-                  // Inline images inside Markdown: lazy-loaded, explicit dimensions to avoid CLS
                   return (
                     <span style={{ display: 'block', margin: '32px 0', position: 'relative', width: '100%', aspectRatio: '16/9', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
                       <Image

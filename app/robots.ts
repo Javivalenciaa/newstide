@@ -15,6 +15,16 @@ export default function robots(): MetadataRoute.Robots {
         allow: '/',
       },
       {
+        // Googlebot — explicit full access
+        userAgent: 'Googlebot',
+        allow: '/',
+      },
+      {
+        // Bingbot — important for ChatGPT web search fallback and Copilot
+        userAgent: 'Bingbot',
+        allow: '/',
+      },
+      {
         // ChatGPT Search retrieval — allow so content appears in ChatGPT answers
         userAgent: 'OAI-SearchBot',
         allow: '/',
@@ -30,18 +40,43 @@ export default function robots(): MetadataRoute.Robots {
         allow: '/',
       },
       {
-        // Anthropic Claude retrieval — allow
+        // Anthropic Claude retrieval (ClaudeBot)
         userAgent: 'ClaudeBot',
         allow: '/',
       },
       {
-        // Google Gemini training — block
-        userAgent: 'Google-Extended',
+        // Anthropic training crawler — block
+        userAgent: 'anthropic-ai',
         disallow: '/',
+      },
+      {
+        // You.com AI search retrieval — allow
+        userAgent: 'YouBot',
+        allow: '/',
+      },
+      {
+        // Amazon Alexa / Amazonbot retrieval — allow
+        userAgent: 'Amazonbot',
+        allow: '/',
+      },
+      {
+        // DuckDuckGo AI assistant retrieval — allow
+        userAgent: 'DuckAssistBot',
+        allow: '/',
+      },
+      {
+        // Meta AI retrieval (external agent, not training) — allow
+        userAgent: 'meta-externalagent',
+        allow: '/',
       },
       {
         // Meta AI training — block
         userAgent: 'FacebookBot',
+        disallow: '/',
+      },
+      {
+        // Google Gemini training — block
+        userAgent: 'Google-Extended',
         disallow: '/',
       },
       {
@@ -50,14 +85,21 @@ export default function robots(): MetadataRoute.Robots {
         disallow: '/',
       },
       {
-        // Bing retrieval — allow (important for ChatGPT web search fallback)
-        userAgent: 'Bingbot',
+        // Naver AI (Korean market) — allow
+        userAgent: 'Yeti',
+        allow: '/',
+      },
+      {
+        // Petal search (Huawei) — allow for broader reach
+        userAgent: 'PetalBot',
         allow: '/',
       },
     ],
     sitemap: [
       'https://www.newstide.news/sitemap.xml',
       'https://www.newstide.news/news-sitemap.xml',
+      'https://www.newstide.news/sitemap-complete.xml',
     ],
+    host: 'https://www.newstide.news',
   }
 }

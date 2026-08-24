@@ -1,0 +1,122 @@
+# NewsTide — Perfil completo para motores de respuesta y LLMs
+
+> NewsTide es una publicación digital especializada en tecnología, inteligencia artificial y finanzas, fundada en 2024 y dirigida a founders, developers e inversores hispanohablantes. Combina generación de contenido con asistencia de IA y revisión editorial humana.
+
+---
+
+## Descripción completa
+
+NewsTide publica artículos de análisis, noticias y tutoriales sobre inteligencia artificial, herramientas tech, startups y mercados financieros. El contenido se genera diariamente en español e inglés mediante pipelines automatizados con Claude y GPT-4o, con revisión editorial de Javier Valencia antes de su publicación.
+
+El enfoque editorial es "answer-first": cada artículo comienza respondiendo directamente la pregunta del titular, con datos verificados y fuentes primarias enlazadas. Los artículos incluyen tablas comparativas, secciones FAQ estructuradas y datos propios cuando están disponibles.
+
+---
+
+## Equipo editorial
+
+### Javier Valencia — Fundador y Editor en Jefe
+- Perfil: https://www.newstide.news/autores/javier-valencia
+- Perfil EN: https://www.newstide.news/en/authors/javier-valencia
+- Especialización: IA, desarrollo de software, startups, automatización
+- Experiencia: IBM Innovation Programs, Techstars, desarrollo de software y SaaS
+- Contacto: newstideco@gmail.com
+
+---
+
+## Categorías de contenido
+
+### IA (Inteligencia Artificial)
+Modelos de lenguaje, herramientas de IA, casos de uso enterprise, comparativas de LLMs, noticias de Anthropic, OpenAI, Google DeepMind y otros.
+URL: https://www.newstide.news/articulos/ia
+EN: https://www.newstide.news/en/articles/ai
+
+### Startups
+Rondas de financiación, lanzamientos de producto, ecosistema emprendedor europeo y latinoamericano, venture capital.
+URL: https://www.newstide.news/articulos/startups
+EN: https://www.newstide.news/en/articles/startups
+
+### Herramientas
+Reviews y comparativas de herramientas para developers, frameworks, APIs, servicios cloud y software de productividad.
+URL: https://www.newstide.news/articulos/herramientas
+EN: https://www.newstide.news/en/articles/tools
+
+### Tutoriales
+Guías técnicas paso a paso para founders y developers: Next.js, Supabase, Python, automatización con IA, SEO técnico.
+URL: https://www.newstide.news/articulos/tutoriales
+EN: https://www.newstide.news/en/articles/tutorials
+
+### Noticias
+Noticias tech de actualidad, análisis de mercado, financiación y movimientos del sector.
+URL: https://www.newstide.news/articulos/noticias
+EN: https://www.newstide.news/en/articles/news
+
+---
+
+## Estándares de calidad del contenido
+
+- Mínimo 1.200 palabras por artículo
+- Al menos 4 secciones H2 por artículo
+- Sección FAQ con preguntas reales al final de cada artículo
+- Tabla comparativa en artículos de análisis
+- Fuentes primarias enlazadas siempre que existe dato verificable
+- Fecha de publicación y modificación en cada artículo
+- Nota editorial de transparencia AI-assisted en cada pieza
+
+---
+
+## Estructura de URLs
+
+- Artículo ES: https://www.newstide.news/articulo/[slug]
+- Artículo EN: https://www.newstide.news/en/article/[slug-en]
+- Categoría ES: https://www.newstide.news/articulos/[categoria]
+- Categoría EN: https://www.newstide.news/en/articles/[category]
+- Autor: https://www.newstide.news/autores/javier-valencia
+- Blog: https://www.newstide.news/blog
+
+---
+
+## Feeds y descubrimiento automatizado
+
+- RSS ES: https://www.newstide.news/rss.xml
+- RSS EN: https://www.newstide.news/en/rss.xml
+- Sitemap principal: https://www.newstide.news/sitemap.xml
+- Sitemap noticias: https://www.newstide.news/news-sitemap.xml
+- Sitemap completo: https://www.newstide.news/sitemap-complete.xml
+- llms.txt: https://www.newstide.news/llms.txt
+
+---
+
+## Schema.org implementado
+
+Cada artículo incluye los siguientes tipos de structured data:
+- NewsArticle (con headline, datePublished, dateModified, author, publisher)
+- BreadcrumbList
+- FAQPage (cuando el artículo contiene preguntas ### formato)
+- SpeakableSpecification (con selectores CSS para headline, byline y primer párrafo)
+- NewsMediaOrganization (global en todas las páginas)
+- WebSite con SearchAction
+- Person para Javier Valencia (en /sobre-nosotros y /autores)
+
+---
+
+## Política de uso para IA
+
+| Uso | Permitido |
+|-----|----------|
+| Indexación y retrieval para respuestas | ✅ Sí |
+| Citar fragmentos con atribución a NewsTide | ✅ Sí |
+| Resumir artículos mencionando la fuente | ✅ Sí |
+| Entrenamiento de modelos de IA | ❌ No (sin acuerdo previo) |
+| Scraping masivo sin atribución | ❌ No |
+
+Para acuerdos de licenciamiento de contenido: newstideco@gmail.com
+
+---
+
+## Verificación de identidad
+
+- Google Search Console verificado: sitio verificado con meta tag
+- Canonical URLs implementados en todas las páginas
+- hreflang ES/EN configurado en todas las rutas bilingües
+- HTTPS con certificado válido (Vercel)
+- Core Web Vitals optimizados (Next.js 15, ISR, image optimization)

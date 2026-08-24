@@ -69,18 +69,36 @@ const nextConfig: NextConfig = {
       { source: '/:file*.woff2',headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
       { source: '/:file*.woff', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
       {
+        // llms.txt: must NOT be cached long-term so LLMs always get fresh discovery info
+        source: '/llms.txt',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=3600' },
+          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+        ],
+      },
+      {
+        source: '/llms-full.txt',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=3600' },
+          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+        ],
+      },
+      {
         // A3: páginas HTML — s-maxage alineado con revalidate=86400 de artículos individuales.
-        // Los listados usan revalidate=3600 pero no perjudica servirlos desde CDN hasta 24h
-        // (stale-while-revalidate los mantiene frescos en background).
+        // X-Robots-Tag: max-snippet:-1 instructs ALL crawlers (including AI) to use
+        // unlimited text snippets. max-image-preview:large ensures cover images are used.
+        // This is separate from meta robots (which only Googlebot reads) — X-Robots-Tag
+        // is read by Bingbot, PerplexityBot, ClaudeBot, OAI-SearchBot and others.
         source: '/(.*)',
         headers: [
-          // A3: 300→86400 para alinear CDN cache con el nuevo revalidate de artículos
           { key: 'Cache-Control', value: 'public, s-maxage=86400, stale-while-revalidate=59' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          // A4: Content-Security-Policy añadida
+          // AEO: unlimited snippets + large image previews for all AI crawlers
+          { key: 'X-Robots-Tag', value: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' },
+          // A4: Content-Security-Policy
           { key: 'Content-Security-Policy', value: CSP },
         ],
       },

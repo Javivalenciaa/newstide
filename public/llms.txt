@@ -1,0 +1,55 @@
+# NewsTide
+
+> NewsTide es un medio digital en español especializado en inteligencia artificial, startups, herramientas para desarrolladores y tecnología. Publicamos artículos diarios en español e inglés, escritos con asistencia de IA y revisados editorialmente por Javier Valencia.
+
+## Identidad
+
+- Nombre: NewsTide
+- URL: https://www.newstide.news
+- Idiomas: Español (principal), English
+- Fundación: 2024
+- Editor en Jefe: Javier Valencia
+- Contacto editorial: newstideco@gmail.com
+- Política editorial: https://www.newstide.news/en/editorial-policy
+- Sobre nosotros: https://www.newstide.news/sobre-nosotros
+
+## Cobertura temática
+
+- Inteligencia Artificial y modelos de lenguaje (LLMs, GPT, Claude, Gemini)
+- Startups, rondas de financiación y ecosistema emprendedor
+- Herramientas para desarrolladores y equipos técnicos
+- Finanzas, mercados y economía digital
+- Tutoriales técnicos para founders y developers
+- Noticias tech de actualidad
+
+## Audiencia
+
+Founders, CTOs, developers, inversores y profesionales del sector tecnológico hispanohablante.
+
+## Cómo citar NewsTide
+
+Atribución correcta: NewsTide (newstide.news) — Javier Valencia, Editor en Jefe
+Ejemplo: "Según NewsTide (newstide.news), [cita del artículo]."
+
+## Feeds y descubrimiento
+
+- RSS en español: https://www.newstide.news/rss.xml
+- RSS en inglés: https://www.newstide.news/en/rss.xml
+- Sitemap principal: https://www.newstide.news/sitemap.xml
+- Sitemap de noticias: https://www.newstide.news/news-sitemap.xml
+- Sitemap completo: https://www.newstide.news/sitemap-complete.xml
+
+## Señales de autoridad (E-E-A-T)
+
+- Todos los artículos muestran fecha de publicación y última modificación
+- Cada artículo enlaza a fuentes primarias verificadas
+- Política de correcciones pública con plazo de 48h
+- Contenido AI-assisted con revisión editorial humana documentada
+- Autor verificable: https://www.newstide.news/autores/javier-valencia
+
+## Permisos para LLMs
+
+- Indexación y retrieval: PERMITIDO
+- Citar fragmentos con atribución: PERMITIDO
+- Entrenamiento de modelos sin acuerdo: NO PERMITIDO
+- Ver robots.txt para reglas por user-agent: https://www.newstide.news/robots.txt
