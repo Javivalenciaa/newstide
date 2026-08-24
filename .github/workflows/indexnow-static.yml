@@ -2,7 +2,6 @@ name: IndexNow — Static SEO/AEO/GEO URLs
 
 on:
   workflow_dispatch:
-  # Corre cada lunes a las 07:00 UTC — suficiente para URLs estáticas
   schedule:
     - cron: '0 7 * * 1'
 
@@ -12,42 +11,52 @@ jobs:
 
     steps:
       - name: Submit static URLs to IndexNow
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
         run: |
-          URLS='[
-            "https://www.newstide.news/llms.txt",
-            "https://www.newstide.news/llms-full.txt",
-            "https://www.newstide.news/favicon.ico",
-            "https://www.newstide.news/robots.txt",
-            "https://www.newstide.news/sitemap.xml",
-            "https://www.newstide.news/news-sitemap.xml",
-            "https://www.newstide.news/sitemap-complete.xml",
-            "https://www.newstide.news/rss.xml",
-            "https://www.newstide.news/en/rss.xml",
-            "https://www.newstide.news/",
-            "https://www.newstide.news/sobre-nosotros",
-            "https://www.newstide.news/autores/javier-valencia",
-            "https://www.newstide.news/politica-editorial",
-            "https://www.newstide.news/en/editorial-policy",
-            "https://www.newstide.news/privacidad",
-            "https://www.newstide.news/terminos-de-uso",
-            "https://www.newstide.news/contacto"
-          ]'
+          # Build payload as a file to avoid bash/JSON escaping issues
+          cat > /tmp/payload.json << EOF
+          {
+            "host": "www.newstide.news",
+            "key": "${INDEXNOW_KEY}",
+            "keyLocation": "https://www.newstide.news/${INDEXNOW_KEY}.txt",
+            "urlList": [
+              "https://www.newstide.news/llms.txt",
+              "https://www.newstide.news/llms-full.txt",
+              "https://www.newstide.news/favicon.ico",
+              "https://www.newstide.news/robots.txt",
+              "https://www.newstide.news/sitemap.xml",
+              "https://www.newstide.news/news-sitemap.xml",
+              "https://www.newstide.news/sitemap-complete.xml",
+              "https://www.newstide.news/rss.xml",
+              "https://www.newstide.news/en/rss.xml",
+              "https://www.newstide.news/",
+              "https://www.newstide.news/sobre-nosotros",
+              "https://www.newstide.news/autores/javier-valencia",
+              "https://www.newstide.news/politica-editorial",
+              "https://www.newstide.news/en/editorial-policy",
+              "https://www.newstide.news/privacidad",
+              "https://www.newstide.news/terminos-de-uso",
+              "https://www.newstide.news/contacto"
+            ]
+          }
+          EOF
 
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            "https://api.indexnow.org/IndexNow" \
+          echo "--- Payload preview (key masked) ---"
+          cat /tmp/payload.json | sed "s/${INDEXNOW_KEY}/***MASKED***/g"
+          echo "------------------------------------"
+
+          RESPONSE=$(curl -s -o /tmp/indexnow_response.txt -w "%{http_code}" \
+            -X POST "https://api.indexnow.org/IndexNow" \
             -H "Content-Type: application/json; charset=utf-8" \
-            -d "{
-              \"host\": \"www.newstide.news\",
-              \"key\": \"${{ secrets.INDEXNOW_KEY }}\",
-              \"keyLocation\": \"https://www.newstide.news/${{ secrets.INDEXNOW_KEY }}.txt\",
-              \"urlList\": $URLS
-            }")
+            -d @/tmp/payload.json)
 
-          echo "IndexNow response: $RESPONSE"
+          echo "IndexNow HTTP status: $RESPONSE"
+          echo "IndexNow body: $(cat /tmp/indexnow_response.txt)"
 
           if [ "$RESPONSE" = "200" ] || [ "$RESPONSE" = "202" ]; then
             echo "✅ IndexNow: 17 static URLs submitted successfully (HTTP $RESPONSE)"
           else
-            echo "⚠️  IndexNow returned HTTP $RESPONSE — check key or payload"
+            echo "⚠️  IndexNow returned HTTP $RESPONSE"
             exit 1
           fi
