@@ -14,49 +14,60 @@ jobs:
         env:
           INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
         run: |
-          # Build payload as a file to avoid bash/JSON escaping issues
-          cat > /tmp/payload.json << EOF
-          {
-            "host": "www.newstide.news",
-            "key": "${INDEXNOW_KEY}",
-            "keyLocation": "https://www.newstide.news/${INDEXNOW_KEY}.txt",
-            "urlList": [
-              "https://www.newstide.news/llms.txt",
-              "https://www.newstide.news/llms-full.txt",
-              "https://www.newstide.news/favicon.ico",
-              "https://www.newstide.news/robots.txt",
-              "https://www.newstide.news/sitemap.xml",
-              "https://www.newstide.news/news-sitemap.xml",
-              "https://www.newstide.news/sitemap-complete.xml",
-              "https://www.newstide.news/rss.xml",
-              "https://www.newstide.news/en/rss.xml",
-              "https://www.newstide.news/",
-              "https://www.newstide.news/sobre-nosotros",
-              "https://www.newstide.news/autores/javier-valencia",
-              "https://www.newstide.news/politica-editorial",
-              "https://www.newstide.news/en/editorial-policy",
-              "https://www.newstide.news/privacidad",
-              "https://www.newstide.news/terminos-de-uso",
-              "https://www.newstide.news/contacto"
-            ]
+          python3 - <<'PYEOF'
+          import os, json, urllib.request, sys
+
+          key = os.environ["INDEXNOW_KEY"]
+          if not key:
+              print("ERROR: INDEXNOW_KEY secret is empty or not set")
+              sys.exit(1)
+
+          payload = {
+              "host": "www.newstide.news",
+              "key": key,
+              "keyLocation": f"https://www.newstide.news/{key}.txt",
+              "urlList": [
+                  "https://www.newstide.news/llms.txt",
+                  "https://www.newstide.news/llms-full.txt",
+                  "https://www.newstide.news/favicon.ico",
+                  "https://www.newstide.news/robots.txt",
+                  "https://www.newstide.news/sitemap.xml",
+                  "https://www.newstide.news/news-sitemap.xml",
+                  "https://www.newstide.news/sitemap-complete.xml",
+                  "https://www.newstide.news/rss.xml",
+                  "https://www.newstide.news/en/rss.xml",
+                  "https://www.newstide.news/",
+                  "https://www.newstide.news/sobre-nosotros",
+                  "https://www.newstide.news/autores/javier-valencia",
+                  "https://www.newstide.news/politica-editorial",
+                  "https://www.newstide.news/en/editorial-policy",
+                  "https://www.newstide.news/privacidad",
+                  "https://www.newstide.news/terminos-de-uso",
+                  "https://www.newstide.news/contacto"
+              ]
           }
-          EOF
 
-          echo "--- Payload preview (key masked) ---"
-          cat /tmp/payload.json | sed "s/${INDEXNOW_KEY}/***MASKED***/g"
-          echo "------------------------------------"
+          body = json.dumps(payload).encode("utf-8")
+          req  = urllib.request.Request(
+              "https://api.indexnow.org/IndexNow",
+              data=body,
+              headers={"Content-Type": "application/json; charset=utf-8"},
+              method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  status = resp.status
+                  body_resp = resp.read().decode()
+          except urllib.error.HTTPError as e:
+              status = e.code
+              body_resp = e.read().decode()
 
-          RESPONSE=$(curl -s -o /tmp/indexnow_response.txt -w "%{http_code}" \
-            -X POST "https://api.indexnow.org/IndexNow" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            -d @/tmp/payload.json)
+          print(f"IndexNow HTTP status: {status}")
+          print(f"IndexNow body: {body_resp}")
 
-          echo "IndexNow HTTP status: $RESPONSE"
-          echo "IndexNow body: $(cat /tmp/indexnow_response.txt)"
-
-          if [ "$RESPONSE" = "200" ] || [ "$RESPONSE" = "202" ]; then
-            echo "✅ IndexNow: 17 static URLs submitted successfully (HTTP $RESPONSE)"
-          else
-            echo "⚠️  IndexNow returned HTTP $RESPONSE"
-            exit 1
-          fi
+          if status in (200, 202):
+              print(f"✅ IndexNow: {len(payload['urlList'])} URLs submitted (HTTP {status})")
+          else:
+              print(f"⚠️ IndexNow returned HTTP {status}")
+              sys.exit(1)
+          PYEOF
