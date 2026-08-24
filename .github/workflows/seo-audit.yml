@@ -1,78 +1,44 @@
-name: SEO Audit — Newstide
+# SEO Audit workflow
+# ⚠️  MANUAL EXECUTION ONLY — no schedule trigger intentionally.
+# Run via: GitHub Actions → "Run workflow" button.
+# Reason: each run costs significant API credits (SerpAPI + OpenAI).
+# DO NOT add a `schedule:` trigger here.
+
+name: SEO Audit (Manual Only)
 
 on:
-  workflow_dispatch:        # lanzar manualmente desde móvil/GitHub
-
-permissions:
-  contents: write
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Audit target (all | finance | main)'
+        required: false
+        default: 'all'
 
 jobs:
   seo-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Install Playwright Chromium
+      - name: Install dependencies
         run: |
-          pip install playwright
-          playwright install chromium --with-deps
-
-      - name: Clone & install claude-seo plugin
-        run: |
-          git clone --depth 1 https://github.com/AgriciDaniel/claude-seo.git /tmp/claude-seo
-          bash /tmp/claude-seo/install.sh --non-interactive
+          pip install -r requirements.txt
 
       - name: Run SEO Audit
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SERPAPI_KEY:          ${{ secrets.SERPAPI_KEY }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_ACCESS_TOKEN:  ${{ secrets.GOOGLE_ACCESS_TOKEN }}
+          GSC_SITE_URL:         ${{ secrets.GSC_SITE_URL }}
         run: |
-          mkdir -p seo-reports
-          REPORT_DATE=$(date +%Y-%m-%d)
-
-          claude --dangerously-skip-permissions -p "
-          You are running a full SEO audit of https://www.newstide.news using the claude-seo plugin.
-          Run the following commands in sequence and save all output:
-          1. /seo audit https://www.newstide.news
-          2. /seo schema https://www.newstide.news/en/article/$(date +%Y)
-          3. /seo geo https://www.newstide.news/en
-          4. /seo content https://www.newstide.news/en/fin
-          Save the combined report to seo-reports/audit-${REPORT_DATE}.md
-          " > seo-reports/audit-${REPORT_DATE}.md 2>&1 || true
-
-          echo "## SEO Audit — $REPORT_DATE" >> seo-reports/audit-${REPORT_DATE}.md
-          echo "Site: https://www.newstide.news" >> seo-reports/audit-${REPORT_DATE}.md
-
-      - name: Upload report as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: seo-audit-${{ github.run_number }}
-          path: seo-reports/
-          retention-days: 90
-
-      - name: Commit report to repo
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add seo-reports/
-          git diff --cached --quiet || git commit -m "chore: SEO audit report $(date +%Y-%m-%d)"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/Javivalenciaa/newstide.git HEAD:main
+          python pipeline/seo_audit.py --target ${{ github.event.inputs.target || 'all' }}

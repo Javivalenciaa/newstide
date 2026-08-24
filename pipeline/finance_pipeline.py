@@ -17,6 +17,9 @@ SUPABASE_URL         = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
 
+# GSC is optional — pipeline runs fine if the env var is not set
+GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:newstide.news")
+
 # ── NICHE DEFINITION ──────────────────────────────────────────────────────────
 NICHE_LABEL  = "finanzas personales hispanos USA"
 SITE_LANG    = "es"
@@ -43,9 +46,6 @@ MIN_H2_SECTIONS             = 3
 TOPIC_CLUSTER_COOLDOWN_DAYS = 14   # same cluster can't publish twice in 14 days
 
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
-# Hard limit raised to 75 so the AI has room to write a complete sentence.
-# The soft target (55-70) is communicated to the LLM via prompts.
-# smart_trim at TITLE_MAX_CHARS is the last-resort safety net only.
 TITLE_MAX_CHARS = 75
 TITLE_SOFT_MIN  = 55
 TITLE_SOFT_MAX  = 70
@@ -118,7 +118,7 @@ INDEXNOW_KEY     = "964bf589528b466cace60749e05cfcb6"
 INDEXNOW_HOST    = "www.newstide.news"
 INDEXNOW_KEY_LOC = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
 
-# ── Finance articles are served at /es/fin/<slug> ─────────────────────────────
+# Finance articles are served at /es/fin/<slug>
 FINANCE_URL_PREFIX = f"https://{INDEXNOW_HOST}/es/fin"
 
 openai_client   = OpenAI(api_key=OPENAI_API_KEY)
@@ -161,7 +161,6 @@ def smart_trim(text: str, limit: int) -> str:
 
 
 def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
-    # Strip leading markdown bold markers (** or *) that Claude sometimes emits
     text = re.sub(r'^\*+\s*', '', (text or '').strip())
     text = re.sub(r"\s+", " ", text)
     text = text.strip(' "\'')
@@ -174,15 +173,12 @@ def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
 
 
 def slugify(text: str) -> str:
-    """Convert text to a URL-safe slug. Cap at 75 chars AFTER slugification
-    so the slug represents the complete title, not a mid-word truncation."""
-    # Do NOT smart_trim before processing — let the full title become the slug
+    """Convert text to a URL-safe slug. Cap at 75 chars AFTER slugification."""
     text = text.lower()
     for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n"),("ü","u")]:
         text = text.replace(a, b)
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s]+", "-", text.strip())
-    # Cap slug at 75 chars, cutting only at a hyphen boundary
     if len(text) > 75:
         cut = text[:76]
         if "-" in cut:
@@ -192,8 +188,6 @@ def slugify(text: str) -> str:
 
 
 def fix_double_quotes(text: str) -> str:
-    """Remove double-escaped quotes introduced by some json serialisation paths.
-    Converts any occurrence of two consecutive double-quote chars into one."""
     return text.replace('""', '"')
 
 
@@ -229,15 +223,12 @@ def has_external_link(content: str) -> bool:
 
 
 def clean_serp_candidate(text: str) -> str:
-    """Remove SerpAPI [Source Name] prefixes and trailing snippet noise."""
     text = re.sub(r'^\[[^\]]+\]\s*', '', (text or '').strip())
-    # Also strip " — snippet..." suffix if present
     text = re.sub(r'\s*—\s*.{0,120}$', '', text).strip()
     return re.sub(r"\s+", " ", text).strip()
 
 
 def topic_cluster_key(text: str) -> str:
-    """Reduce a title to its core topic tokens for cluster cooldown matching."""
     stop = {"2026","2025","guia","guía","mejores","mejor","como","cómo",
             "paso","vs","en","de","la","el","los","las","para","que","con",
             "sin","por","una","uno","tu","su","usa","estados","unidos"}
@@ -251,7 +242,6 @@ def topic_cluster_on_cooldown(
     recent_articles: list[dict],
     published_this_run: list[str],
 ) -> bool:
-    """Return True if a same-cluster article was published within TOPIC_CLUSTER_COOLDOWN_DAYS."""
     cand_key = topic_cluster_key(candidate)
     if not cand_key:
         return False
@@ -310,7 +300,6 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
         print(f"  ❌ VALIDATION FAIL [{label}]: starts mid-sentence (truncation)")
         ok = False
-    # Detect trailing truncation markers
     if content.rstrip().endswith("..."):
         print(f"  ❌ VALIDATION FAIL [{label}]: content ends with '...' — likely truncated")
         ok = False
@@ -323,13 +312,8 @@ def validate_article_content(content: str, label: str = "article") -> bool:
 
 # ── LOAD RECENT ARTICLES (BOTH TABLES) ───────────────────────────────────────
 def get_recent_articles() -> list[dict]:
-    """
-    Load last 180 days from BOTH finance_articles AND articles tables.
-    Uses correct column names: title, excerpt, slug, published_at.
-    """
     since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
     combined: list[dict] = []
-
     for table in ("finance_articles", "articles"):
         try:
             res = (
@@ -344,7 +328,6 @@ def get_recent_articles() -> list[dict]:
             print(f"  📚 {table}: {len(res.data or [])} articles loaded")
         except Exception as e:
             print(f"  ⚠️  Error reading {table}: {e}")
-
     print(f"  📊 Total dedup context: {len(combined)} articles")
     return combined
 
@@ -359,7 +342,6 @@ def format_recent_context(articles: list[dict]) -> str:
 
 
 def already_published_hash(keyword: str) -> bool:
-    """Check keyword hash in BOTH tables. Uses slug form to match clean saves."""
     clean = slugify(clean_serp_candidate(keyword))
     hashes = list({md5(keyword), md5(clean)})
     for table in ("finance_articles", "articles"):
@@ -370,6 +352,95 @@ def already_published_hash(keyword: str) -> bool:
         except Exception:
             pass
     return False
+
+
+# ── GSC: FETCH HIGH-OPPORTUNITY QUERIES ──────────────────────────────────────
+# Pulls queries where the finance site already has impressions but low CTR
+# (position 4-20) — easy wins for the content pipeline.
+# Requires GOOGLE_APPLICATION_CREDENTIALS env var pointing to a service-account
+# JSON file with Search Console read access, OR a valid access token via
+# GOOGLE_ACCESS_TOKEN. Silently skips if credentials are not available.
+
+def fetch_gsc_queries(
+    site_url: str = GSC_SITE_URL,
+    days_back: int = 28,
+    row_limit: int = 50,
+) -> list[str]:
+    """
+    Returns a list of query strings from GSC where:
+      - page matches /es/fin/ (finance section)
+      - average position between 4 and 20 (quick-win territory)
+      - at least 30 impressions in the last `days_back` days
+
+    Falls back to [] silently if credentials or API are unavailable.
+    """
+    access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
+    credentials_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+
+    if not access_token and not credentials_file:
+        print("  ℹ️  GSC: no credentials set — skipping GSC source")
+        return []
+
+    # ── Obtain a bearer token ─────────────────────────────────────────────
+    if not access_token and credentials_file:
+        try:
+            import google.oauth2.service_account as sa
+            import google.auth.transport.requests as ga_requests
+            creds = sa.Credentials.from_service_account_file(
+                credentials_file,
+                scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+            )
+            creds.refresh(ga_requests.Request())
+            access_token = creds.token
+        except Exception as e:
+            print(f"  ⚠️  GSC: could not obtain service-account token: {e}")
+            return []
+
+    end_date   = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=days_back)
+
+    payload = {
+        "startDate":  str(start_date),
+        "endDate":    str(end_date),
+        "dimensions": ["query"],
+        "dimensionFilterGroups": [{
+            "filters": [{
+                "dimension":  "page",
+                "operator":   "contains",
+                "expression": "/es/fin/",
+            }]
+        }],
+        "rowLimit": row_limit,
+        "startRow": 0,
+    }
+
+    try:
+        resp = requests.post(
+            f"https://searchconsole.googleapis.com/webmasters/v3/sites/{requests.utils.quote(site_url, safe='')}/searchAnalytics/query",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type":  "application/json",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json().get("rows", [])
+    except Exception as e:
+        print(f"  ⚠️  GSC API error: {e}")
+        return []
+
+    # Filter: position 4-20 AND at least 30 impressions
+    candidates = []
+    for row in rows:
+        position    = row.get("position", 0)
+        impressions = row.get("impressions", 0)
+        query       = (row.get("keys") or [""])[0].strip()
+        if query and 4 <= position <= 20 and impressions >= 30:
+            candidates.append(query)
+
+    print(f"  📊 GSC: {len(candidates)} finance queries in positions 4-20 (≥30 impressions)")
+    return candidates
 
 
 # ── SERPAPI SOURCES ────────────────────────────────────────────────────────────
@@ -399,7 +470,7 @@ def fetch_serpapi_hispano_news() -> list[str]:
 
 def fetch_serpapi_credit_saving() -> list[str]:
     queries = [
-        "tarjetas de crédito para inmigrantes sin historial USA",
+        "tarjetas de crédito para inmigrantes sin Social Security USA",
         "cómo subir el credit score rápido en Estados Unidos",
         "cómo abrir cuenta bancaria sin documentos USA 2026",
         "mejores bancos para hispanos en Estados Unidos 2026",
@@ -504,7 +575,6 @@ def get_fallback_topics() -> list[str]:
 def is_duplicate_topic(
     candidate: str, recent_articles: list[dict], published_this_run: list[str]
 ) -> bool:
-    # Cluster cooldown check first (no LLM cost)
     if topic_cluster_on_cooldown(candidate, recent_articles, published_this_run):
         print(f"  🕐 Cluster cooldown hit: {candidate[:60]}")
         return True
@@ -572,12 +642,29 @@ Responde SOLO con el nuevo título (1 línea)."""
 
 # ── BUILD CANDIDATE POOL ──────────────────────────────────────────────────────
 def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
-    print("🔍 Construyendo pool de candidatos...")
+    print("🔍 Construyendo pool de candidatos finanzas...")
     pool = []
+
+    print("  📰 Source 1: Noticias hispanas (SerpAPI)...")
     pool.extend(fetch_serpapi_hispano_news())
+
+    print("  💳 Source 2: Crédito y ahorro (SerpAPI)...")
     pool.extend(fetch_serpapi_credit_saving())
+
+    print("  📈 Source 3: Inversión e impuestos (SerpAPI)...")
     pool.extend(fetch_serpapi_inversion_impuestos())
+
+    print("  📊 Source 4: GSC quick-wins (posiciones 4-20 en /es/fin/)...")
+    gsc_queries = fetch_gsc_queries()
+    if gsc_queries:
+        pool.extend(gsc_queries)
+        print(f"  ✅ GSC aportó {len(gsc_queries)} queries al pool")
+    else:
+        print("  ℹ️  GSC sin datos — continuando sin esa fuente")
+
+    print("  🧠 Source 5: Temas GPT (niche)...")
     pool.extend(generate_niche_topics(recent_articles, n=18))
+
     pool.extend(get_fallback_topics())
 
     seen, unique = set(), []
@@ -742,7 +829,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
 
 # ── INTERNAL LINKING ──────────────────────────────────────────────────────────
 def fetch_related_articles(category: str, current_slug: str, limit: int = 12) -> list[dict]:
-    """Uses correct column names: title, slug, excerpt (not _en variants)."""
     try:
         res = (
             supabase_client.table("finance_articles")
@@ -764,7 +850,6 @@ def inject_internal_links(content: str, category: str, slug: str) -> str:
     related = fetch_related_articles(category, slug, limit=12)
     if not related:
         return content
-    # FIX: finance articles are served at /es/fin/<slug>, not /en/fin/<slug>
     candidates_str = "\n".join(
         f'- Título: "{r["title"]}" | URL: {FINANCE_URL_PREFIX}/{r["slug"]}'
         for r in related
@@ -814,24 +899,14 @@ def save_article(
     if lines and lines[0].strip().startswith("# "):
         content = "\n".join(lines[1:]).strip()
 
-    # Apply smart_trim ONLY as last-resort safety net — title should already
-    # be a complete sentence produced by the LLM within the soft limit.
     title = smart_trim(title, TITLE_MAX_CHARS)
-
-    # Fix double-escaped quotes introduced during json/string handling
     content = fix_double_quotes(content)
-
-    # Always store a clean slug as keyword — never raw SerpAPI text
     clean_keyword = slugify(clean_serp_candidate(keyword))
-
     excerpt = normalize_excerpt(excerpt or title[:150], 120, 155)
     rt = max(MIN_READING_TIME, reading_time(content))
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     content_final = content + EDITORIAL_NOTE_ES + FINANCE_DISCLAIMER_ES
 
-    # FIX: finance_articles table uses title/slug/content/excerpt (no _en columns).
-    # Removed title_en, slug_en, content_en, excerpt_en — those columns do not
-    # exist in finance_articles and were causing Supabase insert errors.
     data = {
         "title":           title,
         "slug":            slug,
@@ -850,7 +925,6 @@ def save_article(
     try:
         supabase_client.table("finance_articles").insert(data).execute()
         print(f"  ✅ Guardado: {title[:70]}")
-        # FIX: ping correct /es/fin/ URL
         ping_indexnow([f"{FINANCE_URL_PREFIX}/{slug}"])
         return title
     except Exception as e:
@@ -895,14 +969,11 @@ def process_topic(
             print("  ⚠️  Humanizado inválido — usando output original")
             humanized = raw_content
 
-        # Extract title from H1 WITHOUT truncating — smart_trim is applied at
-        # save time only, so the LLM's complete title is preserved here.
         title_preview = candidate[:100]
         for line in humanized.strip().split("\n")[:5]:
             if line.strip().startswith("# "):
                 title_preview = line.strip()[2:].strip()
                 break
-        # Do NOT call smart_trim here — save_article will enforce TITLE_MAX_CHARS
         slug = slugify(title_preview)
 
         print("  🔍 Buscando imágenes en Unsplash...")
