@@ -10,38 +10,77 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Submit static URLs to IndexNow
+      - name: Submit static + new finance URLs to IndexNow
+        env:
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python3 - <<'PYEOF'
-          import json, urllib.request, sys
+          pip install supabase --quiet
 
-          KEY = "964bf589528b466cace60749e05cfcb6"
+          python3 - <<'PYEOF'
+          import json, urllib.request, sys, os
+
+          KEY  = "964bf589528b466cace60749e05cfcb6"
+          HOST = "www.newstide.news"
+
+          # URLs estáticas de siempre
+          static_urls = [
+              f"https://{HOST}/llms.txt",
+              f"https://{HOST}/llms-full.txt",
+              f"https://{HOST}/favicon.ico",
+              f"https://{HOST}/robots.txt",
+              f"https://{HOST}/sitemap.xml",
+              f"https://{HOST}/news-sitemap.xml",
+              f"https://{HOST}/sitemap-complete.xml",
+              f"https://{HOST}/rss.xml",
+              f"https://{HOST}/en/rss.xml",
+              f"https://{HOST}/",
+              f"https://{HOST}/sobre-nosotros",
+              f"https://{HOST}/autores/javier-valencia",
+              f"https://{HOST}/politica-editorial",
+              f"https://{HOST}/en/editorial-policy",
+              f"https://{HOST}/privacidad",
+              f"https://{HOST}/terminos-de-uso",
+              f"https://{HOST}/contacto",
+          ]
+
+          # Nuevos artículos financieros de los últimos 7 días desde Supabase
+          finance_urls = []
+          sb_url = os.environ.get("SUPABASE_URL", "")
+          sb_key = os.environ.get("SUPABASE_KEY", "")
+          if sb_url and sb_key:
+              try:
+                  from supabase import create_client
+                  sb = create_client(sb_url, sb_key)
+                  from datetime import datetime, timedelta, timezone
+                  since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+                  rows = (
+                      sb.table("finance_articles")
+                      .select("slug, slug_en")
+                      .gte("published_at", since)
+                      .order("published_at", desc=True)
+                      .execute()
+                  ).data
+                  for r in rows:
+                      if r.get("slug"):
+                          finance_urls.append(f"https://{HOST}/es/fin/{r['slug']}")
+                      if r.get("slug_en"):
+                          finance_urls.append(f"https://{HOST}/en/fin/{r['slug_en']}")
+                  print(f"Finance articles (last 7d): {len(finance_urls)} URLs")
+              except Exception as e:
+                  print(f"⚠️  Supabase error (no bloqueante): {e}")
+          else:
+              print("⚠️  SUPABASE secrets not set — skipping finance articles")
+
+          all_urls = static_urls + finance_urls
+          print(f"Total URLs: {len(all_urls)}")
 
           payload = {
-              "host": "www.newstide.news",
+              "host": HOST,
               "key": KEY,
-              "keyLocation": f"https://www.newstide.news/{KEY}.txt",
-              "urlList": [
-                  "https://www.newstide.news/llms.txt",
-                  "https://www.newstide.news/llms-full.txt",
-                  "https://www.newstide.news/favicon.ico",
-                  "https://www.newstide.news/robots.txt",
-                  "https://www.newstide.news/sitemap.xml",
-                  "https://www.newstide.news/news-sitemap.xml",
-                  "https://www.newstide.news/sitemap-complete.xml",
-                  "https://www.newstide.news/rss.xml",
-                  "https://www.newstide.news/en/rss.xml",
-                  "https://www.newstide.news/",
-                  "https://www.newstide.news/sobre-nosotros",
-                  "https://www.newstide.news/autores/javier-valencia",
-                  "https://www.newstide.news/politica-editorial",
-                  "https://www.newstide.news/en/editorial-policy",
-                  "https://www.newstide.news/privacidad",
-                  "https://www.newstide.news/terminos-de-uso",
-                  "https://www.newstide.news/contacto"
-              ]
+              "keyLocation": f"https://{HOST}/{KEY}.txt",
+              "urlList": all_urls,
           }
-
           body = json.dumps(payload).encode("utf-8")
           req = urllib.request.Request(
               "https://api.indexnow.org/IndexNow",
@@ -50,17 +89,14 @@ jobs:
               method="POST"
           )
           try:
-              with urllib.request.urlopen(req, timeout=15) as resp:
-                  status = resp.status
-                  body_resp = resp.read().decode()
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  status, resp = r.status, r.read().decode()
           except urllib.error.HTTPError as e:
-              status = e.code
-              body_resp = e.read().decode()
+              status, resp = e.code, e.read().decode()
 
-          print(f"IndexNow HTTP: {status}")
-          print(f"Body: {body_resp}")
+          print(f"IndexNow HTTP: {status} — {resp[:120]}")
           if status in (200, 202):
-              print(f"✅ {len(payload['urlList'])} URLs enviadas OK")
+              print(f"✅ {len(all_urls)} URLs enviadas OK")
           else:
               print("❌ Fallo")
               sys.exit(1)

@@ -1,0 +1,211 @@
+name: IndexNow — Finance Articles Bulk (manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit ALL finance articles to IndexNow
+        run: |
+          python3 - <<'PYEOF'
+          import json, urllib.request, sys
+
+          KEY  = "964bf589528b466cace60749e05cfcb6"
+          HOST = "www.newstide.news"
+
+          # Todos los slugs ES de finance_articles (sin slug_en usan /es/fin/, con slug_en también /en/fin/)
+          finance_es = [
+            "consejos-para-gestionar-tus-inversiones-en-fondos-mutuos-en-2026",
+            "el-seguro-de-vida-protege-el-futuro-de-tu-familia-en-usa",
+            "como-maximizar-tu-puntaje-de-credito-en-estados-unidos-como-inmigrante",
+            "como-elegir-el-plan-de-pensiones-adecuado-para-trabajadores-inmigrantes",
+            "los-planes-529-y-coverdell-reducen-costos-universitarios-para-familias",
+            "como-evaluar-las-mejores-opciones-de-financiamiento-empresarial",
+            "como-seleccionar-la-mejor-tarjeta-de-credito-para-principiantes-en-ee-uu",
+            "las-cuentas-de-alto-rendimiento-multiplican-el-ahorro-hispano",
+            "como-aprovechar-los-incentivos-fiscales-para-vehiculos-electricos-en-usa",
+            "estrategias-para-ahorrar-en-la-compra-de-un-auto-usado-en-usa",
+            "la-educacion-continua-abre-puertas-laborales-para-inmigrantes-en-eeuu",
+            "como-acceder-a-financiamiento-para-pequenas-empresas-en-ee-uu",
+            "requisitos-para-acceder-a-programas-de-vivienda-asequible-en-usa",
+            "la-educacion-financiera-transforma-el-futuro-de-los-latinos-en-usa",
+            "optimiza-tu-declaracion-de-impuestos-como-inmigrante-en-usa",
+            "un-fideicomiso-puede-proteger-tu-patrimonio-y-reducir-impuestos-en-usa",
+            "inversion-en-tecnologia-2026-sectores-y-estrategias-practicas",
+            "como-elegir-el-mejor-plan-de-salud-para-inmigrantes-en-estados-unidos",
+            "aspectos-legales-que-debes-saber-al-invertir-en-bienes-raices-en-usa",
+            "las-siete-tendencias-clave-de-criptomonedas-que-dominaran-2026",
+            "como-proteger-tus-inversiones-en-estados-unidos-de-la-inflacion-actual",
+            "como-aprovechar-las-becas-disponibles-para-estudiantes-hispanos-en-ee-uu",
+            "mejores-estrategias-para-emprender-un-negocio-como-inmigrante",
+            "beneficios-gubernamentales-para-inmigrantes-en-ee-uu",
+            "como-funcionan-los-beneficios-de-desempleo-para-inmigrantes",
+            "los-mejores-prestamos-personales-para-inmigrantes-en-2026",
+            "como-utilizar-el-credito-para-financiar-estudios-universitarios-en-ee-uu",
+            "como-funciona-el-apoyo-financiero-para-estudiantes-indocumentados",
+            "por-que-todo-hispano-en-usa-necesita-un-fondo-de-emergencia",
+            "como-acceder-a-programas-de-ayuda-para-la-educacion-en-ee-uu",
+            "requisitos-para-obtener-asistencia-publica-si-eres-inmigrante-en-usa",
+            "consejos-para-obtener-el-maximo-provecho-de-tu-cuenta-de-ahorros-ira",
+            "como-evitar-errores-comunes-al-elegir-tu-plan-de-salud-en-ee-uu",
+            "por-que-debes-abrir-tu-cuenta-de-retiro-en-el-primer-dia-de-trabajo",
+            "consejos-para-gestionar-tus-finanzas-al-mudarte-a-usa-como-inmigrante",
+            "como-evitar-estafas-comunes-al-enviar-remesas-a-mexico-en-2026",
+            "como-entender-el-proceso-de-declaracion-de-impuestos-como-inmigrante",
+            "estrategias-efectivas-para-invertir-en-bienes-raices-en-estados-unidos",
+            "como-elegir-el-seguro-de-salud-adecuado-para-tu-familia-en-usa-2026",
+            "como-aprovechar-programas-de-asistencia-hipotecaria-en-2026",
+            "como-solicitar-tu-primera-tarjeta-de-credito-siendo-inmigrante",
+            "como-proteger-tus-activos-en-usa-estrategias-legales-esenciales",
+            "como-abrir-cuenta-bancaria-con-itin-en-usa-2026",
+            "sin-credito-en-usa-que-ayuda-y-que-no-mejora-tu-historial",
+            "guia-para-elegir-la-mejor-empresa-de-reparacion-de-credito-2026",
+            "ahorrar-para-tu-casa-en-florida-con-cuentas-de-alto",
+            "refinanciar-hipoteca-en-2026-5-mejores-opciones",
+            "abre-cuenta-en-wells-fargo-con-itin-sin-ssn-guia-2026",
+            "carecredit-como-usarlo-para-deudas-medicas-en-usa",
+            "abre-cuenta-en-bank-of-america-con-itin-sin-ssn-2026",
+            "ahorrar-para-el-enganche-de-casa-en-florida-2026",
+            "las-10-ciudades-mas-baratas-para-vivir-bien-en-usa",
+            "deuda-medica-en-usa-como-proteger-tu-credito",
+            "7-bancos-que-aceptan-itin-sin-ssn-en-usa-2026",
+            "que-construye-credito-en-usa-y-que-no-guia-2026",
+            "reparacion-de-credito-5-mejores-empresas-en-2026",
+            "itin-para-pagar-impuestos-sin-ssn-guia-completa",
+            "transferwise-vs-western-union-para-remesas-en-2026",
+            "como-abrir-cuenta-en-capital-one-siendo-inmigrante",
+            "como-obtener-un-itin-en-usa-guia-paso-a-paso",
+            "wise-vs-remitly-cual-conviene-para-envios-a-mexico",
+            "como-abrir-cuenta-en-chime-siendo-inmigrante-en-usa",
+            "save-1000-on-groceries-apps-meal-prep-guide",
+            "best-budgeting-apps-for-singles-in-2026",
+            "subscription-budgeting-save-300-without-canceling",
+            "boost-your-credit-score-50-points-in-3-months",
+            "best-investment-apps-for-beginners-in-2026",
+            "save-500-on-homeowners-insurance-in-2026",
+            "cut-your-cell-phone-bill-by-30-in-2026",
+            "best-budgeting-apps-for-families-in-2026",
+            "save-300-monthly-30-day-meal-planning-challenge",
+            "cut-your-rent-15-in-2026-proven-strategies",
+            "best-credit-cards-for-cash-back-on-groceries-2026",
+            "save-on-travel-without-a-credit-card-in-2026",
+            "cut-subscription-costs-50-step-by-step-guide",
+            "best-budgeting-for-new-homeowners-2026",
+            "cut-your-power-bill-by-300-2026-tactics",
+            "5-ways-to-negotiate-bills-and-save-2000-in-2026",
+            "minimalist-budget-save-more-with-less-effort",
+            "save-money-on-gas-11-tactics-that-cut-costs",
+            "cut-car-maintenance-costs-10-ways-to-save-in-2026",
+            "503020-budget-rule-step-by-step-guide",
+            "best-high-yield-savings-accounts-usa-2026",
+            "save-400-monthly-apps-and-tactics-that-work",
+            "top-7-budgeting-apps-for-college-students-2026",
+            "save-money-on-groceries-without-coupons-in-2026",
+            "12-ways-to-cut-your-summer-utility-bill-by-30",
+            "best-budgeting-tools-for-freelancers-2026",
+            "cut-500-from-your-monthly-budget-in-30-days",
+          ]
+
+          # Slugs que tienen versión EN (los que tenían slug_en en la BD)
+          finance_en = [
+            "requisitos-para-obtener-asistencia-publica-si-eres-inmigrante-en-usa",
+            "consejos-para-obtener-el-maximo-provecho-de-tu-cuenta-de-ahorros-ira",
+            "como-evitar-errores-comunes-al-elegir-tu-plan-de-salud-en-ee-uu",
+            "por-que-debes-abrir-tu-cuenta-de-retiro-en-el-primer-dia-de-trabajo",
+            "consejos-para-gestionar-tus-finanzas-al-mudarte-a-usa-como-inmigrante",
+            "como-evitar-estafas-comunes-al-enviar-remesas-a-mexico-en-2026",
+            "como-entender-el-proceso-de-declaracion-de-impuestos-como-inmigrante",
+            "estrategias-efectivas-para-invertir-en-bienes-raices-en-estados-unidos",
+            "como-elegir-el-seguro-de-salud-adecuado-para-tu-familia-en-usa-2026",
+            "como-aprovechar-programas-de-asistencia-hipotecaria-en-2026",
+            "como-solicitar-tu-primera-tarjeta-de-credito-siendo-inmigrante",
+            "como-proteger-tus-activos-en-usa-estrategias-legales-esenciales",
+            "como-abrir-cuenta-bancaria-con-itin-en-usa-2026",
+            "sin-credito-en-usa-que-ayuda-y-que-no-mejora-tu-historial",
+            "guia-para-elegir-la-mejor-empresa-de-reparacion-de-credito-2026",
+            "ahorrar-para-tu-casa-en-florida-con-cuentas-de-alto",
+            "refinanciar-hipoteca-en-2026-5-mejores-opciones",
+            "abre-cuenta-en-wells-fargo-con-itin-sin-ssn-guia-2026",
+            "carecredit-como-usarlo-para-deudas-medicas-en-usa",
+            "abre-cuenta-en-bank-of-america-con-itin-sin-ssn-2026",
+            "ahorrar-para-el-enganche-de-casa-en-florida-2026",
+            "las-10-ciudades-mas-baratas-para-vivir-bien-en-usa",
+            "deuda-medica-en-usa-como-proteger-tu-credito",
+            "7-bancos-que-aceptan-itin-sin-ssn-en-usa-2026",
+            "que-construye-credito-en-usa-y-que-no-guia-2026",
+            "reparacion-de-credito-5-mejores-empresas-en-2026",
+            "itin-para-pagar-impuestos-sin-ssn-guia-completa",
+            "transferwise-vs-western-union-para-remesas-en-2026",
+            "como-abrir-cuenta-en-capital-one-siendo-inmigrante",
+            "como-obtener-un-itin-en-usa-guia-paso-a-paso",
+            "wise-vs-remitly-cual-conviene-para-envios-a-mexico",
+            "como-abrir-cuenta-en-chime-siendo-inmigrante-en-usa",
+            "save-1000-on-groceries-apps-meal-prep-guide",
+            "best-budgeting-apps-for-singles-in-2026",
+            "subscription-budgeting-save-300-without-canceling",
+            "boost-your-credit-score-50-points-in-3-months",
+            "best-investment-apps-for-beginners-in-2026",
+            "save-500-on-homeowners-insurance-in-2026",
+            "cut-your-cell-phone-bill-by-30-in-2026",
+            "best-budgeting-apps-for-families-in-2026",
+            "save-300-monthly-30-day-meal-planning-challenge",
+            "cut-your-rent-15-in-2026-proven-strategies",
+            "best-credit-cards-for-cash-back-on-groceries-2026",
+            "save-on-travel-without-a-credit-card-in-2026",
+            "cut-subscription-costs-50-step-by-step-guide",
+            "best-budgeting-for-new-homeowners-2026",
+            "cut-your-power-bill-by-300-2026-tactics",
+            "5-ways-to-negotiate-bills-and-save-2000-in-2026",
+            "minimalist-budget-save-more-with-less-effort",
+            "save-money-on-gas-11-tactics-that-cut-costs",
+            "cut-car-maintenance-costs-10-ways-to-save-in-2026",
+            "503020-budget-rule-step-by-step-guide",
+            "best-high-yield-savings-accounts-usa-2026",
+            "save-400-monthly-apps-and-tactics-that-work",
+            "top-7-budgeting-apps-for-college-students-2026",
+            "save-money-on-groceries-without-coupons-in-2026",
+            "12-ways-to-cut-your-summer-utility-bill-by-30",
+            "best-budgeting-tools-for-freelancers-2026",
+            "cut-500-from-your-monthly-budget-in-30-days",
+          ]
+
+          urls = [f"https://{HOST}/es/fin/{s}" for s in finance_es]
+          urls += [f"https://{HOST}/en/fin/{s}" for s in finance_en]
+
+          print(f"Total URLs a enviar: {len(urls)}")
+
+          def submit(url_list):
+              payload = {
+                  "host": HOST,
+                  "key": KEY,
+                  "keyLocation": f"https://{HOST}/{KEY}.txt",
+                  "urlList": url_list,
+              }
+              body = json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  "https://api.indexnow.org/IndexNow",
+                  data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status, r.read().decode()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()
+
+          # Enviar en chunks de 500 (límite IndexNow)
+          import math
+          chunk_size = 500
+          for i in range(0, len(urls), chunk_size):
+              chunk = urls[i:i+chunk_size]
+              status, body = submit(chunk)
+              print(f"Chunk {i//chunk_size+1}: HTTP {status} — {body[:120]}")
+              if status not in (200, 202):
+                  print(f"❌ Fallo en chunk {i//chunk_size+1}")
+                  sys.exit(1)
+
+          print(f"✅ {len(urls)} URLs financieras enviadas a IndexNow")
+          PYEOF
