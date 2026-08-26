@@ -2,6 +2,7 @@ import os
 import hashlib
 import re
 import time
+import json
 import requests
 from datetime import datetime, timezone, timedelta
 from serpapi import GoogleSearch
@@ -22,6 +23,7 @@ UNSPLASH_ACCESS_KEY = os.environ["UNSPLASH_ACCESS_KEY"]
 # GSC_SERVICE_ACCOUNT_JSON holds the *contents* of the service-account JSON
 # (the secret itself, not a file path) — see fetch_gsc_queries() below.
 GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:newstide.news")
+GSC_SERVICE_ACCOUNT_JSON = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "")
 
 # ── NICHE DEFINITION ──────────────────────────────────────────────────────────
 NICHE_LABEL = "finanzas personales hispanos USA"
@@ -346,10 +348,12 @@ def already_published_hash(keyword: str) -> bool:
 # Requires ONE of:
 #   GOOGLE_ACCESS_TOKEN        — OAuth2 bearer token (webmasters.readonly scope)
 #   GSC_SERVICE_ACCOUNT_JSON   — the *contents* of a service-account JSON key
-#                                 (this is what daily.yml passes in — a JSON
-#                                 string coming straight from the GitHub secret,
-#                                 NOT a file path). It is parsed with
-#                                 json.loads(), never opened with open().
+#                                 (this is what daily.yml / finance.yml pass in —
+#                                 a JSON string coming straight from the GitHub
+#                                 secret, NOT a file path). It is parsed with
+#                                 json.loads() and the RSA private key is used
+#                                 directly to sign a JWT — no google-auth /
+#                                 google-api-python-client dependency required.
 #
 # Returns [] silently if credentials or the API are unavailable — the
 # pipeline continues running with the other candidate sources.
@@ -365,32 +369,81 @@ def fetch_gsc_queries(
     - at least 30 impressions in the last `days_back` days
     Falls back to [] silently if credentials or API are unavailable.
     """
-    access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
-    sa_json_raw = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "")
+    access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "").strip()
+    sa_json_raw = GSC_SERVICE_ACCOUNT_JSON.strip()
 
     if not access_token and not sa_json_raw:
         print("  ℹ️  GSC: no credentials set — skipping GSC source")
         return []
 
     # ── Resolve bearer token from service-account JSON if needed ───────────
+    # Builds and signs the JWT manually with `cryptography` (already a
+    # dependency of this pipeline) instead of google-auth, which is NOT
+    # installed and previously caused: "No module named 'google'".
     if not access_token and sa_json_raw:
         try:
-            import json
-            import io
-            import google.oauth2.service_account as sa_module
-            import google.auth.transport.requests as ga_requests
+            import base64
+            import urllib.parse
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import padding
 
             try:
-                sa_info = json.loads(sa_json_raw)
+                service_account = json.loads(sa_json_raw)
             except json.JSONDecodeError as e:
                 print(f"  ⚠️  GSC: GSC_SERVICE_ACCOUNT_JSON is not valid JSON — skipping ({e})")
                 return []
 
-            creds = sa_module.Credentials.from_service_account_info(
-                sa_info, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+            client_email = service_account.get("client_email")
+            private_key_pem = service_account.get("private_key")
+            if not client_email or not private_key_pem:
+                print("  ⚠️  GSC: service-account JSON missing client_email/private_key — skipping")
+                return []
+
+            def _b64url(data: bytes) -> str:
+                return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+            now = int(time.time())
+            header = _b64url(
+                json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode("utf-8")
             )
-            creds.refresh(ga_requests.Request())
-            access_token = creds.token
+            claim_set = _b64url(
+                json.dumps(
+                    {
+                        "iss": client_email,
+                        "scope": "https://www.googleapis.com/auth/webmasters.readonly",
+                        "aud": "https://oauth2.googleapis.com/token",
+                        "iat": now,
+                        "exp": now + 3600,
+                    },
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+
+            private_key = serialization.load_pem_private_key(
+                private_key_pem.replace("\\n", "\n").encode("utf-8"),
+                password=None,
+            )
+            signature = private_key.sign(
+                f"{header}.{claim_set}".encode("ascii"),
+                padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
+            assertion = f"{header}.{claim_set}.{_b64url(signature)}"
+
+            token_resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data=urllib.parse.urlencode({
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": assertion,
+                }),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15,
+            )
+            token_resp.raise_for_status()
+            access_token = token_resp.json().get("access_token", "")
+            if not access_token:
+                print("  ⚠️  GSC: OAuth token response had no access_token — skipping")
+                return []
         except Exception as e:
             print(f"  ⚠️  GSC: could not obtain service-account token: {e}")
             return []
@@ -424,14 +477,17 @@ def fetch_gsc_queries(
         resp.raise_for_status()
         rows = resp.json().get("rows", [])
     except Exception as e:
-        print(f"  ⚠️  GSC API error: {e}")
+        print(f"  ⚠️  GSC API error (non-critical): {e}")
         return []
 
     candidates = []
     for row in rows:
+        if not isinstance(row, dict):
+            continue
         position = row.get("position", 0)
         impressions = row.get("impressions", 0)
-        query = (row.get("keys") or [""])[0].strip()
+        keys = row.get("keys") or [""]
+        query = (keys[0] or "").strip()
         if query and 4 <= position <= 20 and impressions >= 30:
             candidates.append(query)
 
