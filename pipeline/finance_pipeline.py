@@ -11,85 +11,87 @@ from supabase import create_client
 from dataforseo import fetch_keyword_metrics, sort_pool_by_score, enrich_article_data
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-SERPAPI_KEY          = os.environ["SERPAPI_KEY"]
-OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
-ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
-SUPABASE_URL         = os.environ["SUPABASE_URL"]
+SERPAPI_KEY = os.environ["SERPAPI_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
+UNSPLASH_ACCESS_KEY = os.environ["UNSPLASH_ACCESS_KEY"]
 
-# GSC is optional — pipeline runs fine if the env var is not set
+# GSC is optional — pipeline runs fine if the env var is not set.
+# GSC_SERVICE_ACCOUNT_JSON holds the *contents* of the service-account JSON
+# (the secret itself, not a file path) — see fetch_gsc_queries() below.
 GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:newstide.news")
 
 # ── NICHE DEFINITION ──────────────────────────────────────────────────────────
-NICHE_LABEL  = "finanzas personales hispanos USA"
-SITE_LANG    = "es"
-AUTHOR       = "Javier Valencia"
+NICHE_LABEL = "finanzas personales hispanos USA"
+SITE_LANG = "es"
+AUTHOR = "Javier Valencia"
 
-ARTICLES_PER_RUN  = 3
-MODEL_GENERATE    = "claude-sonnet-4-5"
-MODEL_FAST        = "gpt-4o-mini"
-MODEL_HUMANIZE    = "gpt-4o"
+ARTICLES_PER_RUN = 3
+MODEL_GENERATE = "claude-sonnet-4-5"
+MODEL_FAST = "gpt-4o-mini"
+MODEL_HUMANIZE = "gpt-4o"
 
 # ── SAFETY LIMITS ─────────────────────────────────────────────────────────────
-MAX_CLAUDE_CALLS_PER_RUN  = 12
+MAX_CLAUDE_CALLS_PER_RUN = 12
 MAX_CLAUDE_TOKENS_PER_RUN = 80_000
-MAX_POOL_EXPANSIONS       = 4
+MAX_POOL_EXPANSIONS = 4
 
-_claude_calls_this_run  = 0
+_claude_calls_this_run = 0
 _claude_tokens_this_run = 0
 
 # ── CONTENT QUALITY LIMITS ────────────────────────────────────────────────────
 # YMYL content (personal finance) requires longer, more thorough articles
-MIN_READING_TIME            = 10
-MIN_WORD_COUNT              = MIN_READING_TIME * 200   # 2000 words minimum
-MIN_H2_SECTIONS             = 3
-TOPIC_CLUSTER_COOLDOWN_DAYS = 14   # same cluster can't publish twice in 14 days
+MIN_READING_TIME = 10
+MIN_WORD_COUNT = MIN_READING_TIME * 200  # 2000 words minimum
+MIN_H2_SECTIONS = 3
+TOPIC_CLUSTER_COOLDOWN_DAYS = 14  # same cluster can't publish twice in 14 days
 
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
 TITLE_MAX_CHARS = 75
-TITLE_SOFT_MIN  = 55
-TITLE_SOFT_MAX  = 70
+TITLE_SOFT_MIN = 55
+TITLE_SOFT_MAX = 70
 
 # ── CATEGORIES ────────────────────────────────────────────────────────────────
 FIN_CATEGORIES = {
-    "crédito":        "Crédito",
-    "credit":         "Crédito",
-    "score":          "Crédito",
-    "historial":      "Crédito",
-    "tarjeta":        "Crédito",
-    "itin":           "Impuestos",
-    "taxes":          "Impuestos",
-    "impuesto":       "Impuestos",
-    "declaración":    "Impuestos",
-    "tax":            "Impuestos",
-    "ahorrar":        "Ahorro",
-    "ahorro":         "Ahorro",
+    "crédito": "Crédito",
+    "credit": "Crédito",
+    "score": "Crédito",
+    "historial": "Crédito",
+    "tarjeta": "Crédito",
+    "itin": "Impuestos",
+    "taxes": "Impuestos",
+    "impuesto": "Impuestos",
+    "declaración": "Impuestos",
+    "tax": "Impuestos",
+    "ahorrar": "Ahorro",
+    "ahorro": "Ahorro",
     "emergency fund": "Ahorro",
-    "fondo":          "Ahorro",
-    "presupuesto":    "Presupuesto",
-    "budget":         "Presupuesto",
-    "gastos":         "Presupuesto",
-    "invertir":       "Inversión",
-    "inversión":      "Inversión",
-    "bolsa":          "Inversión",
-    "etf":            "Inversión",
-    "roth":           "Inversión",
-    "401k":           "Inversión",
-    "remesa":         "Remesas",
-    "enviar dinero":  "Remesas",
-    "transferencia":  "Remesas",
-    "deuda":          "Deudas",
-    "debt":           "Deudas",
-    "préstamo":       "Deudas",
-    "loan":           "Deudas",
-    "hipoteca":       "Vivienda",
-    "renta":          "Vivienda",
-    "apartamento":    "Vivienda",
-    "trabajo":        "Ingresos Extra",
-    "freelance":      "Ingresos Extra",
-    "ganar dinero":   "Ingresos Extra",
-    "side hustle":    "Ingresos Extra",
+    "fondo": "Ahorro",
+    "presupuesto": "Presupuesto",
+    "budget": "Presupuesto",
+    "gastos": "Presupuesto",
+    "invertir": "Inversión",
+    "inversión": "Inversión",
+    "bolsa": "Inversión",
+    "etf": "Inversión",
+    "roth": "Inversión",
+    "401k": "Inversión",
+    "remesa": "Remesas",
+    "enviar dinero": "Remesas",
+    "transferencia": "Remesas",
+    "deuda": "Deudas",
+    "debt": "Deudas",
+    "préstamo": "Deudas",
+    "loan": "Deudas",
+    "hipoteca": "Vivienda",
+    "renta": "Vivienda",
+    "apartamento": "Vivienda",
+    "trabajo": "Ingresos Extra",
+    "freelance": "Ingresos Extra",
+    "ganar dinero": "Ingresos Extra",
+    "side hustle": "Ingresos Extra",
 }
 
 GRADIENTS = [
@@ -115,20 +117,19 @@ EDITORIAL_NOTE_ES = """
 *Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y supervisado por Javier Valencia, fundador de NewsTide e Ingeniero Informático. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
 """
 
-INDEXNOW_KEY     = "964bf589528b466cace60749e05cfcb6"
-INDEXNOW_HOST    = "www.newstide.news"
+INDEXNOW_KEY = "964bf589528b466cace60749e05cfcb6"
+INDEXNOW_HOST = "www.newstide.news"
 INDEXNOW_KEY_LOC = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
 
 # ── KEYWORD METRICS CACHE ────────────────────────────────────────────────────
 _kw_metrics: dict = {}
 
-# Finance articles are served at /es/fin/<slug>
+# Finance articles are served at /es/fin/[slug]
 FINANCE_URL_PREFIX = f"https://{INDEXNOW_HOST}/es/fin"
 
-openai_client   = OpenAI(api_key=OPENAI_API_KEY)
-claude_client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
 
 def ping_indexnow(urls: list) -> None:
     if not urls:
@@ -149,7 +150,6 @@ def ping_indexnow(urls: list) -> None:
     except Exception as e:
         print(f"  ⚠️  IndexNow ping failed (non-critical): {e}")
 
-
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def smart_trim(text: str, limit: int) -> str:
     """Trim text to at most `limit` chars, cutting only at a word boundary.
@@ -163,7 +163,6 @@ def smart_trim(text: str, limit: int) -> str:
         cut = cut.rsplit(" ", 1)[0]
     return cut.strip(" -:;,.")
 
-
 def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
     text = re.sub(r'^\*+\s*', '', (text or '').strip())
     text = re.sub(r"\s+", " ", text)
@@ -174,7 +173,6 @@ def normalize_excerpt(text: str, min_len: int = 120, max_len: int = 155) -> str:
     if " " in cut:
         cut = cut.rsplit(" ", 1)[0]
     return cut.strip(" -:;,.") + "."
-
 
 def slugify(text: str) -> str:
     """Convert text to a URL-safe slug. Cap at 75 chars AFTER slugification."""
@@ -190,14 +188,11 @@ def slugify(text: str) -> str:
         text = cut
     return text.strip("-")
 
-
 def fix_double_quotes(text: str) -> str:
     return text.replace('""', '"')
 
-
 def md5(text: str) -> str:
     return hashlib.md5(text.lower().strip().encode()).hexdigest()
-
 
 def detect_category(keyword: str) -> str:
     kw = keyword.lower()
@@ -206,17 +201,14 @@ def detect_category(keyword: str) -> str:
             return cat
     return "Ahorro"
 
-
 def reading_time(text: str) -> int:
     return max(MIN_READING_TIME, round(len(text.split()) / 200))
-
 
 def strip_code_fences(text: str) -> str:
     text = text.strip()
     text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text)
     text = re.sub(r'\n```\s*$', '', text)
     return text.strip()
-
 
 def has_external_link(content: str) -> bool:
     links = re.findall(r'https?://[^\s\)\"\' ]+', content)
@@ -225,12 +217,10 @@ def has_external_link(content: str) -> bool:
             return True
     return False
 
-
 def clean_serp_candidate(text: str) -> str:
     text = re.sub(r'^\[[^\]]+\]\s*', '', (text or '').strip())
     text = re.sub(r'\s*—\s*.{0,120}$', '', text).strip()
     return re.sub(r"\s+", " ", text).strip()
-
 
 def topic_cluster_key(text: str) -> str:
     stop = {"2026","2025","guia","guía","mejores","mejor","como","cómo",
@@ -239,7 +229,6 @@ def topic_cluster_key(text: str) -> str:
     base = slugify(text)
     tokens = [t for t in base.split('-') if len(t) > 2 and t not in stop]
     return '-'.join(tokens[:5])
-
 
 def topic_cluster_on_cooldown(
     candidate: str,
@@ -268,11 +257,9 @@ def topic_cluster_on_cooldown(
             return True
     return False
 
-
 # ── COST GUARD ────────────────────────────────────────────────────────────────
 class CostLimitExceeded(Exception):
     pass
-
 
 def _check_claude_budget(output_tokens: int = 0) -> None:
     global _claude_calls_this_run, _claude_tokens_this_run
@@ -281,17 +268,15 @@ def _check_claude_budget(output_tokens: int = 0) -> None:
     if _claude_tokens_this_run + output_tokens > MAX_CLAUDE_TOKENS_PER_RUN:
         raise CostLimitExceeded(f"🛑 COST LIMIT: tokens would exceed {MAX_CLAUDE_TOKENS_PER_RUN:,} — aborting.")
 
-
 def _register_claude_call(output_tokens: int) -> None:
     global _claude_calls_this_run, _claude_tokens_this_run
-    _claude_calls_this_run  += 1
+    _claude_calls_this_run += 1
     _claude_tokens_this_run += output_tokens
     print(f"  📊 Claude: {_claude_calls_this_run}/{MAX_CLAUDE_CALLS_PER_RUN} calls, {_claude_tokens_this_run:,}/{MAX_CLAUDE_TOKENS_PER_RUN:,} tokens")
 
-
 # ── CONTENT VALIDATION ────────────────────────────────────────────────────────
 def validate_article_content(content: str, label: str = "article") -> bool:
-    words    = len(content.split())
+    words = len(content.split())
     h2_count = len(re.findall(r'^#{2,3} ', content, re.MULTILINE))
     ok = True
     if words < MIN_WORD_COUNT:
@@ -312,7 +297,6 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if ok:
         print(f"  ✅ VALIDATION OK [{label}]: {words} words, {h2_count} H2/H3 sections")
     return ok
-
 
 # ── LOAD RECENT ARTICLES (BOTH TABLES) ───────────────────────────────────────
 def get_recent_articles() -> list[dict]:
@@ -335,7 +319,6 @@ def get_recent_articles() -> list[dict]:
     print(f"  📊 Total dedup context: {len(combined)} articles")
     return combined
 
-
 def format_recent_context(articles: list[dict]) -> str:
     if not articles:
         return "No hay artículos publicados todavía."
@@ -343,7 +326,6 @@ def format_recent_context(articles: list[dict]) -> str:
         f"- [{r.get('category','?')}] {r.get('title') or r.get('keyword','')}"
         for r in articles[:120]
     )
-
 
 def already_published_hash(keyword: str) -> bool:
     clean = slugify(clean_serp_candidate(keyword))
@@ -357,14 +339,20 @@ def already_published_hash(keyword: str) -> bool:
             pass
     return False
 
-
 # ── GSC: FETCH HIGH-OPPORTUNITY QUERIES ──────────────────────────────────────
-# Pulls queries where the finance site already has impressions but low CTR
-# (position 4-20) — easy wins for the content pipeline.
-# Requires GOOGLE_APPLICATION_CREDENTIALS env var pointing to a service-account
-# JSON file with Search Console read access, OR a valid access token via
-# GOOGLE_ACCESS_TOKEN. Silently skips if credentials are not available.
-
+# Pulls queries where the finance site already has impressions but a mediocre
+# average position (4–20) — easy wins for the content pipeline.
+#
+# Requires ONE of:
+#   GOOGLE_ACCESS_TOKEN        — OAuth2 bearer token (webmasters.readonly scope)
+#   GSC_SERVICE_ACCOUNT_JSON   — the *contents* of a service-account JSON key
+#                                 (this is what daily.yml passes in — a JSON
+#                                 string coming straight from the GitHub secret,
+#                                 NOT a file path). It is parsed with
+#                                 json.loads(), never opened with open().
+#
+# Returns [] silently if credentials or the API are unavailable — the
+# pipeline continues running with the other candidate sources.
 def fetch_gsc_queries(
     site_url: str = GSC_SITE_URL,
     days_back: int = 28,
@@ -372,27 +360,34 @@ def fetch_gsc_queries(
 ) -> list[str]:
     """
     Returns a list of query strings from GSC where:
-      - page matches /es/fin/ (finance section)
-      - average position between 4 and 20 (quick-win territory)
-      - at least 30 impressions in the last `days_back` days
-
+    - page matches /es/fin/ (finance section)
+    - average position between 4 and 20 (quick-win territory)
+    - at least 30 impressions in the last `days_back` days
     Falls back to [] silently if credentials or API are unavailable.
     """
     access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
-    credentials_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    sa_json_raw = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "")
 
-    if not access_token and not credentials_file:
+    if not access_token and not sa_json_raw:
         print("  ℹ️  GSC: no credentials set — skipping GSC source")
         return []
 
-    # ── Obtain a bearer token ─────────────────────────────────────────────
-    if not access_token and credentials_file:
+    # ── Resolve bearer token from service-account JSON if needed ───────────
+    if not access_token and sa_json_raw:
         try:
-            import google.oauth2.service_account as sa
+            import json
+            import io
+            import google.oauth2.service_account as sa_module
             import google.auth.transport.requests as ga_requests
-            creds = sa.Credentials.from_service_account_file(
-                credentials_file,
-                scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+
+            try:
+                sa_info = json.loads(sa_json_raw)
+            except json.JSONDecodeError as e:
+                print(f"  ⚠️  GSC: GSC_SERVICE_ACCOUNT_JSON is not valid JSON — skipping ({e})")
+                return []
+
+            creds = sa_module.Credentials.from_service_account_info(
+                sa_info, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
             )
             creds.refresh(ga_requests.Request())
             access_token = creds.token
@@ -400,31 +395,29 @@ def fetch_gsc_queries(
             print(f"  ⚠️  GSC: could not obtain service-account token: {e}")
             return []
 
-    end_date   = datetime.now(timezone.utc).date()
+    end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=days_back)
-
     payload = {
-        "startDate":  str(start_date),
-        "endDate":    str(end_date),
+        "startDate": str(start_date),
+        "endDate": str(end_date),
         "dimensions": ["query"],
         "dimensionFilterGroups": [{
             "filters": [{
-                "dimension":  "page",
-                "operator":   "contains",
+                "dimension": "page",
+                "operator": "contains",
                 "expression": "/es/fin/",
             }]
         }],
         "rowLimit": row_limit,
         "startRow": 0,
     }
-
     try:
         resp = requests.post(
             f"https://searchconsole.googleapis.com/webmasters/v3/sites/{requests.utils.quote(site_url, safe='')}/searchAnalytics/query",
             json=payload,
             headers={
                 "Authorization": f"Bearer {access_token}",
-                "Content-Type":  "application/json",
+                "Content-Type": "application/json",
             },
             timeout=15,
         )
@@ -434,20 +427,17 @@ def fetch_gsc_queries(
         print(f"  ⚠️  GSC API error: {e}")
         return []
 
-    # Filter: position 4-20 AND at least 30 impressions
     candidates = []
     for row in rows:
-        position    = row.get("position", 0)
+        position = row.get("position", 0)
         impressions = row.get("impressions", 0)
-        query       = (row.get("keys") or [""])[0].strip()
+        query = (row.get("keys") or [""])[0].strip()
         if query and 4 <= position <= 20 and impressions >= 30:
             candidates.append(query)
 
-    print(f"  📊 GSC: {len(candidates)} finance queries in positions 4-20 (≥30 impressions)")
+    print(f"  ✅ GSC: {len(candidates)} finance queries in positions 4-20, ≥30 impressions")
     return candidates
 
-
-# ── SERPAPI SOURCES ────────────────────────────────────────────────────────────
 def fetch_serpapi_hispano_news() -> list[str]:
     queries = [
         "cómo construir crédito sin historial en USA 2026",
@@ -459,7 +449,11 @@ def fetch_serpapi_hispano_news() -> list[str]:
     results = []
     for q in queries:
         try:
-            params = {"q": q, "tbm": "nws", "hl": "es", "gl": "us", "api_key": SERPAPI_KEY, "num": 5}
+            params = {
+                "q": q, "tbm": "nws",
+                "hl": "es", "gl": "us",
+                "api_key": SERPAPI_KEY, "num": 5,
+            }
             data = GoogleSearch(params).get_dict()
             for r in data.get("news_results", data.get("organic_results", []))[:4]:
                 title = clean_serp_candidate(r.get("title", ""))
@@ -470,7 +464,6 @@ def fetch_serpapi_hispano_news() -> list[str]:
             print(f"  SerpAPI hispano-news error ({q[:40]}): {e}")
         time.sleep(0.8)
     return results
-
 
 def fetch_serpapi_credit_saving() -> list[str]:
     queries = [
@@ -483,7 +476,11 @@ def fetch_serpapi_credit_saving() -> list[str]:
     results = []
     for q in queries:
         try:
-            params = {"q": q, "hl": "es", "gl": "us", "api_key": SERPAPI_KEY, "num": 5}
+            params = {
+                "q": q,
+                "hl": "es", "gl": "us",
+                "api_key": SERPAPI_KEY, "num": 5,
+            }
             data = GoogleSearch(params).get_dict()
             for r in data.get("organic_results", [])[:3]:
                 title = clean_serp_candidate(r.get("title", ""))
@@ -493,7 +490,6 @@ def fetch_serpapi_credit_saving() -> list[str]:
             print(f"  SerpAPI credit-saving error: {e}")
         time.sleep(0.8)
     return results
-
 
 def fetch_serpapi_inversion_impuestos() -> list[str]:
     queries = [
@@ -506,7 +502,11 @@ def fetch_serpapi_inversion_impuestos() -> list[str]:
     results = []
     for q in queries:
         try:
-            params = {"q": q, "tbm": "nws", "hl": "es", "gl": "us", "api_key": SERPAPI_KEY, "num": 5}
+            params = {
+                "q": q, "tbm": "nws",
+                "hl": "es", "gl": "us",
+                "api_key": SERPAPI_KEY, "num": 5,
+            }
             data = GoogleSearch(params).get_dict()
             for r in data.get("news_results", data.get("organic_results", []))[:4]:
                 title = clean_serp_candidate(r.get("title", ""))
@@ -517,7 +517,6 @@ def fetch_serpapi_inversion_impuestos() -> list[str]:
             print(f"  SerpAPI inversión error: {e}")
         time.sleep(0.8)
     return results
-
 
 # ── GPT NICHE TOPIC GENERATOR ─────────────────────────────────────────────────
 def generate_niche_topics(recent_articles: list[dict], n: int = 18) -> list[str]:
@@ -531,10 +530,11 @@ YA PUBLICADO (NO repetir ni usar ángulo similar):
 {recent_titles if recent_titles else "Nada todavía."}
 
 Genera exactamente {n} ideas de artículo que rankeen bien en Google.
+
 - Productos y leyes AMERICANAS reales.
 - Sin números inventados en el título.
 - Todo en ESPAÑOL.
-- Cada título debe ser una frase COMPLETA entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
+- Cada título debe ser una frase COMPLETA, entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
 - NUNCA cortes un título a la mitad. NUNCA uses puntos suspensivos.
 
 Formato: un título por línea, sin numeración, sin explicación."""
@@ -551,7 +551,7 @@ Formato: un título por línea, sin numeración, sin explicación."""
         print(f"  ⚠️  Error generando temas: {e}")
         return []
 
-
+# ── SAFE FALLBACK TOPICS ──────────────────────────────────────────────────────
 def get_fallback_topics() -> list[str]:
     return [
         "Cómo construir crédito en USA sin historial crediticio desde cero",
@@ -574,21 +574,18 @@ def get_fallback_topics() -> list[str]:
         "Cómo salir de deudas de tarjeta de crédito en USA sin arruinarte",
     ]
 
-
 # ── DEDUPLICATION ─────────────────────────────────────────────────────────────
 def is_duplicate_topic(
     candidate: str, recent_articles: list[dict], published_this_run: list[str]
 ) -> bool:
     if topic_cluster_on_cooldown(candidate, recent_articles, published_this_run):
-        print(f"  🕐 Cluster cooldown hit: {candidate[:60]}")
+        print(f"  ⏳ Cluster cooldown hit: {candidate[:60]}")
         return True
-
     all_existing = [
         a.get("title") or a.get("keyword", "") for a in recent_articles
     ] + published_this_run
     if not all_existing:
         return False
-
     existing_str = "\n".join(f"- {t}" for t in all_existing[:60] if t)
     prompt = f"""Artículo candidato: "{candidate}"
 
@@ -597,6 +594,7 @@ Artículos ya publicados:
 
 ¿El candidato cubre EL MISMO tema específico o un ángulo muy similar?
 Solo YES si: mismo producto principal Y mismo caso de uso.
+
 Responde SOLO: YES o NO"""
     try:
         resp = openai_client.chat.completions.create(
@@ -608,7 +606,6 @@ Responde SOLO: YES o NO"""
         return resp.choices[0].message.content.strip().upper().startswith("YES")
     except Exception:
         return False
-
 
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
     recent_titles = "\n".join(
@@ -627,8 +624,10 @@ Es demasiado similar a los ya publicados:
 {recent_titles}
 
 Transfórmalo usando este ángulo: {angle}
-El nuevo título debe ser una frase COMPLETA entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
+
+El nuevo título debe ser una frase COMPLETA, entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
 NUNCA cortes a la mitad. NUNCA uses puntos suspensivos.
+
 Responde SOLO con el nuevo título (1 línea)."""
     try:
         resp = openai_client.chat.completions.create(
@@ -643,10 +642,9 @@ Responde SOLO con el nuevo título (1 línea)."""
     except Exception:
         return original
 
-
 # ── BUILD CANDIDATE POOL ──────────────────────────────────────────────────────
 def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
-    print("🔍 Construyendo pool de candidatos finanzas...")
+    print("🔍 Construyendo pool de candidatos (finanzas)...")
     pool = []
 
     print("  📰 Source 1: Noticias hispanas (SerpAPI)...")
@@ -664,7 +662,7 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
         pool.extend(gsc_queries)
         print(f"  ✅ GSC aportó {len(gsc_queries)} queries al pool")
     else:
-        print("  ℹ️  GSC sin datos — continuando sin esa fuente")
+        print("  ℹ️  GSC sin datos, continuando sin esa fuente")
 
     print("  🧠 Source 5: Temas GPT (niche)...")
     pool.extend(generate_niche_topics(recent_articles, n=18))
@@ -681,13 +679,12 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 
     print(f"  ✅ Pool: {len(unique)} candidatos únicos")
 
-    # ── DataForSEO keyword metrics ──────────────────────────────────────────────
+    # ── DataForSEO keyword metrics ────────────────────────────────────────────
     global _kw_metrics
     _kw_metrics = fetch_keyword_metrics(unique)
     unique = sort_pool_by_score(unique, _kw_metrics)
 
     return unique
-
 
 # ── GENERATE ARTICLE WITH CLAUDE ──────────────────────────────────────────────
 def generate_article(keyword: str, recent_context: str) -> dict:
@@ -696,22 +693,23 @@ def generate_article(keyword: str, recent_context: str) -> dict:
 
     prompt = f"""Escribe un artículo completo EN ESPAÑOL sobre finanzas personales para hispanos en USA: "{keyword}"
 
-YA PUBLICADO — no repetir estos temas ni ángulos:
+YA PUBLICADO (no repetir estos temas ni ángulos):
 {recent_context}
 
-ESTE ES YMYL — sigue E-E-A-T estrictamente.
+ESTE ES CONTENIDO YMYL: sigue E-E-A-T estrictamente.
 - Toda cifra o dato DEBE citar fuente real inline.
 - Incluye al menos 2 enlaces externos reales a fuentes primarias americanas.
 - MÍNIMO {MIN_WORD_COUNT} palabras.
 - 4-5 H2 y FAQ con 3-4 H3.
 - Sección honesta "Cuándo esto NO funciona".
 - Todo en ESPAÑOL.
-- El H1 del artículo DEBE ser una frase completa entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres. NUNCA lo cortes a la mitad. NUNCA uses puntos suspensivos en el título.
-- Al final escribe: EXCERPT: [120 a 155 caracteres en español]"""
+- El H1 del artículo DEBE ser una frase completa, entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
+  NUNCA lo cortes a la mitad. NUNCA uses puntos suspensivos en el título.
+
+Al final escribe: EXCERPT: [120 a 155 caracteres en español]"""
 
     message = claude_client.messages.create(
-        model=MODEL_GENERATE,
-        max_tokens=8000,
+        model=MODEL_GENERATE, max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
         system=(
             f"Eres un periodista financiero senior para hispanos en USA. "
@@ -720,7 +718,8 @@ ESTE ES YMYL — sigue E-E-A-T estrictamente.
             f"NUNCA cortes un título a la mitad. NUNCA uses puntos suspensivos en ningún título. "
             f"El título DEBE ser siempre una oración o frase nominal COMPLETA con sentido propio. "
             f"REGLA DE CONTENIDO: NUNCA uses '...' dentro del cuerpo del artículo para indicar que hay más texto. "
-            f"Si una sección queda incompleta, complétala o elimínala. El artículo debe terminar con una conclusión o sección final completa."
+            f"Si una sección queda incompleta, complétala o elimínala. El artículo debe terminar con una "
+            f"conclusión o sección final completa."
         ),
     )
     output_tokens = message.usage.output_tokens if hasattr(message, "usage") else 8000
@@ -734,7 +733,6 @@ ESTE ES YMYL — sigue E-E-A-T estrictamente.
         excerpt = normalize_excerpt(parts[1].strip(), 120, 155)
     return {"content": raw, "excerpt": excerpt, "category": category}
 
-
 # ── HUMANIZE WITH GPT ─────────────────────────────────────────────────────────
 def humanize(text: str) -> str:
     print("  🧠 GPT humanizando...")
@@ -746,15 +744,13 @@ def humanize(text: str) -> str:
                 "NO cambies datos, cifras ni fuentes. "
                 "Mantén todos los encabezados markdown, tablas, FAQs y enlaces externos. "
                 "NUNCA uses puntos suspensivos '...' en el cuerpo del artículo. "
-                "NUNCA cortes secciones a la mitad — si una sección empieza, termínala completamente."
+                "NUNCA cortes secciones a la mitad: si una sección empieza, termínala completamente."
             )},
             {"role": "user", "content": text}
         ],
-        temperature=0.85,
-        max_tokens=8000,
+        temperature=0.85, max_tokens=8000,
     )
     return response.choices[0].message.content
-
 
 # ── UNSPLASH ──────────────────────────────────────────────────────────────────
 def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
@@ -771,19 +767,18 @@ def get_unsplash_image(query: str, idx: int = 0) -> dict | None:
             return None
         pick = results[min(idx, len(results) - 1)]
         return {
-            "url":        pick["urls"]["regular"],
-            "alt":        pick.get("alt_description") or query,
-            "author":     pick["user"]["name"],
+            "url": pick["urls"]["regular"],
+            "alt": pick.get("alt_description") or query,
+            "author": pick["user"]["name"],
             "author_url": pick["user"]["links"]["html"],
         }
     except Exception as e:
         print(f"  Unsplash error: {e}")
         return None
 
-
 def get_image_queries(title: str, excerpt: str) -> list[str]:
     prompt = (
-        f"Título: {title}\nResumen: {excerpt}\n\n"
+        f"Título: {title}\n{excerpt}\n\n"
         "Dame 3 búsquedas cortas en INGLÉS (2-4 palabras) para fotos de Unsplash. "
         "Las búsquedas deben ser MUY específicas al tema del artículo, no genéricas. "
         "Responde SOLO con las 3 búsquedas, una por línea."
@@ -798,7 +793,6 @@ def get_image_queries(title: str, excerpt: str) -> list[str]:
     except Exception:
         return ["family budget planning", "personal finance money", "credit card wallet"]
 
-
 def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | None:
     for query in queries:
         img = get_unsplash_image(query, idx=idx)
@@ -807,7 +801,6 @@ def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | Non
             return img
         time.sleep(0.4)
     return None
-
 
 def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     def img_md(img: dict) -> str:
@@ -836,7 +829,6 @@ def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
         lines = new_lines
     return "\n".join(lines)
 
-
 # ── INTERNAL LINKING ──────────────────────────────────────────────────────────
 def fetch_related_articles(category: str, current_slug: str, limit: int = 12) -> list[dict]:
     try:
@@ -854,7 +846,6 @@ def fetch_related_articles(category: str, current_slug: str, limit: int = 12) ->
     except Exception as e:
         print(f"  ⚠️  Internal link fetch failed: {e}")
         return []
-
 
 def inject_internal_links(content: str, category: str, slug: str) -> str:
     related = fetch_related_articles(category, slug, limit=12)
@@ -881,8 +872,7 @@ ARTÍCULO:
         resp = openai_client.chat.completions.create(
             model=MODEL_FAST,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=8000,
+            temperature=0.2, max_tokens=8000,
         )
         result = strip_code_fences(resp.choices[0].message.content.strip())
         if len(result) >= len(content) * 0.80:
@@ -892,7 +882,6 @@ ARTÍCULO:
     except Exception as e:
         print(f"  ⚠️  Internal link injection failed: {e}")
         return content
-
 
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 def save_article(
@@ -918,22 +907,22 @@ def save_article(
     content_final = content + EDITORIAL_NOTE_ES + FINANCE_DISCLAIMER_ES
 
     data = {
-        "title":           title,
-        "slug":            slug,
-        "content":         content_final,
-        "excerpt":         excerpt,
-        "category":        category,
-        "author":          AUTHOR,
-        "keyword":         clean_keyword,
-        "keyword_hash":    md5(clean_keyword),
-        "reading_time":    rt,
-        "featured":        article_idx == 0,
-        "image_gradient":  GRADIENTS[article_idx % len(GRADIENTS)],
-        "published_at":    now_iso,
+        "title": title,
+        "slug": slug,
+        "content": content_final,
+        "excerpt": excerpt,
+        "category": category,
+        "author": AUTHOR,
+        "keyword": clean_keyword,
+        "keyword_hash": md5(clean_keyword),
+        "reading_time": rt,
+        "featured": article_idx == 0,
+        "image_gradient": GRADIENTS[article_idx % len(GRADIENTS)],
+        "published_at": now_iso,
         "cover_image_url": cover_image_url,
     }
 
-    # ── KEYWORD METRICS (DataForSEO) ──────────────────────────────────────────────
+    # ── KEYWORD METRICS (DataForSEO) ────────────────────────────────────────
     data = enrich_article_data(data, keyword, _kw_metrics)
 
     try:
@@ -944,7 +933,6 @@ def save_article(
     except Exception as e:
         print(f"  ❌ Error guardando: {e}")
         return None
-
 
 # ── PROCESS ONE TOPIC ─────────────────────────────────────────────────────────
 def process_topic(
@@ -962,7 +950,7 @@ def process_topic(
         print(f"  ⚠️  Duplicado — mutando (intento {attempt+1}/5)...")
         candidate = mutate_topic(candidate, recent_articles, attempt)
     else:
-        print(f"  ❌ No se encontró ángulo único: {topic[:50]} — saltando")
+        print(f"  ❌ No se encontró ángulo único para: {topic[:50]} — saltando")
         return None
 
     if already_published_hash(candidate):
@@ -971,7 +959,7 @@ def process_topic(
 
     print(f"  🎯 Aprobado: {candidate[:80]}")
     try:
-        result      = generate_article(candidate, recent_context)
+        result = generate_article(candidate, recent_context)
         raw_content = result["content"]
 
         if not validate_article_content(raw_content, label="claude-raw"):
@@ -991,10 +979,10 @@ def process_topic(
         slug = slugify(title_preview)
 
         print("  🔍 Buscando imágenes en Unsplash...")
-        queries    = get_image_queries(title_preview, result["excerpt"])
-        cover_img  = fetch_best_image(queries, title_preview, idx=0)
+        queries = get_image_queries(title_preview, result["excerpt"])
+        cover_img = fetch_best_image(queries, title_preview, idx=0)
         inline_img = fetch_best_image(queries, title_preview, idx=1)
-        content    = inject_images(humanized, cover_img, inline_img)
+        content = inject_images(humanized, cover_img, inline_img)
 
         print("  🔗 Inyectando enlaces internos...")
         content = inject_internal_links(content, result["category"], slug)
@@ -1009,19 +997,16 @@ def process_topic(
             slug=slug,
             cover_image_url=cover_img["url"] if cover_img else None,
         )
-
     except CostLimitExceeded:
         raise
     except Exception as e:
         print(f"  ❌ Error procesando '{candidate[:50]}': {e}")
         return None
 
-
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n🚀 NewsTide Finance Pipeline [{NICHE_LABEL.upper()}] — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
-
     print("📚 Cargando artículos recientes (180 días, ambas tablas)...")
     recent_articles = get_recent_articles()
 
@@ -1042,7 +1027,8 @@ def main():
                 print(f"\n♻️  Expandiendo pool (intento {extra_niche_attempts}/{MAX_POOL_EXPANSIONS})...")
                 extra = generate_niche_topics(
                     recent_articles + [
-                        {"title": t, "category": "Ahorro", "keyword": t, "excerpt": "", "published_at": datetime.now(timezone.utc).isoformat()}
+                        {"title": t, "category": "Ahorro", "keyword": t, "excerpt": "",
+                         "published_at": datetime.now(timezone.utc).isoformat()}
                         for t in published_titles
                     ],
                     n=12,
@@ -1074,7 +1060,6 @@ def main():
     print(f"📊 Claude: {_claude_calls_this_run} calls | {_claude_tokens_this_run:,} tokens")
     for i, t in enumerate(published_titles, 1):
         print(f"   {i}. {t[:80]}")
-
 
 if __name__ == "__main__":
     main()
