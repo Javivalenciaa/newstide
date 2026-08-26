@@ -10,3 +10,11 @@ from openai import OpenAI
 import anthropic
 from supabase import create_client
 from dataforseo import fetch_keyword_metrics, sort_pool_by_score, enrich_article_data
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+SERPAPI_KEY          = os.environ["SERPAPI_KEY"]
+OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
+ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
+SUPABASE_URL         = os.environ["SUPABASE_URL"]
+SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+UNSPLASH_ACCESS_KEY  = os.environ["UNSPLASH_ACCESS_KEY"]
