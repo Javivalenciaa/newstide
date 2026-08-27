@@ -1,8 +1,8 @@
-
 import base64
 import http.client
 import json
 import os
+import re
 import time
 from typing import Any
 
@@ -12,6 +12,41 @@ DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "")
 MIN_VOLUME = 100
 MAX_DIFFICULTY = 70
 _BATCH_SIZE = 100
+
+# ── STOPWORDS FOR KEYWORD EXTRACTION ─────────────────────────────────────────
+_KEYWORD_STOP = {
+    "a","an","the","and","or","but","in","on","at","to","for","of","with",
+    "by","from","is","are","was","were","be","been","being","have","has",
+    "had","do","does","did","will","would","can","could","should","may",
+    "might","shall","how","what","why","when","where","which","who","your",
+    "our","vs","vs.","this","that","these","those","it","its","as","on",
+    "into","through","during","before","after","above","below","between",
+    "under","again","further","then","once","here","there","all","each",
+    "few","more","most","other","some","such","no","nor","not","only",
+    "own","same","so","than","too","very","just","also","now","about",
+}
+
+def extract_core_keyword(title: str) -> str:
+    """Extract a short, search-intent keyword from a long title.
+    
+    DataForSEO Google Ads Search Volume API works best with 2-5 word keywords.
+    Long titles (8-11 words) like "How to Build a Web App with Django in 7 Steps"
+    return 0 results. This function extracts the core topic.
+    
+    Examples:
+    - "How to Build a Web App with Django in 7 Steps" → "build web app django"
+    - "Airtable vs. ClickUp: Which Tool Designs Better Workflows?" → "airtable vs clickup"
+    - "Best SEO Tools for Indie Hackers to Boost Traffic in 2026" → "seo tools indie hackers"
+    """
+    tokens = [
+        w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+        if len(w) > 1 and w not in _KEYWORD_STOP
+    ]
+    # Keep 3-5 most meaningful words
+    selected = tokens[:5]
+    if len(selected) < 3 and len(tokens) >= 3:
+        return "-".join(tokens[:3])
+    return "-".join(selected)
 
 
 def _safe_items(data: Any) -> list[dict[str, Any]]:
@@ -40,6 +75,12 @@ def _safe_items(data: Any) -> list[dict[str, Any]]:
 
 
 def fetch_keyword_metrics(keywords: list[str]) -> dict[str, dict[str, Any]]:
+    """Fetch keyword metrics from DataForSEO.
+    
+    Now accepts both long titles and short keywords. For each keyword,
+    extracts the core keyword and queries DataForSEO with that.
+    Returns a dict keyed by the ORIGINAL keyword (for lookup compatibility).
+    """
     if not DATAFORSEO_LOGIN or not DATAFORSEO_PASSWORD:
         print("  ℹ️  DataForSEO: credentials not set — skipping keyword metrics")
         return {}
@@ -49,9 +90,14 @@ def fetch_keyword_metrics(keywords: list[str]) -> dict[str, dict[str, Any]]:
 
     print(f"  📊 DataForSEO: fetching metrics for {len(keywords)} keywords...")
     results: dict[str, dict[str, Any]] = {}
+    
+    # Extract core keywords for API calls
+    core_keywords = [extract_core_keyword(kw) for kw in keywords]
+    unique_cores = list(dict.fromkeys(core_keywords))  # preserve order, dedupe
+    
     batches = [
-        keywords[i : i + _BATCH_SIZE]
-        for i in range(0, len(keywords), _BATCH_SIZE)
+        unique_cores[i : i + _BATCH_SIZE]
+        for i in range(0, len(unique_cores), _BATCH_SIZE)
     ]
 
     auth_token = base64.b64encode(
@@ -107,6 +153,8 @@ def fetch_keyword_metrics(keywords: list[str]) -> dict[str, dict[str, Any]]:
 
             items = _safe_items(data)
 
+            # Build a lookup from core keyword → metrics
+            core_metrics: dict[str, dict[str, Any]] = {}
             for item in items:
                 keyword = str(item.get("keyword") or "").strip()
                 if not keyword:
@@ -124,11 +172,18 @@ def fetch_keyword_metrics(keywords: list[str]) -> dict[str, dict[str, Any]]:
 
                 difficulty = round(competition * 100)
                 kw_score = round(volume / (difficulty + 1), 2)
-                results[keyword.lower()] = {
+                core_metrics[keyword.lower()] = {
                     "volume": volume,
                     "difficulty": difficulty,
                     "kw_score": kw_score,
                 }
+
+            # Map back to original keywords
+            for original_kw, core_kw in zip(keywords, core_keywords):
+                meta = core_metrics.get(core_kw.lower())
+                if meta:
+                    results[original_kw.lower()] = meta
+                    results[original_kw.lower().strip()[:60]] = meta  # also index by truncated form
 
             print(
                 f"  ✅ DataForSEO batch {batch_idx + 1}/{len(batches)}: "
@@ -164,7 +219,12 @@ def sort_pool_by_score(
 
     for keyword in pool:
         key = keyword.lower().strip()
-        meta = metrics.get(key) or metrics.get(key[:50])
+        # Try multiple lookup strategies
+        meta = (
+            metrics.get(key) or 
+            metrics.get(key[:60]) or
+            metrics.get(extract_core_keyword(key).lower())
+        )
         if not isinstance(meta, dict):
             unscored.append(keyword)
             continue
@@ -196,8 +256,18 @@ def sort_pool_by_score(
 def enrich_article_data(
     data: dict, keyword: str, metrics: dict[str, dict[str, Any]]
 ) -> dict:
+    """Enrich article data with keyword metrics.
+    
+    Now uses extract_core_keyword() for robust lookup even when
+    keyword is a long title.
+    """
     key = keyword.lower().strip()
-    meta = metrics.get(key) or metrics.get(key[:50])
+    # Try multiple lookup strategies for robustness
+    meta = (
+        metrics.get(key) or 
+        metrics.get(key[:60]) or
+        metrics.get(extract_core_keyword(key).lower())
+    )
 
     if isinstance(meta, dict):
         data["search_volume"] = meta.get("volume")
