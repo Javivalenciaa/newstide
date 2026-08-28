@@ -70,7 +70,17 @@ def _log_task_errors(data: dict, batch_idx: int) -> None:
             )
 
 def _safe_items(data: Any) -> list[dict[str, Any]]:
-    """Extract result items without indexing a None value."""
+    """Extract result items without indexing a None value.
+
+    google_ads/search_volume/live returns keyword-metric objects DIRECTLY in
+    tasks[i]["result"] (each dict has a "keyword" field) — it does NOT nest
+    them inside a result_item["items"] wrapper the way SERP-type endpoints do.
+    The original version only ever checked for that "items" wrapper, so it
+    silently returned [] on every single call to this endpoint regardless of
+    whether DataForSEO actually had data — root cause of the "0 results
+    returned" runs on 2026-08-28 (both pipelines, both languages, no error of
+    any kind — a perfectly successful response that was just parsed wrong).
+    """
     if not isinstance(data, dict):
         return []
 
@@ -84,6 +94,13 @@ def _safe_items(data: Any) -> list[dict[str, Any]]:
         result = task.get("result")
         if not isinstance(result, list):
             continue
+
+        # Shape actually returned by this endpoint: result = [{keyword, search_volume, ...}, ...]
+        flat_items = [r for r in result if isinstance(r, dict) and "keyword" in r]
+        if flat_items:
+            return flat_items
+
+        # Fallback shape (SERP-type endpoints): result = [{items: [...]}]
         for result_item in result:
             if not isinstance(result_item, dict):
                 continue
