@@ -1,0 +1,32 @@
+# NewsTide — Gap List (ordenado por impacto en tráfico)
+
+Este documento NO se carga automáticamente en cada sesión (a diferencia de CLAUDE.md). Referéncialo solo cuando trabajes en priorización o retomes el roadmap. Motivo: mantener CLAUDE.md corto y barato en tokens.
+
+## Ya resuelto (no re-abrir sin motivo)
+1. Keyword research con volumen real (DataForSEO) — `pipeline/dataforseo.py`, integrado en ambos pipelines.
+2. GSC quick-wins con credenciales JSON — `fetch_gsc_queries()` en ambos pipelines, firma JWT manual con `cryptography` (no usa `google-auth`, que no está instalado).
+3. Internal linking dentro del cuerpo del artículo — `fetch_related_articles()` + `inject_internal_links()`, ya funcionando vía prompt de Claude/GPT.
+4. Internal linking persistente — `compute_related_articles()` en ambos pipelines (guarda top 5 en `related_articles jsonb`) + sidebar en los 4 `page.tsx` con fallback a query en vivo. Falta que se ejecute el SQL de la migración en Supabase (dado al usuario, no aplicado automáticamente).
+5. Guardrails: `content-guardrails.ts` (código muerto, nunca importado) archivado en `archive/`. El pipeline ya usa su propia versión Python (`run_content_guardrails()`).
+6. Fix categorías incoherentes EN/ES — la taxonomía real de `detect_category()` (8 categorías solopreneur, 9 de finanzas) no existía en ninguno de los 13+4 `page.tsx` que hardcodean colores/slugs/descripciones de categoría; estaban todos atascados en una taxonomía vieja de 5 categorías genéricas. Añadidas las categorías reales en todos esos archivos (aditivo, no se tocó ninguna categoría existente). Sin esto, las páginas de listado por categoría del nicho solopreneur estaban siempre vacías y el breadcrumb/schema apuntaba a la categoría equivocada.
+7. Testing automatizado — `pipeline/tests/` (pytest), 40 tests sobre funciones puras de ambos pipelines + `compute_related_articles()`. CI en `.github/workflows/pipeline-tests.yml` (corre en push/PR a `pipeline/**`, no toca `daily.yml`/`finance.yml`).
+8. Auditoría de cron + GSC + DataForSEO: cron de `daily.yml`/`finance.yml` y secrets verificados OK. Bug real corregido en `fetch_gsc_queries()` de `pipeline.py` (faltaba normalizar `\n` en la private key del service account, sí presente en la versión de `finance_pipeline.py`). Bug real corregido en `pipeline/dataforseo.py`: `language_code` estaba hardcodeado a `"en"` — `finance_pipeline.py` pedía volumen de búsqueda de keywords en español con idioma inglés. Ahora `fetch_keyword_metrics()` acepta `language_code` (default `"en"`, sin cambiar `pipeline.py`); `finance_pipeline.py` pasa `"es"`.
+9. **Fase 1 completa**: OG images dinámicas (`app/api/og/route.tsx`, `next/og`, sin coste — no requiere Vercel Pro) conectadas como fallback en los 4 `page.tsx` de artículo cuando no hay `cover_image_url`. FAQPage + HowTo schema (extraídos del markdown real, sin inventar datos) añadidos a `en/article/[slug]`, `en/fin/[slug]`, `es/fin/[slug]` (ya existía FAQPage en `articulo/[slug]`, faltaba HowTo ahí también). Menciones `SoftwareApplication` (nicho solopreneur) / `Organization` (nicho finanzas — son bancos/fintech, no software) en artículos "X vs Y", solo con nombres reales del título. Bug corregido: `es/fin/[slug]/page.tsx` enlazaba al autor a `/es/autores/` (ruta inexistente) en vez de `/autores/`. `@id` + `worksFor` añadidos al `Person` de ambas páginas de finanzas para igualar el nivel de detalle de las 2 páginas del vertical solopreneur (que ya tenían `sameAs` completo en `/autores` y `/en/authors`).
+10. **Fase 2 completa**: tabla `serp_tracking` + `pipeline/gsc_tracking.py` + `.github/workflows/gsc-tracking.yml` (diario, 2 días de margen para que GSC finalice datos). Canibalización con `pg_trgm`: funciones RPC `match_similar_articles`/`match_similar_finance_articles` + `is_duplicate_topic_trgm()` en ambos pipelines, como pre-check determinista antes del check GPT existente (que se mantiene intacto). `updated_at` real: columna + trigger `set_updated_at()` en ambas tablas, prerequisito técnico ya cerrado para el futuro content refresh pipeline (gap #3).
+11. **Fase 3 completa**: Topic clusters + pillar pages — `topic_cluster_key()` (determinista, sin columna nueva en Supabase, se calcula al vuelo con la misma lógica en Python y en `lib/topicClusters.ts`) + páginas `/en/topics/[cluster]` y `/temas/[cluster]` (solo vertical solopreneur, mínimo 3 artículos por cluster) + añadidas al sitemap. De paso, arreglado `ES_CATS`/`EN_CATS` en `app/sitemap.ts`, que tenían la misma taxonomía vieja ya corregida en los otros 13 archivos. Content refresh pipeline: `pipeline/refresh_pipeline.py` + `.github/workflows/content-refresh.yml` (1 artículo/día, prioridad por datos reales de `serp_tracking` — posición 4-20 con más impresiones primero —, nunca toca slug/id/categoría/fecha de publicación, solo `content`/`content_en`). `ARTICLES_PER_RUN` con lógica de cluster: implementado como `cluster_aware_reorder()` en ambos pipelines — **el número de artículos por ejecución NO cambia** (sigue siendo fijo), solo el ORDEN de selección prioriza clusters con 2-5 artículos (construyendo profundidad temática real) frente a clusters nuevos o ya saturados (6+). Interpretación deliberadamente conservadora dado que `ARTICLES_PER_RUN`/`MAX_CLAUDE_CALLS_PER_RUN` siguen protegidos como límite de coste.
+
+## Pendiente — por impacto
+
+| # | Gap | Impacto | Complejidad |
+|---|---|---|---|
+| 1 | pSEO: verificar que `pseo_pipeline.py` usa pricing real y actualizado | Alto | Media |
+| 2 | Búsqueda interna full-text | Medio | Baja |
+| 3 | Newsletter: envío real vía Resend (captura ya existe, envío no) | Medio | Baja |
+| 4 | Alertas de fallo del pipeline (Telegram/email) | Preventivo | Baja |
+
+## Top 5 recomendado
+1. GSC tracking a Supabase (visibilidad de qué está cayendo, antes de invertir en gaps grandes).
+2. Content refresh pipeline (mantiene rankings de artículos "best tools 2026").
+3. Topic clusters + pillar pages (topical authority real).
+4. FAQPage/HowTo schema (CTR con el mismo ranking).
+5. Canibalización con `pg_trgm` (refuerza dedup antes de escalar volumen de contenido).

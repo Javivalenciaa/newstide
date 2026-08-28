@@ -1,0 +1,44 @@
+# SEO Audit workflow
+# ⚠️  MANUAL EXECUTION ONLY — no schedule trigger intentionally.
+# Run via: GitHub Actions → "Run workflow" button.
+# Reason: each run costs significant API credits (SerpAPI + OpenAI).
+# DO NOT add a `schedule:` trigger here.
+
+name: SEO Audit (Manual Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Audit target (all | finance | main)'
+        required: false
+        default: 'all'
+
+jobs:
+  seo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run SEO Audit
+        env:
+          SERPAPI_KEY:          ${{ secrets.SERPAPI_KEY }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_ACCESS_TOKEN:  ${{ secrets.GOOGLE_ACCESS_TOKEN }}
+          GSC_SITE_URL:         ${{ secrets.GSC_SITE_URL }}
+        run: |
+          python pipeline/seo_audit.py --target ${{ github.event.inputs.target || 'all' }}

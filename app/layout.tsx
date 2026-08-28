@@ -1,0 +1,180 @@
+import type { Metadata } from 'next'
+import { Inter, JetBrains_Mono } from 'next/font/google'
+import Script from 'next/script'
+import { headers } from 'next/headers'
+import './globals.css'
+import SpanishShell from '@/components/SpanishShell'
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
+
+const GA_ID = 'G-C0Z8YQC18J'
+const ADSENSE_ID = 'ca-pub-1896957677866192'
+
+export const metadata: Metadata = {
+  title: {
+    default: 'NewsTide — Noticias de IA, Startups y Tech en Español',
+    template: '%s | NewsTide',
+  },
+  description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales. Actualizado cada día.',
+  metadataBase: new URL('https://www.newstide.news'),
+  alternates: {
+    canonical: 'https://www.newstide.news',
+    languages: {
+      'es': 'https://www.newstide.news',
+      'en': 'https://www.newstide.news/en',
+      'en-US': 'https://www.newstide.news/en',
+      'en-GB': 'https://www.newstide.news/en',
+      'en-AU': 'https://www.newstide.news/en',
+      // A5: x-default → homepage ES. La home en / sirve contenido ES por defecto
+      // y es el mercado principal del sitio (más artículos ES, canonical en /).
+      // x-default NO debe apuntar a /en — eso contradecía el canonical de esta página.
+      'x-default': 'https://www.newstide.news',
+    },
+  },
+  openGraph: {
+    siteName: 'NewsTide',
+    locale: 'es_ES',
+    type: 'website',
+    url: 'https://www.newstide.news',
+    title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
+    description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
+    images: [{ url: 'https://www.newstide.news/og-image.png', width: 1200, height: 630, alt: 'NewsTide — Noticias de IA y Tech' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@newstide',
+    creator: '@newstide',
+    title: 'NewsTide — Noticias de IA, Startups y Tech en Español',
+    description: 'Noticias diarias de inteligencia artificial, startups y herramientas tech para founders, developers y profesionales.',
+    images: ['https://www.newstide.news/og-image.png'],
+  },
+  icons: {
+    icon: [
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-192x192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+    shortcut: '/favicon.ico',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  verification: {
+    google: '3vsTOEg0poOd6Waol-lATdTKyfxLUkWoqxHZuL0q774',
+  },
+  category: 'technology',
+}
+
+const siteSchema = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': 'https://www.newstide.news/#website',
+      url: 'https://www.newstide.news',
+      name: 'NewsTide',
+      description: 'Noticias diarias de inteligencia artificial, startups y tecnología para founders, developers y profesionales.',
+      inLanguage: 'es',
+      publisher: { '@id': 'https://www.newstide.news/#organization' },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: 'https://www.newstide.news/articulos?q={search_term_string}' },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@type': 'NewsMediaOrganization',
+      '@id': 'https://www.newstide.news/#organization',
+      name: 'NewsTide',
+      alternateName: 'NewsTide News',
+      url: 'https://www.newstide.news',
+      logo: { '@type': 'ImageObject', url: 'https://www.newstide.news/favicon-192x192.png', width: 192, height: 192 },
+      sameAs: [
+        'https://twitter.com/newstide',
+        'https://x.com/newstide',
+        'https://linkedin.com/company/newstide',
+        'https://www.newstide.news',
+      ],
+      publishingPrinciples: 'https://www.newstide.news/en/editorial-policy',
+      correctionsPolicy: 'https://www.newstide.news/en/editorial-policy#corrections',
+      actionableFeedbackPolicy: 'https://www.newstide.news/en/editorial-policy#feedback',
+      verificationFactCheckingPolicy: 'https://www.newstide.news/en/editorial-policy#verification',
+      masthead: 'https://www.newstide.news/en/about',
+      foundingDate: '2024',
+      knowsAbout: [
+        'Artificial Intelligence',
+        'Startups',
+        'Technology',
+        'Machine Learning',
+        'Digital Tools',
+        'Inteligencia Artificial',
+        'Tecnología',
+      ],
+    },
+  ],
+}
+
+async function getLang(): Promise<'en' | 'es'> {
+  const headersList = await headers()
+  const pathname =
+    headersList.get('x-pathname') ??
+    headersList.get('x-invoke-path') ??
+    headersList.get('x-matched-path') ??
+    headersList.get('referer') ??
+    ''
+  return pathname.includes('/en') ? 'en' : 'es'
+}
+
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const lang = await getLang()
+
+  return (
+    <html lang={lang} suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(siteSchema) }}
+        />
+        <link rel="alternate" type="application/rss+xml" title="NewsTide EN RSS" href="https://www.newstide.news/en/rss.xml" />
+        <link rel="alternate" type="application/rss+xml" title="NewsTide ES RSS" href="https://www.newstide.news/rss.xml" />
+      </head>
+      <body className={`${inter.variable} ${mono.variable}`}>
+        <SpanishShell>{children}</SpanishShell>
+
+        {/* GA4 — loaded once here for all routes including /en/* */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga4" strategy="afterInteractive">{`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', '${GA_ID}', { page_path: window.location.pathname });
+        `}</Script>
+
+        {/* AdSense — lazyOnload prevents render-blocking on LCP */}
+        <Script
+          id="adsense"
+          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
+          strategy="lazyOnload"
+          crossOrigin="anonymous"
+        />
+      </body>
+    </html>
+  )
+}
