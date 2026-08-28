@@ -667,6 +667,11 @@ def fetch_gsc_queries(
         )
         resp.raise_for_status()
         rows = resp.json().get("rows", [])
+        # Distinguishes "GSC has no data at all for this site/date range" (0 total
+        # rows — check site verification/permissions) from "GSC has data but none
+        # of it is in the quick-win range yet" (rows>0, quick_wins==0 — normal for
+        # a young site). Both used to print identically as "0 quick-win queries".
+        print(f"  ℹ️  GSC: {len(rows)} total (query,page) rows for site={site_url} before filtering")
 
         quick_wins = [
             row["keys"][0]  # query string

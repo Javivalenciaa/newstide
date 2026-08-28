@@ -480,6 +480,12 @@ def fetch_gsc_queries(
         print(f"  ⚠️  GSC API error (non-critical): {e}")
         return []
 
+    # Distinguishes "GSC has no data at all for this site/date range" (0 total
+    # rows — check site verification/permissions) from "GSC has data but none of
+    # it is in the quick-win range yet" (rows>0, candidates==0 — normal for a
+    # young site). Both used to print identically as "0 finance queries".
+    print(f"  ℹ️  GSC: {len(rows)} total query rows for site={site_url} before filtering")
+
     candidates = []
     for row in rows:
         if not isinstance(row, dict):

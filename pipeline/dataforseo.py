@@ -49,6 +49,26 @@ def extract_core_keyword(title: str) -> str:
     return "-".join(selected)
 
 
+def _log_task_errors(data: dict, batch_idx: int) -> None:
+    """DataForSEO's v3 API separates a top-level status_code (was the HTTP request
+    well-formed?) from a PER-TASK status_code (did the task itself succeed? e.g.
+    40402 = insufficient credits, 40501 = invalid field). fetch_keyword_metrics()
+    only ever checked the top-level one, so a task-level failure (most commonly:
+    no balance on the account) silently looked identical to "0 results, no volume
+    data available" — this makes that failure visible instead of silent."""
+    tasks_error = data.get("tasks_error")
+    if tasks_error:
+        print(f"  ⚠️  DataForSEO batch {batch_idx + 1}: {tasks_error} task(s) reported an error")
+    for task in data.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        task_status = task.get("status_code")
+        if task_status and task_status != 20000:
+            print(
+                f"  ⚠️  DataForSEO batch {batch_idx + 1}: task status={task_status} "
+                f"msg={str(task.get('status_message', ''))[:150]}"
+            )
+
 def _safe_items(data: Any) -> list[dict[str, Any]]:
     """Extract result items without indexing a None value."""
     if not isinstance(data, dict):
@@ -99,8 +119,16 @@ def fetch_keyword_metrics(
     
     # Extract core keywords for API calls
     core_keywords = [extract_core_keyword(kw) for kw in keywords]
-    unique_cores = list(dict.fromkeys(core_keywords))  # preserve order, dedupe
-    
+    # extract_core_keyword() returns "" when a title is all stopwords/too short.
+    # A single empty keyword in a batch can make DataForSEO reject the WHOLE
+    # batch (every keyword in it looks like it "returned 0 results" with no
+    # visible error) — so it must never reach the API.
+    unique_cores = [c for c in dict.fromkeys(core_keywords) if c]  # preserve order, dedupe, drop empties
+
+    if not unique_cores:
+        print("  ℹ️  DataForSEO: no usable core keywords extracted — skipping")
+        return {}
+
     batches = [
         unique_cores[i : i + _BATCH_SIZE]
         for i in range(0, len(unique_cores), _BATCH_SIZE)
@@ -157,6 +185,7 @@ def fetch_keyword_metrics(
                 )
                 continue
 
+            _log_task_errors(data, batch_idx)
             items = _safe_items(data)
 
             # Build a lookup from core keyword → metrics
