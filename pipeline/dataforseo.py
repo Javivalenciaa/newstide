@@ -59,11 +59,18 @@ def extract_core_keyword(title: str) -> str:
         w for w in re.sub(r"[^\w\s]", "", title.lower()).split()
         if len(w) > 1 and w not in _KEYWORD_STOP
     ]
-    # Keep 3-5 most meaningful words
+    # Keep 3-5 most meaningful words, joined by SPACES.
+    # Google Ads Search Volume matches real search phrases: "best ai tools"
+    # has volume, "best-ai-tools" is not a phrase anyone types and returns 0.
+    # This function joined tokens with "-" since the file was created, while
+    # its own docstring documented spaces — so every lookup in both pipelines
+    # (English and Spanish alike) asked for a string no user has ever
+    # searched. That is why DataForSEO reported 0 results on every run even
+    # after the response-parsing and accent fixes.
     selected = tokens[:5]
     if len(selected) < 3 and len(tokens) >= 3:
-        return "-".join(tokens[:3])
-    return "-".join(selected)
+        return " ".join(tokens[:3])
+    return " ".join(selected)
 
 
 def _log_task_errors(data: dict, batch_idx: int) -> None:

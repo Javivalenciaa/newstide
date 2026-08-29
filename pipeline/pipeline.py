@@ -929,15 +929,23 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     print("  🧠 Source 4: Niche ideas from GPT...")
     pool.extend(generate_niche_topics(recent_articles, n=18))
 
-    print("  📊 Source 5: GSC quick-wins (positions 4–20 in /en/article/)...")
-    pool.extend(fetch_gsc_queries())
+    print("  📊 Source 5: GSC quick-wins (tiered thresholds, /en/article/)...")
+    gsc_queries = fetch_gsc_queries()
+    pool.extend(gsc_queries)
+    # GSC queries are the only source backed by PROVEN demand (real
+    # impressions on this site). The >20 char filter below exists to reject
+    # junk scraped SerpAPI titles — applying it to GSC silently discarded
+    # short but valuable real queries, and fetch_gsc_queries() already admits
+    # them at >15 chars, so 16-20 char queries were fetched and then thrown
+    # away. Exempt them from the length rule (dedup still applies).
+    _gsc_keys = {q.lower().strip()[:60] for q in gsc_queries}
 
     pool.extend(get_fallback_topics())
 
     seen, unique = set(), []
     for p in pool:
         key = p.lower().strip()[:60]
-        if key not in seen and len(p) > 20:
+        if key not in seen and (len(p) > 20 or key in _gsc_keys):
             seen.add(key)
             unique.append(p)
 
@@ -1039,10 +1047,19 @@ Rewrite the article applying these rules WITHOUT changing content, data, or sour
 - Do NOT use first-person phrases like "I've", "I tested", "I built", "my experience", "I'm" — write in third-person editorial voice instead
 - Do NOT add or remove facts, do NOT invent data
 - Keep all markdown headings, tables, FAQs, and external links
+- REWRITE THE FULL ARTICLE, DO NOT SUMMARISE IT. The output must match the
+  original length (same sections, same number of paragraphs per section) and
+  keep every section from start to finish. Return the whole article, never an
+  excerpt or a summary.
 Return ONLY the article, no explanations."""},
             {"role": "user", "content": text}
         ],
-        temperature=0.85, max_tokens=6000,
+        # Without an explicit length rule the model treats "rewrite" as
+        # "summarise" and the humanised draft fails validation, so the paid GPT
+        # call is discarded and the raw draft ships instead (observed in the
+        # finance pipeline on 2026-08-28). 6000 also left no headroom above a
+        # 4000-word input.
+        temperature=0.85, max_tokens=16000,
     )
     return response.choices[0].message.content
 

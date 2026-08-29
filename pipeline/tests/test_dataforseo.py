@@ -31,6 +31,32 @@ class _FakeConn:
     def close(self): pass
 
 
+def test_extract_core_keyword_uses_spaces_not_hyphens():
+    # Google Ads Search Volume matches real search phrases. A hyphen-joined
+    # string is not a phrase anyone searches for and always returns 0 volume,
+    # which is exactly what both pipelines saw on every run.
+    assert dfs.extract_core_keyword("Best AI Tools for Solopreneurs in 2026") == (
+        "best ai tools solopreneurs 2026"
+    )
+    assert "-" not in dfs.extract_core_keyword("How to Build a Web App with Django")
+
+
+def test_extract_core_keyword_preserves_spanish_accents_and_drops_filler():
+    # An ASCII-only strip turned "cómo" into "cmo" and "planificación" into
+    # "planificacin" — non-words that can never match a real keyword. Spanish
+    # stopwords ("los", "de", "la", "para") must not eat the 5-token budget.
+    core = dfs.extract_core_keyword(
+        "Cómo aprovechar los programas de asistencia alimentaria para inmigrantes"
+    )
+    assert core == "aprovechar programas asistencia alimentaria inmigrantes"
+
+    accented = dfs.extract_core_keyword(
+        "Los beneficios de la planificación patrimonial para hispanos"
+    )
+    assert "planificación" in accented
+    assert "planificacin" not in accented
+
+
 def test_fetch_keyword_metrics_defaults_to_english(monkeypatch):
     monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
     monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
@@ -89,9 +115,12 @@ def test_fetch_keyword_metrics_parses_real_flat_result_shape(monkeypatch):
         "tasks": [{
             "status_code": 20000,
             # DataForSEO echoes back the exact keyword string that was sent —
-            # extract_core_keyword() joins tokens with "-", so that's the shape here.
+            # extract_core_keyword() joins tokens with SPACES, because Google
+            # Ads Search Volume matches real search phrases. This fixture used
+            # to assert the hyphenated shape, which made the test pass against
+            # a fake response while production returned 0 results forever.
             "result": [
-                {"keyword": "best-ai-tools-solopreneurs-2026", "search_volume": 720, "competition": 0.3},
+                {"keyword": "best ai tools solopreneurs 2026", "search_volume": 720, "competition": 0.3},
             ],
         }],
     }

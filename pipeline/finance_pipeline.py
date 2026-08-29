@@ -775,7 +775,7 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     print("  📈 Source 3: Inversión e impuestos (SerpAPI)...")
     pool.extend(fetch_serpapi_inversion_impuestos())
 
-    print("  📊 Source 4: GSC quick-wins (posiciones 4-20 en /es/fin/)...")
+    print("  📊 Source 4: GSC quick-wins (umbrales escalonados, /es/fin/)...")
     gsc_queries = fetch_gsc_queries()
     if gsc_queries:
         pool.extend(gsc_queries)
@@ -788,11 +788,19 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
 
     pool.extend(get_fallback_topics())
 
+    # GSC queries are the only source backed by PROVEN demand (real
+    # impressions on this site). The >20 char filter below exists to reject
+    # junk scraped SerpAPI titles — applying it to GSC silently discarded
+    # short but valuable real queries. Exempt them (dedup still applies).
+    _gsc_keys = {
+        clean_serp_candidate(q).lower().strip()[:60] for q in gsc_queries
+    }
+
     seen, unique = set(), []
     for p in pool:
         cleaned = clean_serp_candidate(p)
         key = cleaned.lower().strip()[:60]
-        if key not in seen and len(cleaned) > 20:
+        if key not in seen and (len(cleaned) > 20 or key in _gsc_keys):
             seen.add(key)
             unique.append(cleaned)
 
@@ -864,11 +872,22 @@ def humanize(text: str) -> str:
                 "NO cambies datos, cifras ni fuentes. "
                 "Mantén todos los encabezados markdown, tablas, FAQs y enlaces externos. "
                 "NUNCA uses puntos suspensivos '...' en el cuerpo del artículo. "
-                "NUNCA cortes secciones a la mitad: si una sección empieza, termínala completamente."
+                "NUNCA cortes secciones a la mitad: si una sección empieza, termínala completamente. "
+                # Without an explicit length rule the model treats "reescribe" as
+                # "resume": runs on 2026-08-28 returned 715 and 453 words from
+                # 4000-word inputs, failed validation, and were discarded — the
+                # GPT call was paid for and thrown away on 2 of 3 articles.
+                "REESCRIBE EL ARTÍCULO COMPLETO, NO LO RESUMAS. "
+                "El resultado debe tener la MISMA longitud que el original "
+                "(mismo número de secciones y de párrafos por sección) y "
+                "conservar TODAS las secciones de principio a fin. "
+                "Devuelve el artículo entero, nunca un extracto ni un resumen."
             )},
             {"role": "user", "content": text}
         ],
-        temperature=0.85, max_tokens=8000,
+        # 8000 was too tight for a 4000-word Spanish article (Spanish is
+        # token-heavy), leaving no headroom above the input length.
+        temperature=0.85, max_tokens=16000,
     )
     return response.choices[0].message.content
 
