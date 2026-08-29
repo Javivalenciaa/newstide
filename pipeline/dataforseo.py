@@ -24,22 +24,39 @@ _KEYWORD_STOP = {
     "under","again","further","then","once","here","there","all","each",
     "few","more","most","other","some","such","no","nor","not","only",
     "own","same","so","than","too","very","just","also","now","about",
+    # Spanish stopwords — extract_core_keyword() is also used by
+    # finance_pipeline.py for Spanish titles. Without these, a title like
+    # "Los beneficios de la planificación patrimonial para hispanos" produced
+    # a core keyword of mostly filler words ("los-beneficios-de-la-...")
+    # instead of the actual search-intent terms.
+    "el","la","los","las","de","del","al","en","con","por","para","que",
+    "como","cómo","un","una","unos","unas","es","son","ser","estar","tu",
+    "tus","su","sus","este","esta","estos","estas","eso","esa","sin",
+    "sobre","entre","hasta","desde","muy","más","mas","menos","tan","tanto",
+    "cada","otro","otra","todo","toda","todos","todas","hacia","según",
+    "segun","porque","pero","aunque","ni","también","tambien","o","y",
 }
 
 def extract_core_keyword(title: str) -> str:
     """Extract a short, search-intent keyword from a long title.
-    
+
     DataForSEO Google Ads Search Volume API works best with 2-5 word keywords.
     Long titles (8-11 words) like "How to Build a Web App with Django in 7 Steps"
     return 0 results. This function extracts the core topic.
-    
+
     Examples:
     - "How to Build a Web App with Django in 7 Steps" → "build web app django"
     - "Airtable vs. ClickUp: Which Tool Designs Better Workflows?" → "airtable vs clickup"
     - "Best SEO Tools for Indie Hackers to Boost Traffic in 2026" → "seo tools indie hackers"
+    - "Cómo aprovechar los programas de asistencia alimentaria" → "aprovechar-programas-asistencia-alimentaria"
     """
+    # \w is Unicode-aware in Python 3, so accented letters (á, é, í, ó, ú, ñ)
+    # survive this strip instead of being deleted — a bare [^a-z0-9\s] regex
+    # turned "cómo" into "cmo" and "línea" into "lnea", neither of which is a
+    # real word DataForSEO's keyword database can match (root cause of
+    # Spanish keywords always returning 0 results regardless of API health).
     tokens = [
-        w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+        w for w in re.sub(r"[^\w\s]", "", title.lower()).split()
         if len(w) > 1 and w not in _KEYWORD_STOP
     ]
     # Keep 3-5 most meaningful words

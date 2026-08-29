@@ -673,17 +673,34 @@ def fetch_gsc_queries(
         # a young site). Both used to print identically as "0 quick-win queries".
         print(f"  ℹ️  GSC: {len(rows)} total (query,page) rows for site={site_url} before filtering")
 
-        quick_wins = [
-            row["keys"][0]  # query string
-            for row in rows
-            if (
-                row.get("impressions", 0) >= min_impressions
-                and min_position <= row.get("position", 99) <= max_position
-                and len(row["keys"][0]) > 15
-            )
+        # Tiered thresholds: the caller's (min_position, max_position,
+        # min_impressions) is the strict quick-win tier, which assumes the
+        # site already has ranking history. A young site can have real GSC
+        # rows where none of them fall in that range yet — that used to
+        # return [] every day with no way for GSC to ever help a query reach
+        # that range in the first place. Progressively relaxed tiers let GSC
+        # start contributing candidates early instead of staying silent.
+        TIERS = [
+            (min_position, max_position, min_impressions),
+            (min_position, max_position + 10, max(min_impressions // 3, 10)),
+            (1.0, 50.0, 5),
         ]
-        print(f"  ✅ GSC contributed {len(quick_wins)} quick-win queries (pos {min_position}–{max_position}, ≥{min_impressions} impr.)")
-        return quick_wins
+        for tier_min_pos, tier_max_pos, tier_min_impr in TIERS:
+            quick_wins = [
+                row["keys"][0]  # query string
+                for row in rows
+                if (
+                    row.get("impressions", 0) >= tier_min_impr
+                    and tier_min_pos <= row.get("position", 99) <= tier_max_pos
+                    and len(row["keys"][0]) > 15
+                )
+            ]
+            if quick_wins:
+                print(f"  ✅ GSC contributed {len(quick_wins)} quick-win queries (pos {tier_min_pos}–{tier_max_pos}, ≥{tier_min_impr} impr.)")
+                return quick_wins
+
+        print("  ✅ GSC contributed 0 quick-win queries across all tiers")
+        return []
 
     except Exception as e:
         print(f"  ⚠️  GSC fetch failed (non-critical): {e}")

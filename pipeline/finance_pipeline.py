@@ -486,19 +486,38 @@ def fetch_gsc_queries(
     # young site). Both used to print identically as "0 finance queries".
     print(f"  ℹ️  GSC: {len(rows)} total query rows for site={site_url} before filtering")
 
-    candidates = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        position = row.get("position", 0)
-        impressions = row.get("impressions", 0)
-        keys = row.get("keys") or [""]
-        query = (keys[0] or "").strip()
-        if query and 4 <= position <= 20 and impressions >= 30:
-            candidates.append(query)
+    # Tiered thresholds: the strict quick-win tier (position 4-20, ≥30
+    # impressions) assumes the site already has ranking history. A young site
+    # can have real GSC rows where none of them fall in that range yet — that
+    # used to return [] every day with no way for GSC to ever help a query
+    # reach that range in the first place. Progressively relaxed tiers let
+    # GSC start contributing candidates early instead of staying silent until
+    # the site "graduates" into the original range on its own.
+    TIERS = [
+        (4, 20, 30),   # original quick-win range
+        (4, 30, 10),   # wider position range, lighter impression bar
+        (1, 50, 5),    # any ranking position, minimal impression signal
+    ]
+    for min_pos, max_pos, min_impr in TIERS:
+        candidates = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            position = row.get("position", 0)
+            impressions = row.get("impressions", 0)
+            keys = row.get("keys") or [""]
+            query = (keys[0] or "").strip()
+            if query and min_pos <= position <= max_pos and impressions >= min_impr:
+                candidates.append(query)
+        if candidates:
+            print(
+                f"  ✅ GSC: {len(candidates)} finance queries "
+                f"(pos {min_pos}-{max_pos}, ≥{min_impr} impressions)"
+            )
+            return candidates
 
-    print(f"  ✅ GSC: {len(candidates)} finance queries in positions 4-20, ≥30 impressions")
-    return candidates
+    print("  ✅ GSC: 0 finance queries across all tiers")
+    return []
 
 def fetch_serpapi_hispano_news() -> list[str]:
     queries = [
