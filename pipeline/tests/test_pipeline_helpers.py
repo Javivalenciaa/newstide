@@ -113,8 +113,7 @@ def test_fetch_gsc_queries_fails_closed_on_malformed_service_account_json(monkey
 
 
 def test_dataforseo_fetch_keyword_metrics_returns_empty_without_credentials(monkeypatch):
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "")
     assert dfs.fetch_keyword_metrics(["best ai tools 2026"]) == {}
 
 

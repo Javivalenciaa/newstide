@@ -1,4 +1,4 @@
-name: DataForSEO Smoke Test
+name: YepAPI Smoke Test
 
 on:
   workflow_dispatch:
@@ -16,8 +16,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
-      - name: Run DataForSEO smoke test (1 keyword, no articles, no other API calls)
+      - name: Run YepAPI smoke test (1 keyword, no articles, no other API calls)
         run: python pipeline/dataforseo_smoke_test.py
         env:
-          DATAFORSEO_LOGIN:    ${{ secrets.DATAFORSEO_LOGIN }}
-          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          YEPAPI_API_KEY: ${{ secrets.YEPAPI_API_KEY }}

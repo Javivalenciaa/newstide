@@ -3,12 +3,11 @@ import json
 import dataforseo as dfs
 
 
-# Real google_ads/search_volume/live shape: tasks[i]["result"] is a FLAT list of
-# keyword-metric dicts (each has "keyword" directly) — no nested "items" wrapper.
+# Real YepAPI shape (docs.yepapi.com/seo-keywords/keywords):
+# {"ok": true, "data": {"keywords": [{keyword, volume, difficulty, ...}], "skipped": [...]}}
 _DEFAULT_RESPONSE = {
-    "status_code": 20000,
-    "tasks_error": 0,
-    "tasks": [{"status_code": 20000, "result": []}],
+    "ok": True,
+    "data": {"keywords": [], "skipped": []},
 }
 
 
@@ -32,9 +31,9 @@ class _FakeConn:
 
 
 def test_extract_core_keyword_uses_spaces_not_hyphens():
-    # Google Ads Search Volume matches real search phrases. A hyphen-joined
+    # Keyword-volume APIs match real search phrases. A hyphen-joined
     # string is not a phrase anyone searches for and always returns 0 volume,
-    # which is exactly what both pipelines saw on every run.
+    # which is exactly what both pipelines saw on every run under DataForSEO.
     assert dfs.extract_core_keyword("Best AI Tools for Solopreneurs in 2026") == (
         "best ai tools"
     )
@@ -44,10 +43,7 @@ def test_extract_core_keyword_uses_spaces_not_hyphens():
 def test_extract_core_keyword_keeps_vs_for_comparison_titles():
     # "vs" used to be stripped as a stopword, turning "Trello vs. ClickUp" into
     # "trello clickup tool fits solo" — 5 words, missing the one word that
-    # signals a comparison query, that nobody actually searches for. Real run
-    # on 2026-08-31: 38/38 keywords got DataForSEO data back, 0/38 cleared the
-    # volume threshold, because every core keyword was this kind of 5-word
-    # phrase with no recorded search volume.
+    # signals a comparison query, that nobody actually searches for.
     assert dfs.extract_core_keyword(
         "Trello vs. ClickUp: Which Tool Fits Solo Projects Better?"
     ) == "trello vs clickup"
@@ -72,42 +68,52 @@ def test_extract_core_keyword_preserves_spanish_accents_and_drops_filler():
     assert "planificacin" not in accented
 
 
+def test_fetch_keyword_metrics_returns_empty_without_api_key(monkeypatch):
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "")
+    assert dfs.fetch_keyword_metrics(["best ai tools"]) == {}
+
+
 def test_fetch_keyword_metrics_defaults_to_english(monkeypatch):
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
     monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
     _FakeConn.sent_payloads.clear()
     _FakeConn.response_data = _DEFAULT_RESPONSE
     dfs.fetch_keyword_metrics(["best ai tools for solopreneurs"])
-    assert _FakeConn.sent_payloads[0][0]["language_code"] == "en"
+    assert _FakeConn.sent_payloads[0]["language"] == "en"
 
 
 def test_fetch_keyword_metrics_accepts_spanish_for_finance_pipeline(monkeypatch):
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
     monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
     _FakeConn.sent_payloads.clear()
     _FakeConn.response_data = _DEFAULT_RESPONSE
     dfs.fetch_keyword_metrics(["como construir credito en usa"], language_code="es")
-    assert _FakeConn.sent_payloads[0][0]["language_code"] == "es"
+    assert _FakeConn.sent_payloads[0]["language"] == "es"
+
+
+def test_fetch_keyword_metrics_sends_us_location_code(monkeypatch):
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
+    monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
+    _FakeConn.sent_payloads.clear()
+    _FakeConn.response_data = _DEFAULT_RESPONSE
+    dfs.fetch_keyword_metrics(["best ai tools"])
+    assert _FakeConn.sent_payloads[0]["location_code"] == 2840
 
 
 def test_fetch_keyword_metrics_drops_empty_core_keywords_from_batch(monkeypatch):
     # "a to of" is all stopwords -> extract_core_keyword() returns "". A single
     # empty keyword must never reach the API — it can poison the whole batch.
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
     monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
     _FakeConn.sent_payloads.clear()
     _FakeConn.response_data = _DEFAULT_RESPONSE
     dfs.fetch_keyword_metrics(["a to of", "best ai tools for solopreneurs"])
-    sent_keywords = _FakeConn.sent_payloads[0][0]["keywords"]
+    sent_keywords = _FakeConn.sent_payloads[0]["keywords"]
     assert "" not in sent_keywords
 
 
 def test_fetch_keyword_metrics_all_empty_core_keywords_skips_api_call(monkeypatch):
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
     monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
     _FakeConn.sent_payloads.clear()
     result = dfs.fetch_keyword_metrics(["a to of", "on in at"])
@@ -115,51 +121,52 @@ def test_fetch_keyword_metrics_all_empty_core_keywords_skips_api_call(monkeypatc
     assert _FakeConn.sent_payloads == []
 
 
-def test_fetch_keyword_metrics_parses_real_flat_result_shape(monkeypatch):
-    # This is the actual shape google_ads/search_volume/live returns: keyword
-    # objects live DIRECTLY in tasks[i]["result"], not nested under an "items"
-    # key. The old _safe_items() only checked for "items" and silently
-    # returned [] for every call to this endpoint — this is the regression test.
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "user")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "pass")
+def test_fetch_keyword_metrics_parses_real_yepapi_shape(monkeypatch):
+    # docs.yepapi.com/seo-keywords/keywords: {"ok": true, "data": {"keywords": [...]}}
+    # difficulty comes back DIRECTLY from YepAPI (0-100), unlike DataForSEO,
+    # which only gave a 0-1 "competition" float that had to be multiplied by 100.
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
     monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
     _FakeConn.sent_payloads.clear()
     _FakeConn.response_data = {
-        "status_code": 20000,
-        "tasks_error": 0,
-        "tasks": [{
-            "status_code": 20000,
-            # DataForSEO echoes back the exact keyword string that was sent —
-            # extract_core_keyword() joins tokens with SPACES, because Google
-            # Ads Search Volume matches real search phrases. This fixture used
-            # to assert the hyphenated shape, which made the test pass against
-            # a fake response while production returned 0 results forever.
-            "result": [
-                {"keyword": "best ai tools", "search_volume": 720, "competition": 0.3},
+        "ok": True,
+        "data": {
+            "keywords": [
+                {"keyword": "best ai tools", "volume": 720, "difficulty": 34, "cpc": 2.1},
             ],
-        }],
+            "skipped": [],
+        },
     }
     result = dfs.fetch_keyword_metrics(["Best AI Tools for Solopreneurs in 2026"])
     assert result != {}
     meta = result.get("best ai tools for solopreneurs in 2026")
     assert meta is not None
     assert meta["volume"] == 720
+    assert meta["difficulty"] == 34
 
 
-def test_log_task_errors_reports_task_level_failure(capsys):
-    data = {
-        "status_code": 20000,
-        "tasks_error": 1,
-        "tasks": [{"status_code": 40402, "status_message": "Insufficient balance"}],
+def test_fetch_keyword_metrics_handles_api_failure_response(monkeypatch, capsys):
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
+    monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
+    _FakeConn.sent_payloads.clear()
+    _FakeConn.response_data = {"ok": False, "error": "invalid api key"}
+    result = dfs.fetch_keyword_metrics(["best ai tools"])
+    assert result == {}
+    captured = capsys.readouterr()
+    assert "YepAPI" in captured.out
+
+
+def test_fetch_keyword_metrics_logs_skipped_keywords(monkeypatch, capsys):
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "test-key")
+    monkeypatch.setattr(dfs.http.client, "HTTPSConnection", _FakeConn)
+    _FakeConn.sent_payloads.clear()
+    _FakeConn.response_data = {
+        "ok": True,
+        "data": {
+            "keywords": [],
+            "skipped": [{"keyword": "best ai tools", "reason": "no data"}],
+        },
     }
-    dfs._log_task_errors(data, batch_idx=0)
+    dfs.fetch_keyword_metrics(["best ai tools"])
     captured = capsys.readouterr()
-    assert "40402" in captured.out
-    assert "Insufficient balance" in captured.out
-
-
-def test_log_task_errors_silent_when_task_ok(capsys):
-    data = {"status_code": 20000, "tasks_error": 0, "tasks": [{"status_code": 20000}]}
-    dfs._log_task_errors(data, batch_idx=0)
-    captured = capsys.readouterr()
-    assert captured.out == ""
+    assert "1 keyword(s) skipped" in captured.out

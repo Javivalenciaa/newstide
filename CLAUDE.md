@@ -6,7 +6,7 @@ Plataforma de contenido automatizado en producción real, con tráfico activo. N
 - `pipeline/pipeline.py` → tabla `articles`. Nicho: solopreneurs/indie hackers. Bilingüe: columnas `_en` para inglés (`title_en`, `slug_en`, `content_en`, `excerpt_en`), sin sufijo para español (`title`, `slug`, `content`, `excerpt`).
 - `pipeline/finance_pipeline.py` → tabla `finance_articles`. Nicho: finanzas personales para hispanos en USA.
 - `pipeline/pseo_pipeline.py` → páginas de comparación programática (pSEO).
-- `pipeline/dataforseo.py` → módulo compartido de keyword research (volumen/dificultad).
+- `pipeline/dataforseo.py` → módulo compartido de keyword research (volumen/dificultad). Nombre de archivo heredado: desde 2026-08-31 llama a **YepAPI** (`YEPAPI_API_KEY`), no a DataForSEO — se migró porque se agotó el trial y su depósito mínimo de $50 no compensaba.
 - `pipeline/geo_citation_pipeline.py` → optimización para citabilidad en LLMs (AEO/GEO).
 
 ## Rutas de artículo individual (confirmadas, no inventar otras)
@@ -33,7 +33,7 @@ Plataforma de contenido automatizado en producción real, con tráfico activo. N
 7. Antes de tocar cualquier archivo, léelo completo primero. Si algo en el código real no coincide con este documento, usa lo que encuentres en el código, no lo que dice aquí.
 
 ## Estado actual (actualiza esta sección cuando cierres un gap)
-- ✅ Keyword research con DataForSEO — hecho y funcionando en ambos pipelines.
+- ✅ Keyword research con YepAPI (antes DataForSEO, migrado 2026-08-31) — hecho y funcionando en ambos pipelines.
 - ✅ GSC quick-wins con `GSC_SERVICE_ACCOUNT_JSON` — hecho en ambos pipelines.
 - ✅ Enlaces internos en el cuerpo del artículo (`inject_internal_links`) — ya existía, funciona.
 - ✅ Internal linking persistente (`related_articles jsonb` + sidebar en los 4 `page.tsx`) — falta ejecutar el SQL de migración en Supabase (ya entregado, no aplicado en automático).

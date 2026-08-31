@@ -112,8 +112,7 @@ def test_fetch_gsc_queries_returns_empty_without_credentials(monkeypatch):
 
 
 def test_dataforseo_fetch_keyword_metrics_returns_empty_without_credentials(monkeypatch):
-    monkeypatch.setattr(dfs, "DATAFORSEO_LOGIN", "")
-    monkeypatch.setattr(dfs, "DATAFORSEO_PASSWORD", "")
+    monkeypatch.setattr(dfs, "YEPAPI_API_KEY", "")
     assert dfs.fetch_keyword_metrics(["como construir credito en usa"]) == {}
 
 
