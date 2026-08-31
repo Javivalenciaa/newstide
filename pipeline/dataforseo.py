@@ -14,12 +14,16 @@ MAX_DIFFICULTY = 70
 _BATCH_SIZE = 100
 
 # ── STOPWORDS FOR KEYWORD EXTRACTION ─────────────────────────────────────────
+# NOTE: "vs"/"vs." is deliberately NOT here. This niche runs constant "X vs Y"
+# comparison titles, and people search "trello vs clickup", not "trello
+# clickup" — stripping it produced a 5-word phrase with the one word that
+# signals a comparison query removed, which no one actually searches for.
 _KEYWORD_STOP = {
     "a","an","the","and","or","but","in","on","at","to","for","of","with",
     "by","from","is","are","was","were","be","been","being","have","has",
     "had","do","does","did","will","would","can","could","should","may",
     "might","shall","how","what","why","when","where","which","who","your",
-    "our","vs","vs.","this","that","these","those","it","its","as","on",
+    "our","this","that","these","those","it","its","as","on",
     "into","through","during","before","after","above","below","between",
     "under","again","further","then","once","here","there","all","each",
     "few","more","most","other","some","such","no","nor","not","only",
@@ -40,15 +44,19 @@ _KEYWORD_STOP = {
 def extract_core_keyword(title: str) -> str:
     """Extract a short, search-intent keyword from a long title.
 
-    DataForSEO Google Ads Search Volume API works best with 2-5 word keywords.
-    Long titles (8-11 words) like "How to Build a Web App with Django in 7 Steps"
-    return 0 results. This function extracts the core topic.
+    DataForSEO Google Ads Search Volume API has real volume data mostly for
+    short head/mid-tail phrases. Long titles (8-11 words) like "How to Build
+    a Web App with Django in 7 Steps" return 0 results, and even a 5-word
+    extracted core ("build simple ecommerce site shopify") usually still
+    does — real runs on 2026-08-31 got data back for 38/38 keywords but 0
+    cleared the volume threshold at 5 words. 3 words matches real query
+    volume far more often while still being specific enough to be useful.
 
     Examples:
-    - "How to Build a Web App with Django in 7 Steps" → "build web app django"
+    - "How to Build a Web App with Django in 7 Steps" → "build web app"
     - "Airtable vs. ClickUp: Which Tool Designs Better Workflows?" → "airtable vs clickup"
-    - "Best SEO Tools for Indie Hackers to Boost Traffic in 2026" → "seo tools indie hackers"
-    - "Cómo aprovechar los programas de asistencia alimentaria" → "aprovechar-programas-asistencia-alimentaria"
+    - "Best SEO Tools for Indie Hackers to Boost Traffic in 2026" → "seo tools indie"
+    - "Cómo aprovechar los programas de asistencia alimentaria" → "aprovechar programas asistencia"
     """
     # \w is Unicode-aware in Python 3, so accented letters (á, é, í, ó, ú, ñ)
     # survive this strip instead of being deleted — a bare [^a-z0-9\s] regex
@@ -59,17 +67,18 @@ def extract_core_keyword(title: str) -> str:
         w for w in re.sub(r"[^\w\s]", "", title.lower()).split()
         if len(w) > 1 and w not in _KEYWORD_STOP
     ]
-    # Keep 3-5 most meaningful words, joined by SPACES.
+    # Keep the 3 most meaningful words, joined by SPACES.
     # Google Ads Search Volume matches real search phrases: "best ai tools"
     # has volume, "best-ai-tools" is not a phrase anyone types and returns 0.
     # This function joined tokens with "-" since the file was created, while
     # its own docstring documented spaces — so every lookup in both pipelines
     # (English and Spanish alike) asked for a string no user has ever
     # searched. That is why DataForSEO reported 0 results on every run even
-    # after the response-parsing and accent fixes.
-    selected = tokens[:5]
-    if len(selected) < 3 and len(tokens) >= 3:
-        return " ".join(tokens[:3])
+    # after the response-parsing and accent fixes. 5 words was also tried and
+    # confirmed too long in production (2026-08-31: 38/38 keywords returned
+    # data, 0/38 cleared the volume threshold) — 3 words matches real query
+    # volume much more often.
+    selected = tokens[:3]
     return " ".join(selected)
 
 

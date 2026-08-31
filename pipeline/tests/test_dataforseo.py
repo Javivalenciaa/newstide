@@ -36,19 +36,34 @@ def test_extract_core_keyword_uses_spaces_not_hyphens():
     # string is not a phrase anyone searches for and always returns 0 volume,
     # which is exactly what both pipelines saw on every run.
     assert dfs.extract_core_keyword("Best AI Tools for Solopreneurs in 2026") == (
-        "best ai tools solopreneurs 2026"
+        "best ai tools"
     )
     assert "-" not in dfs.extract_core_keyword("How to Build a Web App with Django")
+
+
+def test_extract_core_keyword_keeps_vs_for_comparison_titles():
+    # "vs" used to be stripped as a stopword, turning "Trello vs. ClickUp" into
+    # "trello clickup tool fits solo" — 5 words, missing the one word that
+    # signals a comparison query, that nobody actually searches for. Real run
+    # on 2026-08-31: 38/38 keywords got DataForSEO data back, 0/38 cleared the
+    # volume threshold, because every core keyword was this kind of 5-word
+    # phrase with no recorded search volume.
+    assert dfs.extract_core_keyword(
+        "Trello vs. ClickUp: Which Tool Fits Solo Projects Better?"
+    ) == "trello vs clickup"
+    assert dfs.extract_core_keyword(
+        "Airtable vs. ClickUp: Which Tool Designs Better Workflows?"
+    ) == "airtable vs clickup"
 
 
 def test_extract_core_keyword_preserves_spanish_accents_and_drops_filler():
     # An ASCII-only strip turned "cómo" into "cmo" and "planificación" into
     # "planificacin" — non-words that can never match a real keyword. Spanish
-    # stopwords ("los", "de", "la", "para") must not eat the 5-token budget.
+    # stopwords ("los", "de", "la", "para") must not eat the 3-token budget.
     core = dfs.extract_core_keyword(
         "Cómo aprovechar los programas de asistencia alimentaria para inmigrantes"
     )
-    assert core == "aprovechar programas asistencia alimentaria inmigrantes"
+    assert core == "aprovechar programas asistencia"
 
     accented = dfs.extract_core_keyword(
         "Los beneficios de la planificación patrimonial para hispanos"
@@ -120,7 +135,7 @@ def test_fetch_keyword_metrics_parses_real_flat_result_shape(monkeypatch):
             # to assert the hyphenated shape, which made the test pass against
             # a fake response while production returned 0 results forever.
             "result": [
-                {"keyword": "best ai tools solopreneurs 2026", "search_volume": 720, "competition": 0.3},
+                {"keyword": "best ai tools", "search_volume": 720, "competition": 0.3},
             ],
         }],
     }
