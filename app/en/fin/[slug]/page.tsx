@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import { stripImageCredits } from '@/lib/articleContent'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
@@ -205,7 +206,7 @@ export default async function FinanceArticlePage({
   if (!article) notFound()
 
   const title   = article.title_en   || article.title
-  const content = article.content_en || article.content
+  const content = stripImageCredits(article.content_en || article.content)
   const excerpt = article.excerpt_en || article.excerpt
   const url     = `https://www.newstide.news/en/fin/${article.slug_en}`
   const faqs            = extractFAQs(content || '')

@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import ReactMarkdown from 'react-markdown'
+import { stripImageCredits } from '@/lib/articleContent'
 import NewsletterForm from '@/components/NewsletterForm'
 import ShareButtons from '@/components/ShareButtons'
 
@@ -297,7 +298,7 @@ export default async function ArticlePageEN({
 
   const rawTitle   = article.title_en   || article.title
   const rawExcerpt = article.excerpt_en || article.excerpt
-  const rawContent = article.content_en || article.content
+  const rawContent = stripImageCredits(article.content_en || article.content)
   const cat        = article.category || 'AI'
   const catSlugEN  = CAT_SLUG_EN[cat] || slugifyCategory(cat)
   const catLabelEN = CAT_EN[cat] || cat

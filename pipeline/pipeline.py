@@ -1128,7 +1128,15 @@ def fetch_best_image(queries: list[str], title: str, idx: int = 0) -> dict | Non
 def inject_images(content: str, cover: dict | None, inline: dict | None) -> str:
     def img_md(img: dict) -> str:
         alt = img["alt"].replace('"', "'")
-        return f"![{alt}]({img['url']})\n*Photo: [{img['author']}]({img['author_url']}) on Unsplash*\n"
+        # Attribution lives in the markdown image title (rendered as the
+        # image `title` attribute), NOT as a body paragraph. It used to be
+        # appended as an italic '*Photo: [name](url) on Unsplash*' line,
+        # which made the photographer's name indexable article text --
+        # 'marija zaric unsplash' became the single highest-clicked query
+        # on the whole site. The Unsplash License does not require
+        # attribution, so keeping it out of prose is permitted.
+        credit = f"Photo by {img['author']} on Unsplash"
+        return f'![{alt}]({img["url"]} "{credit}")\n'
     lines = content.split("\n")
     if cover:
         new_lines, inserted, blank = [], False, False
