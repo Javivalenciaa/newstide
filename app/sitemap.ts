@@ -171,6 +171,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: 'https://www.newstide.news/en/contact',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
     { url: 'https://www.newstide.news/privacidad',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
     { url: 'https://www.newstide.news/en/privacy',           lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/aviso-legal',          lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/terminos-de-uso',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/en/legal-notice',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    { url: 'https://www.newstide.news/en/terms-of-use',      lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
     { url: 'https://www.newstide.news/autores/javier-valencia',     lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 },
     { url: 'https://www.newstide.news/en/authors/javier-valencia',  lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 },
     // ── Dynamic articles ───────────────────────────────────────
