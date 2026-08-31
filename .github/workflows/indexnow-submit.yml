@@ -7,9 +7,11 @@ on:
         description: 'Número de artículos recientes a enviar'
         required: false
         default: '50'
-  # También se ejecuta automáticamente cada día a las 08:00 UTC
+  # También se ejecuta automáticamente cada día a las 08:27 UTC.
+  # Off :00 on purpose — top-of-hour is GitHub's most congested minute for
+  # schedule triggers, causing multi-hour delays (see daily.yml).
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '27 8 * * *'
 
 jobs:
   submit:

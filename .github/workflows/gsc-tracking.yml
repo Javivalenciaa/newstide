@@ -2,7 +2,9 @@ name: NewsTide GSC Tracking
 
 on:
   schedule:
-    - cron: '0 8 * * *'
+    # Off :00 — see daily.yml for why (top-of-hour is GitHub's most congested
+    # minute for schedule triggers, causing multi-hour delays).
+    - cron: '22 8 * * *'
   workflow_dispatch:
 
 jobs:

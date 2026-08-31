@@ -2,7 +2,9 @@ name: NewsTide Content Refresh
 
 on:
   schedule:
-    - cron: '0 10 * * *'
+    # Off :00 — see daily.yml for why (top-of-hour is GitHub's most congested
+    # minute for schedule triggers, causing multi-hour delays).
+    - cron: '17 10 * * *'
   workflow_dispatch:
 
 jobs:

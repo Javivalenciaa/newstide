@@ -2,7 +2,11 @@ name: NewsTide Daily Pipeline
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    # Off the top of the hour on purpose — GitHub's own docs warn that
+    # schedule triggers get delayed most at :00, when the whole platform's
+    # cron jobs queue up at once. Runs from 2026-08-27 to 2026-08-31 at the
+    # old '0 6 * * *' fired 5-12 hours late (once not at all by 14:30 CEST).
+    - cron: '12 6 * * *'
   workflow_dispatch:
 
 jobs:
