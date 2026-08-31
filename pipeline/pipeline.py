@@ -14,6 +14,7 @@ from dataforseo import (
     sort_pool_by_score,
     enrich_article_data,
     pin_priority_first,
+    filter_gsc_queries,
 )
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -935,7 +936,9 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     pool.extend(generate_niche_topics(recent_articles, n=18))
 
     print("  📊 Source 5: GSC quick-wins (tiered thresholds, /en/article/)...")
-    gsc_queries = fetch_gsc_queries()
+    # Filter BEFORE anything else: these get pinned to the front of the pool
+    # below, so a junk query becomes a published article (see filter_gsc_queries).
+    gsc_queries = filter_gsc_queries(fetch_gsc_queries())
     pool.extend(gsc_queries)
     # GSC queries are the only source backed by PROVEN demand (real
     # impressions on this site). The >20 char filter below exists to reject

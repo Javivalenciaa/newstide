@@ -231,3 +231,45 @@ def test_pin_priority_first_matches_the_same_key_shape_the_pipelines_build():
     gsc = {"best crm for solopreneurs"}
     assert dfs.pin_priority_first(pool, gsc) == ["  Best CRM For Solopreneurs  "]
     assert dfs.pin_priority_first(pool, gsc)[0] in pool
+
+
+# ── GSC JUNK FILTER ──────────────────────────────────────────────────────────
+
+def test_gsc_filter_rejects_the_exact_queries_that_became_articles():
+    # Both of these were pinned to the front on 2026-08-31 and each produced a
+    # full published article in a personal-finance blog.
+    assert not dfs.is_usable_gsc_query("marija zaric unsplash")
+    assert not dfs.is_usable_gsc_query("novacreditltda")
+
+
+def test_gsc_filter_rejects_seo_tool_operator_strings():
+    assert not dfs.is_usable_gsc_query(
+        '"how to build a landing page" -site:reddit.com -site:twitter.com'
+    )
+    assert not dfs.is_usable_gsc_query(
+        '"sendgrid" +"cheap" -"free" -"training" -"tutorial"'
+    )
+
+
+def test_gsc_filter_rejects_navigational_single_tokens():
+    assert not dfs.is_usable_gsc_query("growtika")
+    assert not dfs.is_usable_gsc_query("robot")
+    assert not dfs.is_usable_gsc_query("carrd")
+
+
+def test_gsc_filter_keeps_real_article_topics():
+    # These are exactly what the pin is meant to surface.
+    assert dfs.is_usable_gsc_query("como invertir en bienes raices en estados unidos")
+    assert dfs.is_usable_gsc_query("airtable google sheets integration")
+    assert dfs.is_usable_gsc_query("how to start a podcast anchor")
+    assert dfs.is_usable_gsc_query("best crm for solopreneurs")
+
+
+def test_filter_gsc_queries_reports_and_keeps_only_the_good_ones(capsys):
+    kept = dfs.filter_gsc_queries([
+        "marija zaric unsplash",
+        "como invertir en bienes raices en estados unidos",
+        "novacreditltda",
+    ])
+    assert kept == ["como invertir en bienes raices en estados unidos"]
+    assert "2 junk" in capsys.readouterr().out

@@ -14,6 +14,7 @@ from dataforseo import (
     sort_pool_by_score,
     enrich_article_data,
     pin_priority_first,
+    filter_gsc_queries,
 )
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -781,7 +782,9 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     pool.extend(fetch_serpapi_inversion_impuestos())
 
     print("  📊 Source 4: GSC quick-wins (umbrales escalonados, /es/fin/)...")
-    gsc_queries = fetch_gsc_queries()
+    # Filter BEFORE anything else: these get pinned to the front of the pool
+    # below, so a junk query becomes a published article (see filter_gsc_queries).
+    gsc_queries = filter_gsc_queries(fetch_gsc_queries())
     if gsc_queries:
         pool.extend(gsc_queries)
         print(f"  ✅ GSC aportó {len(gsc_queries)} queries al pool")

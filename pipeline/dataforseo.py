@@ -44,6 +44,61 @@ def opportunity_score(volume: int, difficulty: int) -> float:
     return round(volume * winnability, 2)
 
 
+def is_usable_gsc_query(query: str) -> bool:
+    """Reject GSC rows that are not real article topics.
+
+    A GSC query is proven demand, but "demand" is not the same as "a topic
+    worth writing about". Three kinds of junk reach this list, and pinning
+    them to the front of the pool (see pin_priority_first) turned each one
+    into a full published article:
+
+      * Stock-photo credits. The pipelines print the Unsplash photographer
+        into the article body, so the site ranks for the photographer's
+        name. On 2026-08-31 "marija zaric unsplash" was pinned first and
+        produced an article about stock-photography income — in a personal
+        finance blog for Hispanics in the USA.
+      * Navigational single-token brand strings ("novacreditltda",
+        "growtika", "robot"). Someone typing one brand token wants that
+        brand's own site; no article outranks it, and the topic is usually
+        off-niche anyway.
+      * SEO-tool operator strings, which are scrapers rather than people:
+        '"how to build a landing page" -site:reddit.com -site:twitter.com'.
+    """
+    q = (query or "").strip().lower()
+
+    if len(q) < 10:
+        return False
+
+    # Search operators => a tool, not a person.
+    if any(token in q for token in ('-site:', 'site:', ' -"', '+"', ' or ', ' and ')):
+        return False
+    if q.count('"') >= 2:
+        return False
+
+    # Stock-photo credits leaking out of the article body.
+    if any(host in q for host in ("unsplash", "pexels", "shutterstock", "getty", "istock")):
+        return False
+
+    # Navigational: a single token is a brand lookup, not an article topic.
+    if len(q.split()) < 2:
+        return False
+
+    # Absurdly long strings are pasted prompts or scraper payloads.
+    if len(q.split()) > 12:
+        return False
+
+    return True
+
+
+def filter_gsc_queries(queries: list[str]) -> list[str]:
+    """Apply is_usable_gsc_query() to a GSC result list and report what was cut."""
+    kept = [q for q in queries if is_usable_gsc_query(q)]
+    dropped = len(queries) - len(kept)
+    if dropped:
+        print(f"  🧹 GSC: {dropped} junk query/queries filtered out (brand lookups, photo credits, tool operators)")
+    return kept
+
+
 def pin_priority_first(pool: list[str], priority_keys: set[str]) -> list[str]:
     """Move proven-demand candidates to the front, preserving relative order.
 
