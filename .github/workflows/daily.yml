@@ -2,11 +2,16 @@ name: NewsTide Daily Pipeline
 
 on:
   schedule:
+    # 07:10 UTC = 09:10 Spanish time in summer (CEST, UTC+2), 08:10 in
+    # winter (CET, UTC+1). GitHub cron is always UTC and never follows DST,
+    # so the Spanish clock time shifts by an hour twice a year — change this
+    # line if the winter time matters.
+    #
     # Off the top of the hour on purpose — GitHub's own docs warn that
     # schedule triggers get delayed most at :00, when the whole platform's
     # cron jobs queue up at once. Runs from 2026-08-27 to 2026-08-31 at the
     # old '0 6 * * *' fired 5-12 hours late (once not at all by 14:30 CEST).
-    - cron: '12 6 * * *'
+    - cron: '10 7 * * *'
   workflow_dispatch:
 
 jobs:

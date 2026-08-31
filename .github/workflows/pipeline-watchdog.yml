@@ -1,0 +1,56 @@
+name: Pipeline Watchdog
+
+# Safety net for GitHub's scheduler, which offers no delivery guarantee for
+# `schedule` triggers: on 2026-08-31 the daily pipeline had still not fired
+# 6.5 hours after its cron time, and on 08-27/08-28 it fired 11-12 hours late.
+# Moving the crons off the top of the hour reduces that, but cannot remove it.
+#
+# This workflow checks whether each content pipeline actually ran today and
+# starts it if it did not. A run that is queued or in progress counts as
+# "ran", so a merely-late pipeline is never double-triggered.
+
+on:
+  schedule:
+    # 11:40 UTC — 4.5h after daily.yml's 07:10 slot.
+    - cron: '40 11 * * *'
+    # 17:40 UTC — 4h after finance.yml's 13:35 slot.
+    - cron: '40 17 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write     # required to start a workflow via `gh workflow run`
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start any content pipeline that has not run today
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TODAY="$(date -u +%Y-%m-%d)"
+          echo "Checking for runs created on ${TODAY} (UTC)"
+
+          for WF in daily.yml finance.yml; do
+            # Any run today counts — success, failure, queued or in progress.
+            # A failed run is a separate problem (visible in the Actions tab);
+            # re-triggering it automatically would just burn API credits.
+            COUNT="$(gh run list \
+              --workflow "${WF}" \
+              --created "${TODAY}" \
+              --limit 50 \
+              --json databaseId \
+              --jq 'length')"
+
+            if [ "${COUNT}" -gt 0 ]; then
+              echo "✅ ${WF}: ${COUNT} run(s) today — nothing to do."
+            else
+              echo "⚠️  ${WF}: no run today — starting it now."
+              gh workflow run "${WF}"
+              echo "🚀 ${WF} triggered by watchdog."
+            fi
+          done

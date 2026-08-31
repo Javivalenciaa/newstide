@@ -170,3 +170,64 @@ def test_fetch_keyword_metrics_logs_skipped_keywords(monkeypatch, capsys):
     dfs.fetch_keyword_metrics(["best ai tools"])
     captured = capsys.readouterr()
     assert "1 keyword(s) skipped" in captured.out
+
+
+# ── TARGETING STRATEGY ───────────────────────────────────────────────────────
+
+def test_opportunity_score_prefers_lower_difficulty_at_equal_volume():
+    assert dfs.opportunity_score(volume=500, difficulty=5) > dfs.opportunity_score(
+        volume=500, difficulty=30
+    )
+
+
+def test_a_keyword_allowed_by_the_old_ceiling_is_now_worth_nothing():
+    # This is the substantive strategy change. The old ceiling was
+    # MAX_DIFFICULTY=70, so a difficulty-65 term was accepted and — with the
+    # old volume/(difficulty+1) score — could still outrank an easy one purely
+    # on volume: 9000/66 = 136 beat 300/6 = 50. A site with a few hundred
+    # articles has no realistic chance at difficulty 65, so that traffic was
+    # never going to arrive. It now scores zero and drops out entirely.
+    assert (9000 / (65 + 1)) > (300 / (5 + 1))          # what the old code did
+    assert dfs.opportunity_score(volume=9000, difficulty=65) == 0.0
+    assert dfs.opportunity_score(volume=300, difficulty=5) > 0.0
+
+
+def test_opportunity_score_is_zero_at_or_above_difficulty_ceiling():
+    assert dfs.opportunity_score(volume=10_000, difficulty=dfs.MAX_DIFFICULTY) == 0.0
+    assert dfs.opportunity_score(volume=10_000, difficulty=99) == 0.0
+
+
+def test_thresholds_target_the_long_tail():
+    # A young site wins low-difficulty long-tail first. Real long-tail queries
+    # sit well under 100 searches/month, so a volume floor of 100 discarded
+    # exactly the keywords this site can actually rank for.
+    assert dfs.MIN_VOLUME <= 10
+    assert dfs.MAX_DIFFICULTY <= 40
+
+
+def test_pin_priority_first_moves_gsc_queries_to_the_front():
+    pool = ["written by gpt", "best crm tools", "how to price saas"]
+    gsc = {"how to price saas"}
+    assert dfs.pin_priority_first(pool, gsc)[0] == "how to price saas"
+
+
+def test_pin_priority_first_preserves_relative_order_within_each_group():
+    pool = ["a-topic", "gsc-one", "b-topic", "gsc-two"]
+    gsc = {"gsc-one", "gsc-two"}
+    assert dfs.pin_priority_first(pool, gsc) == [
+        "gsc-one", "gsc-two", "a-topic", "b-topic",
+    ]
+
+
+def test_pin_priority_first_is_a_noop_without_priority_keys():
+    pool = ["a", "b", "c"]
+    assert dfs.pin_priority_first(pool, set()) == pool
+
+
+def test_pin_priority_first_matches_the_same_key_shape_the_pipelines_build():
+    # Both pipelines build _gsc_keys as q.lower().strip()[:60], so matching
+    # must be case- and whitespace-insensitive or the pin silently never fires.
+    pool = ["  Best CRM For Solopreneurs  "]
+    gsc = {"best crm for solopreneurs"}
+    assert dfs.pin_priority_first(pool, gsc) == ["  Best CRM For Solopreneurs  "]
+    assert dfs.pin_priority_first(pool, gsc)[0] in pool

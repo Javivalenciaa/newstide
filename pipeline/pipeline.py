@@ -9,7 +9,12 @@ from serpapi import GoogleSearch
 from openai import OpenAI
 import anthropic
 from supabase import create_client
-from dataforseo import fetch_keyword_metrics, sort_pool_by_score, enrich_article_data
+from dataforseo import (
+    fetch_keyword_metrics,
+    sort_pool_by_score,
+    enrich_article_data,
+    pin_priority_first,
+)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 SERPAPI_KEY = os.environ["SERPAPI_KEY"]
@@ -956,6 +961,10 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     _kw_metrics = fetch_keyword_metrics(unique)
     unique = sort_pool_by_score(unique, _kw_metrics)
     unique = cluster_aware_reorder(unique, recent_articles)
+    # LAST on purpose: the two calls above each re-sort the whole pool, so
+    # pinning earlier would be undone. GSC queries are proven demand on this
+    # site and should be the first topics written each run.
+    unique = pin_priority_first(unique, _gsc_keys)
 
     return unique
 

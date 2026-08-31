@@ -13,9 +13,66 @@ from typing import Any
 # support, and $0.15/call for up to 100 keywords.
 YEPAPI_API_KEY = os.environ.get("YEPAPI_API_KEY", "")
 
-MIN_VOLUME = 100
-MAX_DIFFICULTY = 70
+# ── TARGETING STRATEGY (tuned for a young, low-authority site) ───────────────
+# The original values (MIN_VOLUME=100, MAX_DIFFICULTY=70) encoded the opposite
+# strategy: "prefer high volume, tolerate very hard keywords". On a site with
+# a few hundred articles and little link authority those are exactly the terms
+# it cannot rank for, so the pipeline kept picking unwinnable topics.
+#
+# A young site wins the long tail first: low difficulty, modest volume, then
+# builds authority upward. Hence a much lower volume floor (real long-tail
+# queries sit well under 100/mo) and a much stricter difficulty ceiling.
+MIN_VOLUME = 10
+MAX_DIFFICULTY = 40
 _BATCH_SIZE = 100  # YepAPI's own max keywords per call
+
+
+def opportunity_score(volume: int, difficulty: int) -> float:
+    """Achievable traffic, not raw traffic.
+
+    Volume you cannot rank for is worth nothing, so volume is discounted by
+    how close the keyword sits to the difficulty ceiling: full credit at
+    difficulty 0, zero credit at MAX_DIFFICULTY and above.
+
+    The previous formula (volume / (difficulty + 1)) still ranked a
+    volume-5000/difficulty-70 term above a volume-200/difficulty-5 term —
+    backwards for a site that can realistically only win the second one.
+    """
+    if difficulty >= MAX_DIFFICULTY:
+        return 0.0
+    winnability = (MAX_DIFFICULTY - difficulty) / MAX_DIFFICULTY
+    return round(volume * winnability, 2)
+
+
+def pin_priority_first(pool: list[str], priority_keys: set[str]) -> list[str]:
+    """Move proven-demand candidates to the front, preserving relative order.
+
+    Applied LAST in both pipelines — after sort_pool_by_score() and after
+    cluster_aware_reorder() — because each of those re-sorts the whole pool
+    and would otherwise bury these again.
+
+    GSC queries are the only candidates backed by impressions this site has
+    actually earned: Google already shows these pages for these terms. Moving
+    from position 15 to position 5 on a query you already rank for is far
+    cheaper traffic than ranking a brand-new article from nothing. Before
+    this, such a query with volume below MIN_VOLUME fell into `unscored` and
+    sank to the bottom of the pool, where a 3-articles-per-run cap meant it
+    was never actually used.
+    """
+    if not priority_keys:
+        return pool
+
+    priority: list[str] = []
+    rest: list[str] = []
+    for candidate in pool:
+        if candidate.lower().strip()[:60] in priority_keys:
+            priority.append(candidate)
+        else:
+            rest.append(candidate)
+
+    if priority:
+        print(f"  ⭐ {len(priority)} proven-demand (GSC) candidate(s) pinned to the front")
+    return priority + rest
 
 # ── STOPWORDS FOR KEYWORD EXTRACTION ─────────────────────────────────────────
 # NOTE: "vs"/"vs." is deliberately NOT here. This niche runs constant "X vs Y"
@@ -195,7 +252,7 @@ def fetch_keyword_metrics(
                 except (TypeError, ValueError):
                     difficulty = 0
 
-                kw_score = round(volume / (difficulty + 1), 2)
+                kw_score = opportunity_score(volume, difficulty)
                 core_metrics[keyword.lower()] = {
                     "volume": volume,
                     "difficulty": difficulty,
