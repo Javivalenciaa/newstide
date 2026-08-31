@@ -187,7 +187,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data: article } = await supabase
     .from('articles')
-    .select('title, excerpt, slug, slug_en, category, published_at, cover_image_url, keyword')
+    .select('title, title_en, excerpt, slug, slug_en, category, published_at, cover_image_url, keyword')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -215,17 +215,33 @@ export async function generateMetadata(
   const articleKw = article.keyword ? [article.keyword] : []
   const keywordsStr = [...new Set([...articleKw, ...catKws])].join(', ')
 
+  // Legacy duplicate pair (published before 2026-08-13): the translation step
+  // failed and stored the English text in the Spanish columns, so this URL and
+  // its /en/article/ twin serve byte-identical content while hreflang claims
+  // they are different languages. title === title_en identifies every one of
+  // those rows exactly (26/26 verified in Supabase). This niche is
+  // English-primary, so the /en/article/ URL is the canonical survivor and
+  // this one drops out of the index instead of competing with it.
+  const isDuplicateOfEnglish = !!article.title_en && article.title === article.title_en
+  const canonicalUrl = isDuplicateOfEnglish && urlEN ? urlEN : url
+
   return {
     title,
     description,
     keywords: keywordsStr,
+    ...(isDuplicateOfEnglish ? { robots: { index: false, follow: true } } : {}),
     alternates: {
-      canonical: url,
-      languages: {
-        'es': url,
-        ...(urlEN ? { 'en': urlEN } : {}),
-        'x-default': urlEN ?? url,
-      },
+      canonical: canonicalUrl,
+      // A duplicate declares no language alternates: claiming a Spanish
+      // version that is really English is the contradiction that made Google
+      // distrust the pair in the first place.
+      ...(isDuplicateOfEnglish ? {} : {
+        languages: {
+          'es': url,
+          ...(urlEN ? { 'en': urlEN } : {}),
+          'x-default': urlEN ?? url,
+        },
+      }),
     },
     openGraph: {
       title: article.title,

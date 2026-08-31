@@ -125,6 +125,20 @@ EDITORIAL_NOTE_ES = """
 *Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y supervisado por Javier Valencia, fundador de NewsTide e Ingeniero Informático. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
 """
 
+FINANCE_DISCLAIMER_EN = """
+
+---
+
+*Disclaimer: This article is for informational and educational purposes only. It does not constitute financial advice or a recommendation to buy or sell any financial product. Consult a certified financial advisor before making significant financial decisions. Past performance does not guarantee future results.*
+"""
+
+EDITORIAL_NOTE_EN = """
+
+---
+
+*Editorial note: This article was produced with AI assistance and reviewed by Javier Valencia, founder of NewsTide and a Computer Engineer. Verified data is distinguished from editorial opinion throughout the text. External sources linked here are independent of NewsTide.*
+"""
+
 INDEXNOW_KEY = "964bf589528b466cace60749e05cfcb6"
 INDEXNOW_HOST = "www.newstide.news"
 INDEXNOW_KEY_LOC = f"https://{INDEXNOW_HOST}/{INDEXNOW_KEY}.txt"
@@ -1097,6 +1111,163 @@ def compute_related_articles(category: str, slug: str, title: str, limit: int = 
     ]
 
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
+# ── SPANISH → ENGLISH TRANSLATION ─────────────────────────────────────────────
+# This pipeline is Spanish-primary. From 2026-08-13 it stopped writing the
+# English fields entirely, so 57 consecutive articles shipped with
+# content_en NULL and /en/fin/ went dark for more than half the vertical.
+#
+# Before that, the failure mode was the opposite and worse: a failed
+# translation silently stored the SPANISH text in content_en, producing 52
+# articles whose two language URLs served byte-identical content while
+# hreflang declared them different languages.
+#
+# Every function below therefore returns None on failure. save_article()
+# publishes the English fields only when ALL THREE succeed — a missing
+# English version is recoverable; a duplicate one damages the whole domain.
+
+def translate_title_to_english(title_es: str) -> str | None:
+    prompt = (
+        "Translate this article title to English. Keep it SEO-friendly, natural, "
+        "and under 70 characters. Keep proper nouns, brand names and product names "
+        "(Chime, ITIN, Nova Credit, IRS...) unchanged. "
+        "Reply ONLY with the translated title.\n\nTitle: " + title_es
+    )
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=80,
+        )
+        out = resp.choices[0].message.content.strip().strip('"').strip("'")
+        if len(out) < 6:
+            print("  ⚠️  EN title too short — skipping English version")
+            return None
+        print(f"  🇬🇧 Title EN: {out[:70]}")
+        return out
+    except Exception as e:
+        print(f"  ⚠️  EN title translation failed: {e} — skipping English version")
+        return None
+
+
+def translate_excerpt_to_english(excerpt_es: str) -> str | None:
+    prompt = (
+        "Translate this meta description to English. Keep it between 120 and 160 "
+        "characters. Natural, informative tone. Keep brand names unchanged. "
+        "Reply ONLY with the translated text.\n\nExcerpt: " + excerpt_es
+    )
+    try:
+        resp = openai_client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=120,
+        )
+        out = resp.choices[0].message.content.strip().strip('"').strip("'")
+        return out if len(out) > 40 else None
+    except Exception as e:
+        print(f"  ⚠️  EN excerpt translation failed: {e} — skipping English version")
+        return None
+
+
+def translate_content_to_english(content_es: str) -> str | None:
+    """Translate the full markdown body ES→EN. Returns None if ANY chunk fails,
+    so a half-Spanish/half-English article can never be published."""
+    MAX_CHUNK_CHARS = 12_000
+
+    system_prompt = (
+        "You are a professional translator specialising in personal finance content "
+        "for the US Hispanic audience. Translate the following markdown article from "
+        "Spanish to English.\n"
+        "Rules:\n"
+        "- Preserve ALL markdown formatting: headings, bold, italic, lists, tables.\n"
+        "- Keep ALL URLs, links and image syntax exactly as they are.\n"
+        "- Keep US financial/institutional terms unchanged (ITIN, SSN, IRS, 401k, "
+        "Roth IRA, FDIC, Chime, Nova Credit...).\n"
+        "- Use natural, fluent US English, not a literal translation.\n"
+        "- Return ONLY the translated markdown, no commentary."
+    )
+
+    def _one(chunk: str) -> str | None:
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_FAST,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": chunk},
+                ],
+                temperature=0.2, max_tokens=6000,
+            )
+            out = resp.choices[0].message.content.strip()
+            return out if len(out) > 200 else None
+        except Exception as e:
+            print(f"  ⚠️  EN content chunk failed: {e}")
+            return None
+
+    if len(content_es) <= MAX_CHUNK_CHARS:
+        out = _one(content_es)
+        if out:
+            print(f"  🇬🇧 Content translated ({len(out)} chars)")
+        else:
+            print("  ⚠️  EN content translation failed — skipping English version")
+        return out
+
+    paragraphs = content_es.split("\n\n")
+    chunks: list[str] = []
+    current = ""
+    for p in paragraphs:
+        if len(current) + len(p) + 2 > MAX_CHUNK_CHARS:
+            if current:
+                chunks.append(current.strip())
+            current = p
+        else:
+            current = (current + "\n\n" + p) if current else p
+    if current:
+        chunks.append(current.strip())
+
+    parts: list[str] = []
+    for i, chunk in enumerate(chunks):
+        out = _one(chunk)
+        if out is None:
+            # Abort the whole English version rather than mixing languages.
+            print(f"  ⚠️  EN chunk {i+1}/{len(chunks)} failed — skipping English version")
+            return None
+        parts.append(out)
+        print(f"  🇬🇧 Chunk {i+1}/{len(chunks)} translated")
+        time.sleep(0.3)
+
+    return "\n\n".join(parts)
+
+
+def build_english_version(title_es: str, excerpt_es: str, content_es: str) -> dict:
+    """Return the English column set, or {} if any part of the translation failed.
+
+    Returning {} leaves title_en/slug_en/content_en/excerpt_en NULL, which keeps
+    the article out of the /en/fin/ sitemap entries instead of publishing a
+    duplicate of the Spanish text at a second URL.
+    """
+    print("  🌐 Traduciendo al inglés...")
+    title_en = translate_title_to_english(title_es)
+    if not title_en:
+        return {}
+    excerpt_en = translate_excerpt_to_english(excerpt_es)
+    if not excerpt_en:
+        return {}
+    content_en = translate_content_to_english(content_es)
+    if not content_en:
+        return {}
+
+    slug_en = slugify(title_en)
+    if not slug_en:
+        print("  ⚠️  EN slug empty — skipping English version")
+        return {}
+
+    return {
+        "title_en": smart_trim(title_en, TITLE_MAX_CHARS),
+        "slug_en": slug_en,
+        "excerpt_en": normalize_excerpt(excerpt_en, 120, 155),
+        "content_en": content_en + EDITORIAL_NOTE_EN + FINANCE_DISCLAIMER_EN,
+    }
+
+
 def save_article(
     keyword: str,
     content: str,
@@ -1136,13 +1307,23 @@ def save_article(
         "related_articles": compute_related_articles(category, slug, title),
     }
 
-    # ── KEYWORD METRICS (DataForSEO) ────────────────────────────────────────
+    # ── ENGLISH VERSION (all-or-nothing — see build_english_version) ────────
+    english = build_english_version(title, excerpt, content_final)
+    if english:
+        data.update(english)
+    else:
+        print("  ℹ️  Sin versión inglesa en este artículo (campos EN quedan vacíos)")
+
+    # ── KEYWORD METRICS (YepAPI) ────────────────────────────────────────────
     data = enrich_article_data(data, keyword, _kw_metrics)
 
     try:
         supabase_client.table("finance_articles").insert(data).execute()
         print(f"  ✅ Guardado: {title[:70]}")
-        ping_indexnow([f"{FINANCE_URL_PREFIX}/{slug}"])
+        urls = [f"{FINANCE_URL_PREFIX}/{slug}"]
+        if english.get("slug_en"):
+            urls.append(f"https://{INDEXNOW_HOST}/en/fin/{english['slug_en']}")
+        ping_indexnow(urls)
         return title
     except Exception as e:
         print(f"  ❌ Error guardando: {e}")

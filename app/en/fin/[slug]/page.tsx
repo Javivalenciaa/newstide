@@ -120,7 +120,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data: article } = await supabase
     .from('finance_articles')
-    .select('title, title_en, excerpt, excerpt_en, slug_en, category, published_at, cover_image_url')
+    .select('title, title_en, excerpt, excerpt_en, slug, slug_en, category, published_at, cover_image_url')
     .eq('slug_en', slug)
     .maybeSingle()
 
@@ -143,12 +143,29 @@ export async function generateMetadata(
         width: 1200, height: 630, alt: rawTitle,
       }]
 
+  // Legacy duplicate pair (published before 2026-08-12): the translation step
+  // failed and stored the Spanish text in content_en, so this URL and its
+  // /es/fin/ twin serve byte-identical content. title === title_en identifies
+  // every one of those rows exactly (52/52 verified in Supabase). This vertical
+  // targets Hispanics in the USA, so the Spanish URL is the canonical survivor
+  // and this English twin drops out of the index rather than competing.
+  const isDuplicateOfSpanish = !!article.title_en && article.title === article.title_en
+  const urlES = article.slug ? `https://www.newstide.news/es/fin/${article.slug}` : undefined
+  const canonicalUrl = isDuplicateOfSpanish && urlES ? urlES : url
+
   return {
     title,
     description,
+    ...(isDuplicateOfSpanish ? { robots: { index: false, follow: true } } : {}),
     alternates: {
-      canonical: url,
-      languages: { 'en': url, 'x-default': url },
+      canonical: canonicalUrl,
+      ...(isDuplicateOfSpanish ? {} : {
+        languages: {
+          'en': url,
+          ...(urlES ? { 'es': urlES } : {}),
+          'x-default': url,
+        },
+      }),
     },
     openGraph: {
       title: rawTitle,

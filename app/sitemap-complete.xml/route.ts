@@ -27,10 +27,10 @@ function toLastmod(value?: string | null) {
 
 export async function GET() {
   const now = new Date().toISOString()
-  const [articlesRes, pseoRes, financeRes] = await Promise.all([
+  const [articlesRes, pseoRes, financeRes, financeWithEnRes] = await Promise.all([
     supabase
       .from('articles')
-      .select('slug, slug_en, published_at')
+      .select('slug, slug_en, title, title_en, published_at')
       .not('slug', 'is', null)
       .lte('published_at', now)
       .order('published_at', { ascending: false }),
@@ -42,16 +42,31 @@ export async function GET() {
       .order('published_at', { ascending: false }),
     supabase
       .from('finance_articles')
-      .select('slug, slug_en, published_at')
+      .select('slug, slug_en, title, title_en, published_at')
       .lte('published_at', now)
       .order('published_at', { ascending: false }),
+    supabase
+      .from('finance_articles')
+      .select('slug_en')
+      .not('content_en', 'is', null)
+      .not('slug_en', 'is', null),
   ])
+
+  const financeSlugsWithEnglish = new Set(
+    (financeWithEnRes.data || []).map((a) => a.slug_en)
+  )
+
+  // Legacy duplicate pairs — identical text in both language columns. One of
+  // the two URLs is noindexed at page level, so neither sitemap should list it.
+  const isDupe = (a: { title?: string | null; title_en?: string | null }) =>
+    !!a.title_en && a.title === a.title_en
 
   const urls = new Map<string, SitemapUrl>()
   const add = (entry: SitemapUrl) => urls.set(entry.loc, entry)
 
   for (const article of articlesRes.data ?? []) {
-    if (article.slug) {
+    // English is canonical in this niche — a duplicate pair drops /articulo/.
+    if (article.slug && !isDupe(article)) {
       add({
         loc: `${BASE_URL}/articulo/${encodeURIComponent(article.slug)}`,
         lastmod: toLastmod(article.published_at),
@@ -94,7 +109,13 @@ export async function GET() {
       })
     }
 
-    if (article.slug_en) {
+    // Spanish is canonical in this vertical, and the English URL must have a
+    // real English body — six rows carried a slug_en with content_en NULL.
+    if (
+      article.slug_en &&
+      financeSlugsWithEnglish.has(article.slug_en) &&
+      !isDupe(article)
+    ) {
       add({
         loc: `${BASE_URL}/en/fin/${encodeURIComponent(article.slug_en)}`,
         lastmod: toLastmod(article.published_at),

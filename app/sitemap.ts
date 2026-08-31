@@ -39,7 +39,7 @@ const EN_CATS = [
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [articlesRes, pseoRes, financeRes] = await Promise.all([
+  const [articlesRes, pseoRes, financeRes, financeWithEnRes] = await Promise.all([
     supabase
       .from('articles')
       .select('title, title_en, slug, slug_en, published_at')
@@ -52,21 +52,45 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // FIX: fetch both slug (ES) and slug_en (EN) from finance_articles
     supabase
       .from('finance_articles')
-      .select('slug, slug_en, published_at')
+      .select('slug, slug_en, title, title_en, published_at')
       .order('published_at', { ascending: false }),
+    // Which finance articles actually HAVE an English body. Six rows carry a
+    // slug_en with content_en NULL — they were listed here and served an empty
+    // page to crawlers. Selecting only slug_en keeps this query cheap.
+    supabase
+      .from('finance_articles')
+      .select('slug_en')
+      .not('content_en', 'is', null)
+      .not('slug_en', 'is', null),
   ])
 
   const allArticles = articlesRes.data || []
   const allPseo     = pseoRes.data     || []
   const allFinance  = financeRes.data  || []
 
+  const financeSlugsWithEnglish = new Set(
+    (financeWithEnRes.data || []).map((a) => a.slug_en)
+  )
+
+  // Legacy duplicate pairs: both language columns hold identical text, so one
+  // of the two URLs is noindexed at the page level (see the [slug]/page.tsx
+  // files). A noindexed URL does not belong in the sitemap either.
+  // title === title_en identifies these exactly — verified against Supabase:
+  // 26/26 in articles, 52/52 in finance_articles, zero misses.
+  const isDupe = (a: { title?: string | null; title_en?: string | null }) =>
+    !!a.title_en && a.title === a.title_en
+
   // ── Tech articles ──────────────────────────────────────────────
-  const esArticleUrls = allArticles.map((a) => ({
-    url:             `https://www.newstide.news/articulo/${a.slug}`,
-    lastModified:    new Date(a.published_at),
-    changeFrequency: 'weekly' as const,
-    priority:        0.8,
-  }))
+  // English is canonical in this niche, so a duplicate pair keeps /en/article/
+  // and drops the /articulo/ twin.
+  const esArticleUrls = allArticles
+    .filter((a) => !isDupe(a))
+    .map((a) => ({
+      url:             `https://www.newstide.news/articulo/${a.slug}`,
+      lastModified:    new Date(a.published_at),
+      changeFrequency: 'weekly' as const,
+      priority:        0.8,
+    }))
 
   const enArticleUrls = allArticles
     .filter((a) => !!a.slug_en)
@@ -97,8 +121,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
 
   // en/fin/{slug_en}  — English version (slug_en field)
+  // Spanish is canonical in this vertical (Hispanics in the USA), so a
+  // duplicate pair keeps /es/fin/ and drops the English twin. Also requires a
+  // real English body: six rows had a slug_en pointing at content_en NULL.
   const enFinanceUrls = allFinance
-    .filter((a) => !!a.slug_en)
+    .filter((a) => !!a.slug_en && financeSlugsWithEnglish.has(a.slug_en) && !isDupe(a))
     .map((a) => ({
       url:             `https://www.newstide.news/en/fin/${a.slug_en}`,
       lastModified:    new Date(a.published_at),
