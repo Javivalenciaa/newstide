@@ -61,6 +61,14 @@ MIN_READING_TIME = 5
 MIN_WORD_COUNT = MIN_READING_TIME * 200  # 1000 words
 MIN_H2_SECTIONS = 3
 
+# Structure has to scale with length: MIN_H2_SECTIONS is an absolute floor, so
+# a very long article with few headings still passes. finance_pipeline.py
+# shipped 4,123 words under 8 headings on 2026-09-01 (515 words per section).
+# Long unbroken prose hurts twice — readers skim and leave, and answer engines
+# extract from discrete, well-titled sections, so it is far less quotable.
+MAX_WORDS_PER_SECTION_WARN = 400
+MAX_WORDS_PER_SECTION_FAIL = 600
+
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
 TITLE_MAX_CHARS = 60
 TITLE_SOFT_MIN = 45
@@ -408,6 +416,20 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if h2_count < MIN_H2_SECTIONS:
         print(f"  ❌ VALIDATION FAIL [{label}]: {h2_count} H2/H3 sections (need >= {MIN_H2_SECTIONS})")
         ok = False
+    # Density, not just the absolute count — see MAX_WORDS_PER_SECTION_* above.
+    if h2_count > 0:
+        per_section = words / h2_count
+        if per_section > MAX_WORDS_PER_SECTION_FAIL:
+            print(
+                f"  ❌ VALIDATION FAIL [{label}]: {per_section:.0f} words per section "
+                f"({words}w / {h2_count} sections) — wall of text"
+            )
+            ok = False
+        elif per_section > MAX_WORDS_PER_SECTION_WARN:
+            print(
+                f"  ⚠️  VALIDATION WARN [{label}]: {per_section:.0f} words per section "
+                f"({words}w / {h2_count} sections) — sections too long to skim"
+            )
     stripped = content.strip()
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
         print(f"  ❌ VALIDATION FAIL [{label}]: starts mid-sentence (truncation)")
@@ -876,19 +898,29 @@ Reply ONLY: YES or NO"""
         print(f"  ⚠️  Dedup check error: {e}")
         return False
 
+# Angles must produce SEARCH-INTENT titles, not magazine headlines: a phrase
+# like "the biggest mistake founders make with X" is not something anyone
+# types into Google, and its Spanish twin degraded a perfectly good title in
+# finance_pipeline.py on 2026-09-01. Module-level so it can be asserted on.
+MUTATION_ANGLES = (
+    "a step-by-step tutorial with real code snippets and tool setup",
+    "a direct comparison of two specific tools with a clear winner for each use case",
+    # Angles must yield SEARCH-INTENT titles, not magazine headlines —
+    # "the biggest mistake founders make with X" is a phrase nobody types
+    # into Google, and its Spanish twin produced exactly that failure in
+    # finance_pipeline.py on 2026-09-01.
+    "the exact setup steps and requirements, with what it costs",
+    "a cost breakdown showing real pricing of the tools involved",
+    "how a bootstrapped founder actually uses this in production",
+    "an advanced take for developers who already know the basics",
+)
+
+
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
     recent_titles = "\n".join(
         f"- {a.get('title_en') or a.get('keyword', '')}" for a in recent_articles[:25]
     )
-    angles = [
-        "a step-by-step tutorial with real code snippets and tool setup",
-        "a direct comparison of two specific tools with a clear winner for each use case",
-        "the biggest mistake solo founders make with this topic and how to avoid it",
-        "a cost breakdown showing real pricing of the tools involved",
-        "how a bootstrapped founder actually uses this in production",
-        "an advanced take for developers who already know the basics",
-    ]
-    angle = angles[attempt % len(angles)]
+    angle = MUTATION_ANGLES[attempt % len(MUTATION_ANGLES)]
     prompt = f"""You have this topic: "{original}"
 
 It's too similar to these already published:
@@ -1285,6 +1317,41 @@ _FIRST_PERSON_RE = re.compile(
 )
 _PRICING_RE = re.compile(r"\$\d+|\d+\s?(usd|eur|€)", re.IGNORECASE)
 
+
+_PRICING_MARK_EN = "Pricing accurate as of publication"
+
+_MONTHS_EN = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def annotate_pricing_freshness(content: str) -> str:
+    """Date any monetary figures so a stale amount is visibly stale.
+
+    CHECK D already flagged "[D] Prices found in content — manually verify",
+    but the flag only reached the run log: nobody reviews it, and the figure
+    stayed in the article undated, so a reader a year later cannot tell the
+    number has expired. Stamping the month states only what is true — these
+    were the amounts when the piece was written — claims no human
+    verification, and points the reader at the current figure.
+    """
+    if not content or not _PRICING_RE.search(content):
+        return content
+    if _PRICING_MARK_EN in content:      # idempotent — never stacks on refresh
+        return content
+
+    now = datetime.now(timezone.utc)
+    stamp = f"{_MONTHS_EN[now.month - 1]} {now.year}"
+    print(f"  💲 Pricing detected — stamping ({stamp})")
+    note = (
+        f"\n\n*{_PRICING_MARK_EN} ({stamp}). Vendor pricing changes without "
+        f"notice — always confirm the current amount on the provider's own "
+        f"site before deciding.*\n"
+    )
+    return content.rstrip() + note
+
+
 _GUARDRAIL_STOP = {
     "a","an","the","and","or","but","in","on","at","to","for","of","with",
     "by","from","is","are","was","were","be","been","being","have","has",
@@ -1469,6 +1536,8 @@ def save_article(
         rt = MIN_READING_TIME
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Before the Spanish translation below, so both languages carry the stamp.
+    content = annotate_pricing_freshness(content)
     content_en_final = content + EDITORIAL_NOTE
 
     # ── SPANISH TRANSLATION ───────────────────────────────────────────────
@@ -1533,18 +1602,31 @@ def process_topic(
     recent_articles: list[dict],
     published_this_run: list[str],
     article_idx: int,
+    allow_mutation: bool = False,
 ) -> str | None:
     recent_context = format_recent_context(recent_articles)
     candidate = topic
 
-    for attempt in range(5):
-        if not is_duplicate_topic(candidate, recent_articles, published_this_run):
-            break
-        print(f"  ⚠️  Duplicate — mutating (attempt {attempt+1}/5)...")
-        candidate = mutate_topic(candidate, recent_articles, attempt)
-    else:
-        print(f"  ❌ No unique angle found for: {topic[:50]} — skipping")
-        return None
+    # Mutating an already-covered topic MANUFACTURES cannibalisation: it keeps
+    # the subject and only rewords the angle until the similarity check stops
+    # firing, so the site ends up with several articles chasing one query
+    # cluster. The pool holds ~36 candidates and the main loop advances on
+    # None, so "already covered" should simply mean "take the next candidate".
+    # Mutation is kept for the case where the pool is exhausted, where a new
+    # angle beats publishing nothing.
+    if is_duplicate_topic(candidate, recent_articles, published_this_run):
+        if not allow_mutation:
+            print("  ⏭️  Already covered — next pool candidate (no mutation)")
+            return None
+
+        for attempt in range(5):
+            print(f"  ⚠️  Pool exhausted — mutating (attempt {attempt+1}/5)...")
+            candidate = mutate_topic(candidate, recent_articles, attempt)
+            if not is_duplicate_topic(candidate, recent_articles, published_this_run):
+                break
+        else:
+            print(f"  ❌ No unique angle found for: {topic[:50]} — skipping")
+            return None
 
     if already_published_hash(candidate):
         print(f"  ⏭️  Hash already exists in Supabase — skipping")
@@ -1639,7 +1721,12 @@ def main():
             pool_index += 1
             print(f"\n📝 [{len(published_titles)+1}/{ARTICLES_PER_RUN}] {topic[:70]}")
 
-            saved = process_topic(topic, recent_articles, published_titles, len(published_titles))
+            # Only once the pool has been exhausted at least once is mutating a
+            # covered topic preferable to publishing nothing.
+            saved = process_topic(
+                topic, recent_articles, published_titles, len(published_titles),
+                allow_mutation=extra_niche_attempts > 0,
+            )
             if saved:
                 published_titles.append(saved)
                 recent_articles.insert(0, {

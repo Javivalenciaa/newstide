@@ -175,3 +175,78 @@ def test_every_finance_category_has_official_sources():
     # detect_category() can only ever return these; each must map to sources.
     for category in set(fp.FIN_CATEGORIES.values()):
         assert category in fp.OFFICIAL_SOURCES_BY_CATEGORY, category
+
+
+# ── PUNTO 3: densidad de secciones ───────────────────────────────────────────
+
+def _article(words: int, sections: int) -> str:
+    body = " ".join(["palabra"] * (words - sections * 3))
+    heads = "".join(f"\n\n## Seccion {i}\n\n" for i in range(sections))
+    return "# Titulo\n\n" + heads + body
+
+
+def test_validator_fails_a_wall_of_text():
+    # 4000 words under 5 headings = 800/section. The absolute MIN_H2_SECTIONS
+    # floor accepted this; density must not.
+    assert fp.validate_article_content(_article(4000, 5), "test") is False
+
+
+def test_validator_accepts_well_sectioned_long_form():
+    # 4000 words across 20 headings = 200/section, the readable range.
+    assert fp.validate_article_content(_article(4000, 20), "test") is True
+
+
+def test_validator_still_enforces_the_absolute_minimums():
+    assert fp.validate_article_content(_article(500, 10), "test") is False   # too short
+    assert fp.validate_article_content(_article(3000, 2), "test") is False   # too few sections
+
+
+# ── PUNTO 4: frescura de precios ─────────────────────────────────────────────
+
+def test_pricing_stamp_added_only_when_amounts_are_present():
+    assert fp._PRICING_MARK_ES in fp.annotate_pricing_freshness("La comisión es de $5.")
+    sin_precio = "Este texto no menciona ningún importe."
+    assert fp.annotate_pricing_freshness(sin_precio) == sin_precio
+
+
+def test_pricing_stamp_detects_apy_without_a_dollar_sign():
+    # The finance vertical quotes rates as often as dollar amounts.
+    assert fp._PRICING_MARK_ES in fp.annotate_pricing_freshness("Ofrece 4.5% APY.")
+
+
+def test_pricing_stamp_is_idempotent_so_refreshes_never_stack_it():
+    once = fp.annotate_pricing_freshness("Cuesta $29 al mes.")
+    assert fp.annotate_pricing_freshness(once) == once
+    assert once.count(fp._PRICING_MARK_ES) == 1
+
+
+# ── PUNTO 1: los duplicados se saltan, no se mutan ───────────────────────────
+
+def test_duplicate_topic_is_skipped_instead_of_mutated(monkeypatch):
+    # Mutating a covered topic manufactures cannibalisation: six live articles
+    # now chase the "enviar dinero a México / Wise / Remitly" cluster.
+    monkeypatch.setattr(fp, "is_duplicate_topic", lambda *a, **k: True)
+    called = []
+    monkeypatch.setattr(fp, "mutate_topic", lambda *a, **k: called.append(1) or "mutado")
+
+    assert fp.process_topic("Wise vs Remitly", [], [], 0, allow_mutation=False) is None
+    assert called == [], "no debe mutar cuando el pool aún tiene candidatos"
+
+
+def test_mutation_is_still_available_once_the_pool_is_exhausted(monkeypatch):
+    monkeypatch.setattr(fp, "is_duplicate_topic", lambda *a, **k: True)
+    called = []
+    monkeypatch.setattr(fp, "mutate_topic", lambda *a, **k: (called.append(1), "mutado")[1])
+
+    fp.process_topic("Wise vs Remitly", [], [], 0, allow_mutation=True)
+    assert called, "con el pool agotado la mutación sigue siendo el último recurso"
+
+
+def test_mutation_angles_are_search_intent_not_clickbait():
+    # Asserted against the angle list itself, not the module source, so the
+    # explanatory comment above it cannot make this pass or fail.
+    joined = " ".join(fp.MUTATION_ANGLES).lower()
+    for banned in ("error mas comun", "error más común", "lo que nadie te cuenta"):
+        assert banned not in joined, banned
+    # Every angle should point at something a person would actually search for.
+    assert any("requisitos" in a or "cuánto cuesta" in a for a in fp.MUTATION_ANGLES)

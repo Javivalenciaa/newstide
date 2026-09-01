@@ -54,6 +54,16 @@ _claude_tokens_this_run = 0
 MIN_READING_TIME = 10
 MIN_WORD_COUNT = MIN_READING_TIME * 200  # 2000 words minimum
 MIN_H2_SECTIONS = 3
+
+# Structure has to scale with length. MIN_H2_SECTIONS alone is an absolute
+# floor, so a 4,123-word article with 8 sections passed validation on
+# 2026-09-01 — 515 words per section, i.e. walls of text. Sibling articles the
+# same day ran 40-51 sections. Long unbroken prose hurts twice: readers skim
+# and leave, and answer engines (AI Overviews, ChatGPT, Perplexity) extract
+# from discrete, well-titled sections, so an unsectioned article is far less
+# quotable.
+MAX_WORDS_PER_SECTION_WARN = 400   # readable long-form sits at 150-350
+MAX_WORDS_PER_SECTION_FAIL = 600   # beyond this it is a wall of text
 TOPIC_CLUSTER_COOLDOWN_DAYS = 14  # same cluster can't publish twice in 14 days
 
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
@@ -170,6 +180,44 @@ OFFICIAL_SOURCES_BY_CATEGORY = {
     "Ingresos Extra": [_SRC_IRS_ES, _SRC_MYMONEY],
 }
 _DEFAULT_SOURCES = [_SRC_USAGOV, _SRC_MYMONEY, _SRC_BENEFITS, _SRC_HEALTHCARE][:2]
+
+
+# ── PRICING FRESHNESS ────────────────────────────────────────────────────────
+# Fees, minimums and APYs go stale, and a stale figure in a YMYL article is a
+# factual error the reader has no way to detect. pipeline.py already flagged
+# "[D] Prices found in content — manually verify", but the flag only reached
+# the run log: nobody reviews it, and the number stayed in the article
+# undated. finance_pipeline.py had no such check at all, despite this being
+# the vertical that quotes fees and minimums constantly.
+#
+# Dating the figure is what publishers actually do. It states only what is
+# true — these were the amounts when the piece was written — adds no claim of
+# human verification, and tells the reader where to confirm the current one.
+_PRICING_RE = re.compile(r"\$\s?\d|\d+\s?%\s?(APY|APR)|\d+\s?(usd|dólares)", re.IGNORECASE)
+_PRICING_MARK_ES = "Tarifas e importes vigentes a fecha de publicación"
+
+_MESES_ES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
+def annotate_pricing_freshness(content: str) -> str:
+    """Date any monetary figures so a stale amount is visibly stale."""
+    if not content or not _PRICING_RE.search(content):
+        return content
+    if _PRICING_MARK_ES in content:      # idempotent — never stacks on refresh
+        return content
+
+    now = datetime.now(timezone.utc)
+    stamp = f"{_MESES_ES[now.month - 1]} de {now.year}"
+    print(f"  💲 Importes detectados — fechando ({stamp})")
+    note = (
+        f"\n\n*{_PRICING_MARK_ES} ({stamp}). Las tarifas, comisiones y mínimos "
+        f"cambian sin previo aviso: confirma siempre el importe actual en la "
+        f"web oficial del proveedor antes de tomar una decisión.*\n"
+    )
+    return content.rstrip() + note
 
 
 def has_authoritative_source(content: str) -> bool:
@@ -392,6 +440,20 @@ def validate_article_content(content: str, label: str = "article") -> bool:
     if h2_count < MIN_H2_SECTIONS:
         print(f"  ❌ VALIDATION FAIL [{label}]: {h2_count} H2/H3 (need >= {MIN_H2_SECTIONS})")
         ok = False
+    # Density, not just the absolute count — see MAX_WORDS_PER_SECTION_* above.
+    if h2_count > 0:
+        per_section = words / h2_count
+        if per_section > MAX_WORDS_PER_SECTION_FAIL:
+            print(
+                f"  ❌ VALIDATION FAIL [{label}]: {per_section:.0f} words per section "
+                f"({words}w / {h2_count} sections) — wall of text"
+            )
+            ok = False
+        elif per_section > MAX_WORDS_PER_SECTION_WARN:
+            print(
+                f"  ⚠️  VALIDATION WARN [{label}]: {per_section:.0f} words per section "
+                f"({words}w / {h2_count} sections) — sections too long to skim"
+            )
     stripped = content.strip()
     if not stripped.startswith("#") and len(stripped) > 0 and stripped[0].islower():
         print(f"  ❌ VALIDATION FAIL [{label}]: starts mid-sentence (truncation)")
@@ -831,17 +893,25 @@ Responde SOLO: YES o NO"""
     except Exception:
         return False
 
+# Angles must produce SEARCH-INTENT titles, not magazine headlines. The list
+# previously held "el error más común que cometen los hispanos", which on
+# 2026-09-01 turned "Wise vs Remitly: cuál conviene para enviar dinero a
+# México" — a title with perfect search intent — into "El error más común de
+# los hispanos al usar Wise y Remitly", a phrase nobody types into Google.
+# Module-level so the angles can be asserted on directly.
+MUTATION_ANGLES = (
+    "una guía paso a paso con requisitos y plazos concretos en USA",
+    "los requisitos exactos y la documentación necesaria en USA",
+    "cuánto cuesta realmente y qué comisiones se aplican en USA",
+    "qué opciones existen para alguien recién llegado a USA sin historial",
+)
+
+
 def mutate_topic(original: str, recent_articles: list[dict], attempt: int) -> str:
     recent_titles = "\n".join(
         f"- {a.get('title') or a.get('keyword', '')}" for a in recent_articles[:25]
     )
-    angles = [
-        "una guía paso a paso con ejemplos reales de productos americanos",
-        "una comparativa directa entre dos herramientas concretas disponibles en USA",
-        "el error más común que cometen los hispanos con este tema financiero y cómo evitarlo",
-        "un enfoque para alguien que acaba de llegar a USA y no sabe por dónde empezar",
-    ]
-    angle = angles[attempt % len(angles)]
+    angle = MUTATION_ANGLES[attempt % len(MUTATION_ANGLES)]
     prompt = f"""Tienes este tema: "{original}"
 
 Es demasiado similar a los ya publicados:
@@ -946,7 +1016,12 @@ ESTE ES CONTENIDO YMYL: sigue E-E-A-T estrictamente.
   https://www.irs.gov/es). NUNCA inventes una URL profunda: si no estás
   seguro de que una ruta concreta existe, enlaza la portada del organismo.
 - MÍNIMO {MIN_WORD_COUNT} palabras.
-- 4-5 H2 y FAQ con 3-4 H3.
+- ESTRUCTURA PROPORCIONAL A LA LONGITUD: una sección H2 o H3 cada 250-350
+  palabras. Si el artículo tiene 3.000 palabras necesita 10-12 secciones; si
+  tiene 4.000, entre 12 y 16. NUNCA escribas bloques de más de 400 palabras
+  bajo un mismo encabezado: divídelos en subsecciones con su propio H3.
+  Cada encabezado debe ser descriptivo y responder a una duda concreta.
+- Incluye una sección FAQ con 3-4 preguntas como H3.
 - Sección honesta "Cuándo esto NO funciona".
 - Todo en ESPAÑOL.
 - El H1 del artículo DEBE ser una frase completa, entre {TITLE_SOFT_MIN} y {TITLE_SOFT_MAX} caracteres.
@@ -1392,6 +1467,8 @@ def save_article(
     # before the editorial note so the sources sit with the article body, and
     # before the English translation so both languages carry them.
     content = ensure_authoritative_sources(content, category)
+    # Before the English translation, so both languages carry the same stamp.
+    content = annotate_pricing_freshness(content)
     content_final = content + EDITORIAL_NOTE_ES + FINANCE_DISCLAIMER_ES
 
     data = {
@@ -1439,18 +1516,34 @@ def process_topic(
     recent_articles: list[dict],
     published_this_run: list[str],
     article_idx: int,
+    allow_mutation: bool = False,
 ) -> str | None:
     recent_context = format_recent_context(recent_articles)
     candidate = clean_serp_candidate(topic)
 
-    for attempt in range(5):
-        if not is_duplicate_topic(candidate, recent_articles, published_this_run):
-            break
-        print(f"  ⚠️  Duplicado — mutando (intento {attempt+1}/5)...")
-        candidate = mutate_topic(candidate, recent_articles, attempt)
-    else:
-        print(f"  ❌ No se encontró ángulo único para: {topic[:50]} — saltando")
-        return None
+    # Mutating an already-covered topic MANUFACTURES cannibalisation: it keeps
+    # the same subject and only rewords the angle until the similarity check
+    # stops firing. Six live articles now compete for the "enviar dinero a
+    # México / Wise / Remitly" cluster (2026-08-04 through 2026-09-01), and
+    # three of them exist purely because this loop refused to move on.
+    #
+    # The pool holds ~36 candidates and the main loop advances on None, so the
+    # correct response to "already covered" is simply the next candidate.
+    # Mutation is kept, but only once the pool is exhausted and the main loop
+    # is expanding it — at that point a new angle beats publishing nothing.
+    if is_duplicate_topic(candidate, recent_articles, published_this_run):
+        if not allow_mutation:
+            print(f"  ⏭️  Ya cubierto — siguiente candidato del pool (sin mutar)")
+            return None
+
+        for attempt in range(5):
+            print(f"  ⚠️  Pool agotado — mutando (intento {attempt+1}/5)...")
+            candidate = mutate_topic(candidate, recent_articles, attempt)
+            if not is_duplicate_topic(candidate, recent_articles, published_this_run):
+                break
+        else:
+            print(f"  ❌ No se encontró ángulo único para: {topic[:50]} — saltando")
+            return None
 
     if already_published_hash(candidate):
         print(f"  ⏭️  Hash ya existe — saltando")
@@ -1539,7 +1632,12 @@ def main():
             pool_index += 1
             print(f"\n📝 [{len(published_titles)+1}/{ARTICLES_PER_RUN}] {topic[:70]}")
 
-            saved = process_topic(topic, recent_articles, published_titles, len(published_titles))
+            # Only once the pool has been exhausted at least once is mutating a
+            # covered topic preferable to publishing nothing.
+            saved = process_topic(
+                topic, recent_articles, published_titles, len(published_titles),
+                allow_mutation=extra_niche_attempts > 0,
+            )
             if saved:
                 published_titles.append(saved)
                 recent_articles.insert(0, {
