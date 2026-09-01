@@ -125,6 +125,91 @@ EDITORIAL_NOTE_ES = """
 *Nota editorial: Este artículo ha sido elaborado con asistencia de inteligencia artificial y supervisado por Javier Valencia, fundador de NewsTide e Ingeniero Informático. Los datos verificados se distinguen de las opiniones editoriales a lo largo del texto. Las fuentes externas enlazadas son independientes de NewsTide.*
 """
 
+# ── E-E-A-T: AUTHORITATIVE SOURCING FOR YMYL ─────────────────────────────────
+# Personal finance is YMYL ("Your Money or Your Life"), the category Google
+# holds to the strictest E-E-A-T standard. has_external_link() only asked for
+# ANY non-NewsTide URL, so a link to a random blog satisfied it, and the check
+# was a warning that published anyway: the 2026-09-01 Roth IRA article shipped
+# with zero external sources.
+#
+# Two lists, deliberately different:
+#   AUTHORITATIVE_DOMAINS — what COUNTS as a real source when validating.
+#     Broad, since any of these being cited is a good outcome.
+#   OFFICIAL_SOURCES_BY_CATEGORY — what we are willing to INJECT ourselves.
+#     Narrow, and every URL here was verified to return HTTP 200 on
+#     2026-09-01. Shipping a dead link would damage the very signal this is
+#     meant to strengthen, so nothing unverified goes in this second list.
+AUTHORITATIVE_DOMAINS = (
+    "irs.gov", "consumerfinance.gov", "ssa.gov", "fdic.gov", "federalreserve.gov",
+    "usa.gov", "mymoney.gov", "benefits.gov", "ftc.gov", "investor.gov",
+    "sec.gov", "hud.gov", "healthcare.gov", "medicare.gov", "treasury.gov",
+    "uscis.gov", "dol.gov", "studentaid.gov", "cfpb.gov", "fincen.gov",
+)
+
+_SRC_IRS_ES      = ("IRS en español", "https://www.irs.gov/es")
+_SRC_IRS_ITIN    = ("IRS — Número ITIN", "https://www.irs.gov/es/individuals/individual-taxpayer-identification-number")
+_SRC_FTC_CONSUMO = ("FTC — Información para consumidores", "https://consumidor.ftc.gov/")
+_SRC_USAGOV      = ("USA.gov en español", "https://www.usa.gov/es")
+_SRC_MYMONEY     = ("MyMoney.gov — Educación financiera federal", "https://www.mymoney.gov/")
+_SRC_FDIC        = ("FDIC — Seguro de depósitos bancarios", "https://www.fdic.gov/")
+_SRC_INVESTOR    = ("Investor.gov (SEC)", "https://www.investor.gov/")
+_SRC_HUD         = ("HUD — Vivienda", "https://www.hud.gov/")
+_SRC_BENEFITS    = ("Benefits.gov — Programas de ayuda", "https://www.benefits.gov/")
+_SRC_HEALTHCARE  = ("HealthCare.gov en español", "https://www.healthcare.gov/es/")
+
+# Keys match detect_category() exactly (FIN_CATEGORIES values).
+OFFICIAL_SOURCES_BY_CATEGORY = {
+    "Crédito":        [_SRC_FTC_CONSUMO, _SRC_USAGOV],
+    "Impuestos":      [_SRC_IRS_ES, _SRC_IRS_ITIN],
+    "Ahorro":         [_SRC_MYMONEY, _SRC_FDIC],
+    "Presupuesto":    [_SRC_MYMONEY, _SRC_FTC_CONSUMO],
+    "Inversión":      [_SRC_INVESTOR, _SRC_MYMONEY],
+    "Remesas":        [_SRC_FTC_CONSUMO, _SRC_USAGOV],
+    "Deudas":         [_SRC_FTC_CONSUMO, _SRC_MYMONEY],
+    "Vivienda":       [_SRC_HUD, _SRC_USAGOV],
+    "Ingresos Extra": [_SRC_IRS_ES, _SRC_MYMONEY],
+}
+_DEFAULT_SOURCES = [_SRC_USAGOV, _SRC_MYMONEY, _SRC_BENEFITS, _SRC_HEALTHCARE][:2]
+
+
+def has_authoritative_source(content: str) -> bool:
+    """True when the article cites at least one recognised primary source.
+
+    Deliberately stricter than has_external_link(): on YMYL topics a link to
+    someone's blog is not a source, and treating it as one is exactly the
+    weak signal Google's quality guidelines penalise.
+    """
+    for link in re.findall(r'https?://[^\s\)\"\'<>]+', content or ""):
+        host = link.split("//", 1)[-1].split("/", 1)[0].lower()
+        if any(host == d or host.endswith("." + d) for d in AUTHORITATIVE_DOMAINS):
+            return True
+    return False
+
+
+def ensure_authoritative_sources(content: str, category: str) -> str:
+    """Guarantee every YMYL article ships with primary-source attribution.
+
+    If the model already cited an authoritative domain, nothing changes. If it
+    did not, a short "Fuentes oficiales" section is appended using the verified
+    URLs for that category.
+
+    This adds *references*, never claims: no statistic, figure or assertion is
+    introduced, so it cannot fabricate a citation for something the article
+    says. It is the same thing an editor does when a draft arrives unsourced.
+    """
+    if has_authoritative_source(content):
+        return content
+
+    sources = OFFICIAL_SOURCES_BY_CATEGORY.get(category, _DEFAULT_SOURCES)
+    print(f"  📎 Sin fuente autorizada — añadiendo {len(sources)} fuente(s) oficial(es) [{category}]")
+
+    lines = ["", "## Fuentes oficiales", "",
+             "Consulta siempre la información directamente en las fuentes oficiales "
+             "del gobierno de Estados Unidos, que se actualizan de forma continua:", ""]
+    lines += [f"- [{name}]({url})" for name, url in sources]
+    return content.rstrip() + "\n" + "\n".join(lines) + "\n"
+
+
 FINANCE_DISCLAIMER_EN = """
 
 ---
@@ -852,7 +937,14 @@ YA PUBLICADO (no repetir estos temas ni ángulos):
 
 ESTE ES CONTENIDO YMYL: sigue E-E-A-T estrictamente.
 - Toda cifra o dato DEBE citar fuente real inline.
-- Incluye al menos 2 enlaces externos reales a fuentes primarias americanas.
+- Incluye al menos 2 enlaces externos a fuentes PRIMARIAS oficiales del
+  gobierno de EE.UU. Usa ÚNICAMENTE estos dominios, nunca blogs ni medios:
+  irs.gov · consumerfinance.gov · ssa.gov · fdic.gov · usa.gov · mymoney.gov
+  · benefits.gov · consumidor.ftc.gov · investor.gov · hud.gov ·
+  healthcare.gov · medicare.gov · uscis.gov · studentaid.gov
+  Enlaza a la portada o a una sección principal del dominio (por ejemplo
+  https://www.irs.gov/es). NUNCA inventes una URL profunda: si no estás
+  seguro de que una ruta concreta existe, enlaza la portada del organismo.
 - MÍNIMO {MIN_WORD_COUNT} palabras.
 - 4-5 H2 y FAQ con 3-4 H3.
 - Sección honesta "Cuándo esto NO funciona".
@@ -1296,6 +1388,10 @@ def save_article(
     excerpt = normalize_excerpt(excerpt or title[:150], 120, 155)
     rt = max(MIN_READING_TIME, reading_time(content))
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # E-E-A-T guarantee for YMYL: no finance article ships unsourced. Runs
+    # before the editorial note so the sources sit with the article body, and
+    # before the English translation so both languages carry them.
+    content = ensure_authoritative_sources(content, category)
     content_final = content + EDITORIAL_NOTE_ES + FINANCE_DISCLAIMER_ES
 
     data = {

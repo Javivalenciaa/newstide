@@ -122,3 +122,56 @@ def test_topic_cluster_on_cooldown_false_for_unrelated_topic():
         "published_at": datetime.now(timezone.utc).isoformat(),
     }]
     assert fp.topic_cluster_on_cooldown("Roth IRA explicado para hispanos", recent, []) is False
+
+
+# ── E-E-A-T / YMYL: fuentes autorizadas ──────────────────────────────────────
+
+def test_has_authoritative_source_rejects_a_random_blog():
+    # has_external_link() accepted this; on YMYL a blog is not a source, and
+    # treating it as one is the weak signal Google's guidelines penalise.
+    assert fp.has_external_link("Ver [esto](https://algunblog.com/post)") is True
+    assert fp.has_authoritative_source("Ver [esto](https://algunblog.com/post)") is False
+
+
+def test_has_authoritative_source_accepts_official_us_sources():
+    assert fp.has_authoritative_source("Según el [IRS](https://www.irs.gov/es) ...")
+    assert fp.has_authoritative_source("[CFPB](https://www.consumerfinance.gov/es/)")
+    assert fp.has_authoritative_source("[SSA](https://www.ssa.gov/es/)")
+
+
+def test_has_authoritative_source_is_not_fooled_by_lookalike_domains():
+    # Substring matching would accept these; host matching must not.
+    assert fp.has_authoritative_source("https://irs.gov.fake-site.com/x") is False
+    assert fp.has_authoritative_source("https://notirs.gov/x") is False
+    # A real subdomain of an authoritative domain still counts.
+    assert fp.has_authoritative_source("https://apps.irs.gov/x") is True
+
+
+def test_ensure_authoritative_sources_leaves_a_sourced_article_untouched():
+    content = "# Guia\n\nSegun el [IRS](https://www.irs.gov/es) el limite es X."
+    assert fp.ensure_authoritative_sources(content, "Impuestos") == content
+
+
+def test_ensure_authoritative_sources_appends_category_specific_sources():
+    content = "# Roth IRA\n\nCuerpo del articulo sin ninguna fuente externa."
+    out = fp.ensure_authoritative_sources(content, "Inversión")
+    assert "## Fuentes oficiales" in out
+    assert "investor.gov" in out
+    assert fp.has_authoritative_source(out) is True
+    # No inventa afirmaciones: el cuerpo original sigue intacto.
+    assert content.strip() in out
+
+
+def test_every_injected_source_url_is_on_the_authoritative_allowlist():
+    # Guard against adding an injected source whose domain the validator
+    # would not even recognise as authoritative.
+    groups = list(fp.OFFICIAL_SOURCES_BY_CATEGORY.values()) + [fp._DEFAULT_SOURCES]
+    for group in groups:
+        for _name, url in group:
+            assert fp.has_authoritative_source(f"[x]({url})"), url
+
+
+def test_every_finance_category_has_official_sources():
+    # detect_category() can only ever return these; each must map to sources.
+    for category in set(fp.FIN_CATEGORIES.values()):
+        assert category in fp.OFFICIAL_SOURCES_BY_CATEGORY, category

@@ -44,46 +44,72 @@ def opportunity_score(volume: int, difficulty: int) -> float:
     return round(volume * winnability, 2)
 
 
-def is_usable_gsc_query(query: str) -> bool:
-    """Reject GSC rows that are not real article topics.
+def is_junk_query(query: str) -> bool:
+    """True for GSC rows that no human actually typed as a search.
 
-    A GSC query is proven demand, but "demand" is not the same as "a topic
-    worth writing about". Three kinds of junk reach this list, and pinning
-    them to the front of the pool (see pin_priority_first) turned each one
-    into a full published article:
+    Split out from is_usable_gsc_query() because tracking and topic-selection
+    need different answers. Both must drop this junk, but only topic-selection
+    additionally cares whether a query would make a good article.
 
-      * Stock-photo credits. The pipelines print the Unsplash photographer
-        into the article body, so the site ranks for the photographer's
-        name. On 2026-08-31 "marija zaric unsplash" was pinned first and
-        produced an article about stock-photography income — in a personal
-        finance blog for Hispanics in the USA.
-      * Navigational single-token brand strings ("novacreditltda",
-        "growtika", "robot"). Someone typing one brand token wants that
-        brand's own site; no article outranks it, and the topic is usually
-        off-niche anyway.
-      * SEO-tool operator strings, which are scrapers rather than people:
+      * SEO-tool operator strings — scrapers, not people:
         '"how to build a landing page" -site:reddit.com -site:twitter.com'.
+      * Stock-photo credits. The pipelines used to print the Unsplash
+        photographer into the article body, so the site ranks for the
+        photographer's name; "marija zaric unsplash" was the single
+        highest-clicked query on the whole site.
+      * Empty or near-empty strings.
+
+    Counting these as performance data distorts everything downstream: they
+    inflate a page's impressions and make the refresh engine prioritise
+    articles whose "demand" is a photographer's name.
     """
+    q = (query or "").strip().lower()
+
+    if len(q) < 3:
+        return True
+
+    # Search operators => a tool, not a person.
+    if any(token in q for token in ('-site:', 'site:', ' -"', '+"')):
+        return True
+    if q.count('"') >= 2:
+        return True
+
+    # Stock-photo credits leaking out of the article body.
+    if any(host in q for host in ("unsplash", "pexels", "shutterstock", "getty", "istock")):
+        return True
+
+    # Pasted prompts / scraper payloads, not searches.
+    if len(q.split()) > 15:
+        return True
+
+    return False
+
+
+def is_usable_gsc_query(query: str) -> bool:
+    """True when a GSC query is junk-free AND worth writing an article about.
+
+    Used for topic selection only. Proven demand is not the same as a topic
+    worth writing about: pinning these to the front of the pool (see
+    pin_priority_first) turns each one into a full published article, and on
+    2026-08-31 "marija zaric unsplash" and "novacreditltda" each became one.
+    """
+    if is_junk_query(query):
+        return False
+
     q = (query or "").strip().lower()
 
     if len(q) < 10:
         return False
 
-    # Search operators => a tool, not a person.
-    if any(token in q for token in ('-site:', 'site:', ' -"', '+"', ' or ', ' and ')):
-        return False
-    if q.count('"') >= 2:
-        return False
-
-    # Stock-photo credits leaking out of the article body.
-    if any(host in q for host in ("unsplash", "pexels", "shutterstock", "getty", "istock")):
+    # Boolean-ish connectors are a tool signature in a topic context.
+    if ' or ' in q or ' and ' in q:
         return False
 
     # Navigational: a single token is a brand lookup, not an article topic.
+    # No article outranks the brand's own site for its own name.
     if len(q.split()) < 2:
         return False
 
-    # Absurdly long strings are pasted prompts or scraper payloads.
     if len(q.split()) > 12:
         return False
 

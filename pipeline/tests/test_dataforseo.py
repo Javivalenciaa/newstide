@@ -273,3 +273,29 @@ def test_filter_gsc_queries_reports_and_keeps_only_the_good_ones(capsys):
     ])
     assert kept == ["como invertir en bienes raices en estados unidos"]
     assert "2 junk" in capsys.readouterr().out
+
+
+# ── JUNK PRIMITIVE (compartida por selección de temas y tracking) ────────────
+
+def test_is_junk_query_catches_what_no_human_typed():
+    assert dfs.is_junk_query("marija zaric unsplash")
+    assert dfs.is_junk_query('"how to build a landing page" -site:reddit.com')
+    assert dfs.is_junk_query('"sendgrid" +"cheap" -"free"')
+    assert dfs.is_junk_query("")
+
+
+def test_is_junk_query_keeps_short_real_searches():
+    # The tracking path must NOT inherit topic-selection's length rules:
+    # "roth ira" is 8 chars / 2 words and is a perfectly real query to track.
+    assert not dfs.is_junk_query("roth ira")
+    assert not dfs.is_junk_query("itin")
+    assert not dfs.is_junk_query("como invertir en bienes raices en estados unidos")
+
+
+def test_topic_selection_is_stricter_than_junk_detection():
+    # A single brand token is trackable performance data but a useless topic:
+    # no article outranks the brand's own site for its own name.
+    assert not dfs.is_junk_query("novacreditltda")
+    assert not dfs.is_usable_gsc_query("novacreditltda")
+    assert not dfs.is_junk_query("roth ira")
+    assert not dfs.is_usable_gsc_query("roth ira")   # 8 chars < topic minimum

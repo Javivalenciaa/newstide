@@ -23,6 +23,8 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:newstide.news")
 
+from dataforseo import is_junk_query
+
 # Real article routes confirmed in CLAUDE.md — tracking stays scoped to these,
 # not the whole site (homepage/category pages aren't individual content to track).
 TRACKED_PATH_PREFIXES = ["/en/article/", "/articulo/", "/en/fin/", "/es/fin/"]
@@ -30,6 +32,17 @@ TRACKED_PATH_PREFIXES = ["/en/article/", "/articulo/", "/en/fin/", "/es/fin/"]
 # GSC data typically finalizes 2-3 days after the fact; pulling a fixed lag
 # avoids upserting partial same-day numbers that would look like a big drop.
 REPORT_LAG_DAYS = 3
+
+# How many days back to pull, ending at (today - REPORT_LAG_DAYS).
+#   1  → the daily incremental run (default, unchanged behaviour)
+#   N  → backfill N days in a single ranged request
+#
+# The daily run alone can only ever accumulate history going forward, one day
+# at a time. This workflow first executed on 2026-09-01, so every earlier day
+# — the whole 18 Jun–28 Aug period the site actually has data for — would
+# never have entered serp_tracking, and refresh_pipeline.py prioritises from
+# this table. GSC retains ~16 months, so a one-off backfill recovers all of it.
+BACKFILL_DAYS = max(1, int(os.environ.get("GSC_BACKFILL_DAYS", "1")))
 
 supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -87,16 +100,23 @@ def is_tracked_path(page_url: str) -> bool:
 
 
 def fetch_serp_rows(
-    access_token: str, target_date: str, row_limit: int = 5000, max_pages: int = 5
+    access_token: str, start_date: str, end_date: str,
+    row_limit: int = 5000, max_pages: int = 20,
 ) -> list[dict]:
+    """Pull (date, page, query) rows for a date RANGE in one paged request.
+
+    "date" is part of the dimension tuple rather than issuing one request per
+    day: a 90-day backfill is a handful of paged calls instead of 90 separate
+    round trips, and each row still carries its own day.
+    """
     all_rows: list[dict] = []
     encoded_site = requests.utils.quote(GSC_SITE_URL, safe="")
     url = f"https://searchconsole.googleapis.com/webmasters/v3/sites/{encoded_site}/searchAnalytics/query"
     for page in range(max_pages):
         payload = {
-            "startDate": target_date,
-            "endDate": target_date,
-            "dimensions": ["page", "query"],
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": ["date", "page", "query"],
             "rowLimit": row_limit,
             "startRow": page * row_limit,
         }
@@ -113,17 +133,36 @@ def fetch_serp_rows(
     return all_rows
 
 
-def build_records(rows: list[dict], target_date: str) -> list[dict]:
-    records = []
+def build_records(rows: list[dict]) -> tuple[list[dict], int, int]:
+    """Turn GSC rows into serp_tracking records.
+
+    Returns (records, skipped_untracked, skipped_junk) so the run reports what
+    it discarded instead of silently dropping it.
+
+    Junk queries are excluded on purpose. refresh_pipeline.py chooses what to
+    rewrite from this table, so a page whose impressions come from a
+    stock-photo credit or a scraper's operator string would otherwise look
+    like a page in demand and get picked ahead of one that genuinely is.
+    """
+    records: list[dict] = []
+    skipped_untracked = 0
+    skipped_junk = 0
+
     for row in rows:
         keys = row.get("keys") or []
-        if len(keys) < 2:
+        if len(keys) < 3:
             continue
-        page, query = keys[0], keys[1]
+        row_date, page, query = keys[0], keys[1], keys[2]
+
         if not is_tracked_path(page):
+            skipped_untracked += 1
             continue
+        if is_junk_query(query):
+            skipped_junk += 1
+            continue
+
         records.append({
-            "date": target_date,
+            "date": row_date,
             "page": page,
             "query": query,
             "clicks": int(row.get("clicks", 0)),
@@ -131,7 +170,8 @@ def build_records(rows: list[dict], target_date: str) -> list[dict]:
             "ctr": float(row.get("ctr", 0.0)),
             "position": float(row.get("position", 0.0)),
         })
-    return records
+
+    return records, skipped_untracked, skipped_junk
 
 
 def upsert_records(records: list[dict], batch_size: int = 500) -> None:
@@ -150,8 +190,14 @@ def upsert_records(records: list[dict], batch_size: int = 500) -> None:
 
 
 def main():
-    target_date = (datetime.now(timezone.utc) - timedelta(days=REPORT_LAG_DAYS)).strftime("%Y-%m-%d")
-    print(f"📊 GSC tracking for {target_date}")
+    end_date = (datetime.now(timezone.utc) - timedelta(days=REPORT_LAG_DAYS))
+    start_date = end_date - timedelta(days=BACKFILL_DAYS - 1)
+    end_str, start_str = end_date.strftime("%Y-%m-%d"), start_date.strftime("%Y-%m-%d")
+
+    if BACKFILL_DAYS > 1:
+        print(f"📊 GSC tracking — BACKFILL {BACKFILL_DAYS} days: {start_str} → {end_str}")
+    else:
+        print(f"📊 GSC tracking for {end_str}")
 
     try:
         token = get_access_token()
@@ -160,13 +206,18 @@ def main():
         sys.exit(0)
 
     try:
-        rows = fetch_serp_rows(token, target_date)
+        rows = fetch_serp_rows(token, start_str, end_str)
     except Exception as e:
         print(f"⚠️  GSC API fetch failed: {e} — aborting run (non-critical)")
         sys.exit(0)
 
-    records = build_records(rows, target_date)
-    print(f"  📈 {len(rows)} total rows from GSC, {len(records)} within tracked article paths")
+    records, skipped_untracked, skipped_junk = build_records(rows)
+    print(f"  📈 {len(rows)} rows from GSC → {len(records)} tracked")
+    if skipped_untracked:
+        print(f"  ↩️  {skipped_untracked} skipped (not an article path)")
+    if skipped_junk:
+        print(f"  🧹 {skipped_junk} skipped (junk: photo credits, tool operators)")
+
     upsert_records(records)
     print("🎉 Done")
 
