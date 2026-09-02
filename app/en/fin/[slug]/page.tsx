@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
+import { parseRelatedArticles } from '@/lib/relatedArticles'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
@@ -218,9 +219,8 @@ export default async function FinanceArticlePage({
   // carry an EN slug are usable here. Falls back to a live query otherwise —
   // this also covers articles published before that column existed.
   type RelatedFin = { title_en?: string; title: string; slug_en: string; category?: string }
-  const persistedRelatedEn: RelatedFin[] = Array.isArray(article.related_articles)
-    ? article.related_articles.filter((r: { slug_en?: string }) => r?.slug_en)
-    : []
+  const persistedRelatedEn: RelatedFin[] = parseRelatedArticles(article.related_articles)
+    .filter((r): r is RelatedFin => !!r.slug_en && !!r.title)
 
   let related: RelatedFin[] | null = persistedRelatedEn.length > 0 ? persistedRelatedEn : null
   if (!related) {
@@ -252,6 +252,14 @@ export default async function FinanceArticlePage({
     inLanguage: 'en',
     isAccessibleForFree: true,
     articleSection: article.category,
+    // AEO/GEO: tells answer engines and voice assistants which parts of the
+    // page are the citable ones. The blog routes have carried this since
+    // launch; the finance routes never did, so the vertical Google holds to
+    // the strictest E-E-A-T standard was also the least quotable one.
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.article-main-title', '.article-byline', '.article-body'],
+    },
     author: {
       '@type': 'Person',
       '@id': AUTHOR_PAGE_EN,
@@ -276,6 +284,19 @@ export default async function FinanceArticlePage({
     }),
   }
 
+  // The visual breadcrumb below was never mirrored in structured data, so
+  // Google had to infer the hierarchy from the URL alone. The blog routes
+  // already emit this; the finance routes did not.
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.newstide.news/en' },
+      { '@type': 'ListItem', position: 2, name: 'Personal Finance', item: 'https://www.newstide.news/en/fin' },
+      { '@type': 'ListItem', position: 3, name: title, item: url },
+    ],
+  }
+
   const faqSchema = faqs.length > 0 ? {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -296,6 +317,7 @@ export default async function FinanceArticlePage({
   return (
     <div className="article-page" lang="en">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
       {faqSchema && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
       )}
@@ -335,7 +357,8 @@ export default async function FinanceArticlePage({
 
       <div className="container">
         <div className="article-body-grid">
-          <article>
+          {/* article-body backs the SpeakableSpecification cssSelector above */}
+          <article className="article-body">
             {article.cover_image_url && (
               <div style={{ margin: '0 0 32px' }}>
                 <img

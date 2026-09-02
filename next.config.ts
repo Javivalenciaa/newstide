@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next'
+import { CONSOLIDATIONS } from './lib/consolidatedSlugs'
 
 // A4: dominios de scripts confirmados leyendo app/layout.tsx:
 //   - www.googletagmanager.com  → GA4 script src
@@ -106,7 +107,31 @@ const nextConfig: NextConfig = {
   },
 
   async redirects() {
+    // 301s for the cannibalised pairs consolidated on 2026-09-02. Both
+    // language URLs of a retired article point at the matching language URL of
+    // the survivor — never across languages, which would strand the reader in
+    // the wrong one. The rows stay in Supabase (nothing is deleted); they are
+    // simply no longer served or listed in the sitemap. Removing an entry from
+    // lib/consolidatedSlugs.ts restores its URL.
+    const consolidationRedirects = CONSOLIDATIONS.flatMap((c) => [
+      ...(c.fromEn && c.fromEn !== c.toEn
+        ? [{
+            source: `/en/article/${c.fromEn}`,
+            destination: `/en/article/${c.toEn}`,
+            permanent: true,
+          }]
+        : []),
+      ...(c.fromEs && c.fromEs !== c.toEs
+        ? [{
+            source: `/articulo/${c.fromEs}`,
+            destination: `/articulo/${c.toEs}`,
+            permanent: true,
+          }]
+        : []),
+    ])
+
     return [
+      ...consolidationRedirects,
       { source: '/noticias/:categoria/:slug', destination: '/', permanent: true },
       { source: '/noticias/:categoria', destination: '/', permanent: true },
       { source: '/noticias', destination: '/', permanent: true },

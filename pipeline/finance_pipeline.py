@@ -16,6 +16,11 @@ from dataforseo import (
     pin_priority_first,
     filter_gsc_queries,
 )
+from seo_guard import (
+    derive_keyword_slug,
+    entity_collision,
+    extract_entities,
+)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 SERPAPI_KEY = os.environ["SERPAPI_KEY"]
@@ -36,7 +41,10 @@ NICHE_LABEL = "finanzas personales hispanos USA"
 SITE_LANG = "es"
 AUTHOR = "Javier Valencia"
 
-ARTICLES_PER_RUN = 3
+# Lowered from 3 on 2026-09-02 — same reasoning as pipeline.py: ~784 indexable
+# URLs sitewide, only 32 with any Search Console impression ever, 0 clicks,
+# average position 69. See the comment on ARTICLES_PER_RUN there.
+ARTICLES_PER_RUN = 2
 MODEL_GENERATE = "claude-sonnet-4-5"
 MODEL_FAST = "gpt-4o-mini"
 MODEL_HUMANIZE = "gpt-4o"
@@ -870,6 +878,18 @@ def is_duplicate_topic(
     all_existing = [
         a.get("title") or a.get("keyword", "") for a in recent_articles
     ] + published_this_run
+
+    # ENTITY-PAIR CANNIBALISATION — see seo_guard.py. Trigram similarity
+    # compares wording; two articles cannibalise when they compare the same
+    # brands. This vertical shipped three "enviar dinero a México / Wise /
+    # Remitly" pieces between 08-31 and 09-01 that all cleared the trigram and
+    # GPT checks. Runs before the GPT call, so a hit costs nothing.
+    collision = entity_collision(candidate, all_existing)
+    if collision:
+        shared = "+".join(sorted(extract_entities(candidate) & extract_entities(collision)))
+        print(f"  🧬 Colisión de entidades [{shared}] — ya cubierto por: {collision[:60]}")
+        return True
+
     if not all_existing:
         return False
     existing_str = "\n".join(f"- {t}" for t in all_existing[:60] if t)
@@ -1285,6 +1305,149 @@ def compute_related_articles(category: str, slug: str, title: str, limit: int = 
         for r in ranked
     ]
 
+# ── PRE-PUBLISH CONTENT GUARDRAILS ───────────────────────────────────────────
+# pipeline.py has had run_content_guardrails() for a while; this file had no
+# equivalent, so the YMYL vertical — the one Google holds to the strictest
+# E-E-A-T standard — was the only one publishing with no pre-insert checks at
+# all. Ported here with two extra checks that only make sense for money
+# content: authoritative sourcing and the legal disclaimer, both BLOCKING.
+GUARDRAIL_DUPLICATE_THRESHOLD = 0.90
+GUARDRAIL_STRUCTURE_THRESHOLD = 0.60
+GUARDRAIL_STRUCTURE_WINDOW = 20
+
+
+def _trigrams(text: str) -> set:
+    t = re.sub(r"\s+", " ", (text or "").lower()).strip()
+    return {t[i:i + 3] for i in range(len(t) - 2)}
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    return intersection / (len(a) + len(b) - intersection)
+
+
+def _extract_headings(content: str) -> list[str]:
+    return [
+        re.sub(r"[^a-z0-9\s]", "", m.group(1).strip().lower())
+        for m in re.finditer(r"^#{2,3}\s+(.+)$", content or "", re.MULTILINE)
+    ]
+
+
+def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
+    """Validate a finance article before insert.
+
+    Returns
+    -------
+    status : 'ok' | 'needs_review' | 'blocked'
+    flags  : human-readable list of issues found
+    data   : (possibly mutated) copy of the input dict
+    """
+    data = dict(data)  # shallow copy — don't mutate caller's dict
+    flags: list[str] = []
+    status = "ok"
+
+    def escalate(s: str) -> None:
+        nonlocal status
+        if s == "blocked":
+            status = "blocked"
+        elif s == "needs_review" and status != "blocked":
+            status = "needs_review"
+
+    content = data.get("content", "")
+    content_en = data.get("content_en", "")
+    title = data.get("title", "")
+    keyword = data.get("keyword", "")
+
+    # ── CHECK A: ES/EN duplicate content ──────────────────────────────────
+    # 52 legacy rows shipped with the Spanish text stored in content_en, which
+    # is why app/en/fin/[slug]/page.tsx carries a noindex branch for them.
+    if content_en and content:
+        sim = _jaccard(_trigrams(content), _trigrams(content_en))
+        if sim >= GUARDRAIL_DUPLICATE_THRESHOLD:
+            flags.append(
+                f"[A] English translation may be missing: content ≈ content_en "
+                f"({sim*100:.1f}% similarity). Check build_english_version()."
+            )
+            escalate("needs_review")
+
+    # ── CHECK B: keyword must be a search-intent slug ─────────────────────
+    if keyword and (keyword.lower().strip() == title.lower().strip() or len(keyword.split("-")) > 6):
+        suggested = derive_keyword_slug(title)
+        flags.append(
+            f"[B] keyword '{keyword[:60]}' is not a usable search-intent slug. "
+            f"Auto-replaced with: '{suggested}'."
+        )
+        data["keyword"] = suggested
+        escalate("needs_review")
+
+    # ── CHECK C: pricing without a freshness stamp ────────────────────────
+    # annotate_pricing_freshness() dates every priced article, so the only
+    # thing worth flagging is a figure that escaped the stamp.
+    if _PRICING_RE.search(content) and _PRICING_MARK_ES not in content:
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        flags.append(
+            f"[C] Amounts found with no freshness stamp — annotate_pricing_freshness "
+            f"did not run on this text (detected at {now_iso})."
+        )
+        escalate("needs_review")
+
+    # ── CHECK D: YMYL authoritative sourcing (BLOCKING) ───────────────────
+    # ensure_authoritative_sources() runs before this and injects a verified
+    # .gov source when the model cited none, so reaching this branch means the
+    # injection itself failed. An unsourced YMYL article is exactly the page
+    # Google's quality raters are told to mark as low quality — better to
+    # publish nothing than to publish that.
+    if not has_authoritative_source(content):
+        flags.append(
+            "[D] BLOCKING — no authoritative (.gov) source in a YMYL article. "
+            "ensure_authoritative_sources() should have injected one."
+        )
+        escalate("blocked")
+
+    # ── CHECK E: financial disclaimer present (BLOCKING) ──────────────────
+    if "Aviso legal" not in content:
+        flags.append(
+            "[E] BLOCKING — FINANCE_DISCLAIMER_ES missing from the article body."
+        )
+        escalate("blocked")
+
+    # ── CHECK F: repetitive section structure ─────────────────────────────
+    try:
+        res = (
+            supabase_client.table("finance_articles")
+            .select("content")
+            .order("published_at", desc=True)
+            .limit(GUARDRAIL_STRUCTURE_WINDOW)
+            .execute()
+        )
+        recent_rows = res.data or []
+        if len(recent_rows) >= 3:
+            candidate_headings = " ".join(_extract_headings(content))
+            if candidate_headings:
+                match_count = 0
+                for row in recent_rows:
+                    existing = " ".join(_extract_headings(row.get("content") or ""))
+                    if existing and _jaccard(
+                        _trigrams(candidate_headings), _trigrams(existing)
+                    ) >= GUARDRAIL_STRUCTURE_THRESHOLD:
+                        match_count += 1
+                fraction = match_count / len(recent_rows)
+                if fraction >= GUARDRAIL_STRUCTURE_THRESHOLD:
+                    flags.append(
+                        f"[F] Repetitive structure: {match_count}/{len(recent_rows)} recent "
+                        f"articles share this heading layout ({fraction*100:.0f}% match)."
+                    )
+                    escalate("needs_review")
+    except Exception as e:
+        print(f"  ⚠️  Structure check skipped (non-critical): {e}")
+
+    return status, flags, data
+
+
 # ── SAVE TO SUPABASE ──────────────────────────────────────────────────────────
 # ── SPANISH → ENGLISH TRANSLATION ─────────────────────────────────────────────
 # This pipeline is Spanish-primary. From 2026-08-13 it stopped writing the
@@ -1498,9 +1661,34 @@ def save_article(
     # ── KEYWORD METRICS (YepAPI) ────────────────────────────────────────────
     data = enrich_article_data(data, keyword, _kw_metrics)
 
+    # ── PRE-PUBLISH CONTENT GUARDRAILS ──────────────────────────────────────
+    guardrail_status, guardrail_flags, data = run_content_guardrails(data)
+    for flag in guardrail_flags:
+        print(f"    • {flag}")
+
+    if guardrail_status == "blocked":
+        print(f"  🚫 INSERT BLOQUEADO por guardrails — artículo NO guardado: {title[:60]}")
+        return None
+
+    data["needs_review"] = guardrail_status == "needs_review"
+    data["guardrail_flags"] = guardrail_flags or []
+
     try:
-        supabase_client.table("finance_articles").insert(data).execute()
-        print(f"  ✅ Guardado: {title[:70]}")
+        try:
+            supabase_client.table("finance_articles").insert(data).execute()
+        except Exception as e:
+            if "needs_review" not in str(e) and "guardrail_flags" not in str(e):
+                raise
+            print(
+                "  ⚠️  Faltan las columnas needs_review/guardrail_flags — guardando sin ellas. "
+                "Aplica supabase/migrations/20260902_guardrail_review_columns.sql."
+            )
+            data.pop("needs_review", None)
+            data.pop("guardrail_flags", None)
+            supabase_client.table("finance_articles").insert(data).execute()
+
+        status_emoji = "⚠️ " if guardrail_status == "needs_review" else "✅"
+        print(f"  {status_emoji} Guardado: {title[:70]}")
         urls = [f"{FINANCE_URL_PREFIX}/{slug}"]
         if english.get("slug_en"):
             urls.append(f"https://{INDEXNOW_HOST}/en/fin/{english['slug_en']}")

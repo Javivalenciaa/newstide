@@ -16,6 +16,12 @@ from dataforseo import (
     pin_priority_first,
     filter_gsc_queries,
 )
+from seo_guard import (
+    derive_keyword_slug,
+    entity_collision,
+    entity_signature,
+    extract_entities,
+)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 SERPAPI_KEY = os.environ["SERPAPI_KEY"]
@@ -43,7 +49,17 @@ SITE_LANG = "en"
 AUTHOR = "Javier Valencia"
 AUTHOR_SLUG = "javier-valencia"
 
-ARTICLES_PER_RUN = 3
+# Lowered from 3 on 2026-09-02. Measured state at that date: ~784 indexable
+# URLs across both verticals in 3.5 months, of which only 32 had EVER received
+# a single Search Console impression (258 impressions, 0 clicks, average
+# position 69 in August — source: the serp_tracking table). Publishing URL 785
+# is worth less than making the existing ones rank, and a high daily rate on a
+# site Google is already largely ignoring reads as scaled content production.
+#
+# 2 here + 2 in finance_pipeline.py = 4 pieces = 8 URLs/day bilingual, against
+# REFRESH_PER_RUN = 3 in refresh_pipeline.py. Dial to 1 if the share of URLs
+# with impressions has not moved after ~4 weeks.
+ARTICLES_PER_RUN = 2
 MODEL_GENERATE = "claude-sonnet-4-5"
 MODEL_FAST = "gpt-4o-mini"
 MODEL_HUMANIZE = "gpt-4o"
@@ -68,6 +84,11 @@ MIN_H2_SECTIONS = 3
 # extract from discrete, well-titled sections, so it is far less quotable.
 MAX_WORDS_PER_SECTION_WARN = 400
 MAX_WORDS_PER_SECTION_FAIL = 600
+
+# Same cluster cannot publish twice inside this window. finance_pipeline.py has
+# had this since 2026-09-01; the blog vertical had no equivalent, which is how
+# nine "Best <noun> Tools for Indie Hackers in 2026" articles shipped in August.
+TOPIC_CLUSTER_COOLDOWN_DAYS = 21
 
 # ── TITLE LENGTH CONSTANTS ────────────────────────────────────────────────────
 TITLE_MAX_CHARS = 60
@@ -447,7 +468,7 @@ def get_recent_articles() -> list[dict]:
     try:
         res = (
             supabase_client.table("articles")
-            .select("title_en, keyword, category, excerpt_en, keyword_hash")
+            .select("title_en, keyword, category, excerpt_en, keyword_hash, published_at")
             .gte("published_at", since)
             .order("published_at", desc=True)
             .limit(150)
@@ -479,22 +500,15 @@ def already_published_hash(keyword: str) -> bool:
     return len(res.data) > 0
 
 def _derive_keyword_slug_for_hash(title: str) -> str:
-    """Mirrors _derive_keyword_slug in guardrails — used for hash consistency check."""
-    _stop = {
-        "a","an","the","and","or","but","in","on","at","to","for","of","with",
-        "by","from","is","are","was","were","be","been","being","have","has",
-        "had","do","does","did","will","would","can","could","should","may",
-        "might","shall","how","what","why","when","where","which","who","your",
-        "our","vs","vs.",
-    }
-    tokens = [
-        w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
-        if len(w) > 1 and w not in _stop
-    ]
-    selected = tokens[:5]
-    if len(selected) < 3 and len(tokens) >= 3:
-        return "-".join(tokens[:3])
-    return "-".join(selected)
+    """Canonical keyword form used for the Supabase keyword_hash.
+
+    Delegates to seo_guard.derive_keyword_slug so the read path
+    (already_published_hash) and the write path (save_article) can never drift
+    apart again — see the note in save_article about the hash that CHECK C used
+    to overwrite with a Spanish-derived slug, which silently disabled this
+    whole lookup.
+    """
+    return derive_keyword_slug(title)
 
 # ── SERPAPI SOURCES ────────────────────────────────────────────────────────────
 # All queries are tightly scoped to the solopreneur / indie hacker niche.
@@ -860,15 +874,72 @@ def is_duplicate_topic_trgm(candidate: str, threshold: float = 0.45) -> bool:
         print(f"  ⚠️  pg_trgm similarity check failed (non-critical): {e}")
         return False
 
+def topic_cluster_on_cooldown(
+    candidate: str,
+    recent_articles: list[dict],
+    published_this_run: list[str],
+) -> bool:
+    """Block a candidate whose topic cluster was already published recently.
+
+    Ported from finance_pipeline.py, which has had this since 2026-09-01. The
+    blog vertical never had it, which is how "Best X Tools for Indie Hackers in
+    2026" ran nine times in August under nine different nouns.
+    """
+    cand_key = topic_cluster_key(candidate)
+    if not cand_key:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(days=TOPIC_CLUSTER_COOLDOWN_DAYS)
+    for article in recent_articles:
+        title = article.get("title_en") or article.get("keyword", "")
+        if topic_cluster_key(title) != cand_key:
+            continue
+        pub = article.get("published_at")
+        if not pub:
+            return True
+        try:
+            dt = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+            if dt >= cutoff:
+                return True
+        except Exception:
+            return True
+    for title in published_this_run:
+        if topic_cluster_key(title) == cand_key:
+            return True
+    return False
+
+
 def is_duplicate_topic(
     candidate: str, recent_articles: list[dict], published_this_run: list[str]
 ) -> bool:
     if is_duplicate_topic_trgm(candidate):
         print(f"  🔁 pg_trgm match — treating as duplicate: {candidate[:60]}")
         return True
+
+    if topic_cluster_on_cooldown(candidate, recent_articles, published_this_run):
+        print(
+            f"  🧊 Topic cluster '{topic_cluster_key(candidate)}' published within "
+            f"{TOPIC_CLUSTER_COOLDOWN_DAYS} days — treating as duplicate"
+        )
+        return True
+
     all_existing = [
         a.get("title_en") or a.get("keyword", "") for a in recent_articles
     ] + published_this_run
+
+    # ENTITY-PAIR CANNIBALISATION — the check pg_trgm structurally cannot make.
+    # Trigram similarity compares wording; two articles cannibalise when they
+    # compare the same *products*. "Airtable vs. Asana: A Complete Tool
+    # Comparison" scores 0.33 against "Airtable vs. Asana: Which Tool Is Better
+    # for Founders?" — under the 0.45 threshold — and GPT-4o-mini also said NO,
+    # so it published on 2026-09-02, eleven days after its twin. Replaying this
+    # rule over all 281 rows in `articles` flags 13 of them, every one a real
+    # duplicate pair. Runs before the GPT call, so a hit costs nothing.
+    collision = entity_collision(candidate, all_existing)
+    if collision:
+        shared = "+".join(sorted(extract_entities(candidate) & extract_entities(collision)))
+        print(f"  🧬 Entity collision [{shared}] — already covered by: {collision[:60]}")
+        return True
+
     if not all_existing:
         return False
     # FIX 1: Limit context to 20 most recent articles (was 50).
@@ -1383,6 +1454,18 @@ def _extract_headings(content: str) -> list[str]:
     ]
 
 def _derive_keyword_slug(title: str) -> str:
+    """Kept as a thin alias so existing callers and tests keep working.
+
+    The old body stripped accents as punctuation ("comparación" -> "comparacin",
+    "qué" -> "qu") and ran Spanish titles through _GUARDRAIL_STOP, an English
+    stopword list, leaving slugs ending on a dangling "-de". Both are fixed in
+    seo_guard.derive_keyword_slug, which folds accents to their base letter and
+    carries a bilingual stopword set.
+    """
+    return derive_keyword_slug(title)
+
+
+def _derive_keyword_slug_legacy(title: str) -> str:
     tokens = [
         w for w in re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
         if len(w) > 1 and w not in _GUARDRAIL_STOP
@@ -1449,26 +1532,45 @@ def run_content_guardrails(data: dict) -> tuple[str, list[str], dict]:
             escalate("needs_review")
 
     # ── CHECK C: keyword must be a search-intent slug ─────────────────────
+    # Derived from the ENGLISH title, not data["title"] (Spanish). Every other
+    # keyword surface in this pipeline is English — the SerpAPI pool, the GSC
+    # quick-wins, the YepAPI volume/difficulty lookup — so a Spanish-derived
+    # keyword could never be joined back to any of them. On 2026-09-02 all
+    # three published articles stored Spanish fragments here.
+    #
+    # keyword_hash is deliberately NOT rewritten. It used to be set to
+    # md5(spanish_slug) while already_published_hash() looks up
+    # md5(keyword_en) / md5(derive(keyword_en)), so the two never matched and
+    # the hash dedup layer was dead for every article that reached this branch.
+    # The hash is now written once, canonically, in save_article().
     kw_norm = keyword.lower().strip()
     title_norm = title.lower().strip()
     word_count = len(keyword.split())
     if kw_norm == title_norm or word_count > 6:
-        suggested = _derive_keyword_slug(title)
+        source_title = data.get("title_en") or title
+        suggested = _derive_keyword_slug(source_title)
         flags.append(
             f"[C] keyword '{keyword[:60]}' is "
             f"{'identical to title' if kw_norm == title_norm else f'too long ({word_count} words)'}. "
             f"Auto-replaced with search-intent slug: '{suggested}'."
         )
         data["keyword"] = suggested
-        data["keyword_hash"] = md5(suggested)  # keep hash in sync with slug
         escalate("needs_review")
 
-    # ── CHECK D: pricing without verification timestamp ────────────────────
-    if _PRICING_RE.search(content):
+    # ── CHECK D: pricing without a freshness stamp ─────────────────────────
+    # Narrowed on 2026-09-02. It used to fire on ANY monetary figure, so every
+    # comparison article came out needs_review — 3/3 on 2026-09-02 — and a flag
+    # that is always on carries no information. annotate_pricing_freshness()
+    # now dates every priced article, so the only thing left worth flagging is
+    # a price that somehow escaped the stamp.
+    # The stamp is applied to the English text before translation, so the
+    # Spanish copy carries a translated wording that cannot be matched
+    # literally — content_en is the reliable place to look for it.
+    if _PRICING_RE.search(content) and _PRICING_MARK_EN not in (content_en or ""):
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         flags.append(
-            f"[D] Prices found in content — manually verify before next pipeline run "
-            f"(detected at {now_iso})."
+            f"[D] Prices found with no freshness stamp — annotate_pricing_freshness "
+            f"did not run on this text (detected at {now_iso})."
         )
         escalate("needs_review")
 
@@ -1563,7 +1665,11 @@ def save_article(
         "category": category,
         "author": AUTHOR,
         "keyword": keyword,
-        "keyword_hash": md5(keyword),
+        # Canonical form, written once here and never rewritten downstream.
+        # already_published_hash() looks up md5(keyword) OR md5(derive(keyword)),
+        # so this value is always reachable — including for rows written before
+        # this change, which stored the raw md5(keyword).
+        "keyword_hash": md5(_derive_keyword_slug_for_hash(keyword)),
         "reading_time": rt,
         "featured": article_idx == 0,
         "image_gradient": GRADIENTS[article_idx % len(GRADIENTS)],
@@ -1583,11 +1689,31 @@ def save_article(
         print(f"     Fix required: {guardrail_flags[0] if guardrail_flags else 'see flags above'}")
         return None
 
+    # Persist the guardrail verdict. Until now it only ever reached the run
+    # log, so nothing and nobody could act on it: no query could list the
+    # flagged articles, and the GitHub Actions log scrolls away. Written
+    # defensively — if the columns are not in the schema yet the insert would
+    # fail outright, so the row is retried without them rather than lost.
+    data["needs_review"] = guardrail_status == "needs_review"
+    data["guardrail_flags"] = guardrail_flags or []
+
     try:
-        supabase_client.table("articles").insert(data).execute()
+        try:
+            supabase_client.table("articles").insert(data).execute()
+        except Exception as e:
+            if "needs_review" not in str(e) and "guardrail_flags" not in str(e):
+                raise
+            print(
+                "  ⚠️  needs_review/guardrail_flags columns missing — saving without them. "
+                "Apply supabase/migrations/20260902_guardrail_review_columns.sql."
+            )
+            data.pop("needs_review", None)
+            data.pop("guardrail_flags", None)
+            supabase_client.table("articles").insert(data).execute()
+
         status_emoji = "⚠️ " if guardrail_status == "needs_review" else "✅"
         print(
-            f"  {status_emoji} Saved{' (needs_review flagged in logs)' if guardrail_status == 'needs_review' else ''}: "
+            f"  {status_emoji} Saved{' (needs_review=true in Supabase)' if guardrail_status == 'needs_review' else ''}: "
             f"EN='{title_en[:50]}' | ES='{title_es[:50]}'"
         )
         ping_indexnow([f"https://www.newstide.news/en/article/{slug}"])
