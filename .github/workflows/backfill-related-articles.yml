@@ -1,0 +1,76 @@
+name: Backfill related_articles (manual)
+
+# One-off maintenance job, manual trigger only — no schedule on purpose.
+#
+# compute_related_articles() only ever ran at publish time, so just 12 of 281
+# rows in `articles` have a persisted sidebar; the other 269 fall back to a
+# live "same category, most recent" query with no title-overlap scoring. This
+# fills them in.
+#
+# Makes no Claude/OpenAI calls — it only reads and writes Supabase — so a run
+# costs nothing beyond Actions minutes. Safe to re-run: rows that already have
+# links are skipped unless `force` is set.
+#
+# Start with dry_run = true and read the log before writing anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Solo mostrar lo que haría, sin escribir en Supabase'
+        type: boolean
+        required: true
+        default: true
+      limit:
+        description: 'Máximo de filas por tabla (vacío = todas)'
+        required: false
+        default: ''
+      table:
+        description: 'Qué tabla rellenar'
+        type: choice
+        required: true
+        default: 'all'
+        options:
+          - all
+          - articles
+          - finance
+      force:
+        description: 'Reescribir también las filas que ya tienen enlaces'
+        type: boolean
+        required: true
+        default: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Run backfill
+        run: |
+          ARGS="--table ${{ inputs.table }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}"   = "true" ]; then ARGS="$ARGS --force";   fi
+          if [ -n "${{ inputs.limit }}" ];        then ARGS="$ARGS --limit ${{ inputs.limit }}"; fi
+          echo "Running: python pipeline/backfill_related_articles.py $ARGS"
+          python pipeline/backfill_related_articles.py $ARGS
+        env:
+          # backfill_related_articles.py imports pipeline.py and
+          # finance_pipeline.py, which read every one of these at module level,
+          # so they all have to be present even though the backfill itself only
+          # talks to Supabase.
+          SERPAPI_KEY:          ${{ secrets.SERPAPI_KEY }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          UNSPLASH_ACCESS_KEY:  ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          YEPAPI_API_KEY:       ${{ secrets.YEPAPI_API_KEY }}
