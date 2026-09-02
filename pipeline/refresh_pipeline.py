@@ -23,8 +23,25 @@ from datetime import datetime, timezone, timedelta
 import pipeline as p
 import finance_pipeline as fp
 
-REFRESH_PER_RUN = 1
-STALE_AFTER_DAYS = 90
+# Raised from 1 on 2026-09-02, alongside cutting ARTICLES_PER_RUN from 3 to 2
+# in both pipelines: with only 32 of ~784 URLs ever drawing a Search Console
+# impression, improving a page that already ranks beats adding another that
+# does not.
+REFRESH_PER_RUN = 3
+
+# Lowered from 90 on 2026-09-02. At 90 days exactly THREE articles in the whole
+# database qualified (and zero finance articles — that vertical only started on
+# 2026-07-26), so this daily workflow was re-refreshing the same three rows on
+# a loop. At 60 days, 100 articles qualify. "Best tools 2026" content decays
+# well inside 90 days anyway.
+STALE_AFTER_DAYS = 60
+
+# Never refresh the same article twice inside this window. There was no such
+# check, and combined with the tiny candidate pool above it meant the same
+# handful of articles got rewritten day after day — churn Google reads as
+# instability, not freshness.
+REFRESH_COOLDOWN_DAYS = 45
+
 SERP_LOOKBACK_DAYS = 28
 MIN_CONTENT_RETENTION = 0.70  # refreshed content must keep at least 70% of original word count
 
@@ -33,21 +50,56 @@ def _stale_cutoff() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=STALE_AFTER_DAYS)).isoformat()
 
 
+def _cooldown_cutoff() -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=REFRESH_COOLDOWN_DAYS)
+
+
+def _refreshed_recently(updated_at, cutoff: datetime) -> bool:
+    """True when updated_at is inside the cooldown window.
+
+    Parsed rather than string-compared: Supabase returns fractional seconds and
+    may use 'Z' or '+00:00', so lexicographic comparison against our own
+    isoformat() output is not reliable. An unparseable or missing value means
+    "never refreshed", which must stay eligible.
+    """
+    if not updated_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+    except Exception:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt > cutoff
+
+
 def fetch_refresh_candidates(table: str, title_field: str, slug_field: str) -> list[dict]:
     try:
         res = (
             p.supabase_client.table(table)
-            .select(f"id, {title_field}, {slug_field}, category, keyword, published_at")
+            .select(f"id, {title_field}, {slug_field}, category, keyword, published_at, updated_at")
             .lte("published_at", _stale_cutoff())
             .not_.is_(slug_field, "null")
             .order("published_at", desc=False)
             .limit(200)
             .execute()
         )
-        return res.data or []
+        rows = res.data or []
     except Exception as e:
         print(f"  ⚠️  Could not fetch refresh candidates from {table}: {e}")
         return []
+
+    # Drop anything refreshed inside the cooldown. Filtered here rather than in
+    # the query because updated_at is NULL for every row never refreshed, and a
+    # NULL comparison in PostgREST would silently exclude exactly the rows that
+    # most need picking.
+    cutoff = _cooldown_cutoff()
+    fresh_enough = [r for r in rows if not _refreshed_recently(r.get("updated_at"), cutoff)]
+
+    skipped = len(rows) - len(fresh_enough)
+    if skipped:
+        print(f"  ⏳ {skipped} candidate(s) in {table} still inside the {REFRESH_COOLDOWN_DAYS}-day refresh cooldown")
+    return fresh_enough
 
 
 def fetch_serp_scores(pages: list[str]) -> dict[str, dict]:
@@ -95,7 +147,15 @@ def refresh_priority(impressions: int, avg_position: float) -> float:
     return impressions * 1.0
 
 
-def pick_refresh_candidate() -> dict | None:
+def pick_refresh_candidate(exclude: set | None = None) -> dict | None:
+    """Highest-priority stale article not already handled in this run.
+
+    ``exclude`` holds (table, id) pairs picked earlier in the same run. Without
+    it, REFRESH_PER_RUN > 1 would re-select the top-scoring row every iteration
+    — the ordering is deterministic and the row's updated_at only moves after
+    a successful rewrite.
+    """
+    exclude = exclude or set()
     articles = fetch_refresh_candidates("articles", "title_en", "slug_en")
     finance = fetch_refresh_candidates("finance_articles", "title", "slug")
 
@@ -111,6 +171,7 @@ def pick_refresh_candidate() -> dict | None:
             "page": f"https://www.newstide.news/es/fin/{row['slug']}",
         })
 
+    candidates = [c for c in candidates if (c["table"], c["row"]["id"]) not in exclude]
     if not candidates:
         return None
 
@@ -274,11 +335,15 @@ def main():
     print(f"🎯 Target: {REFRESH_PER_RUN} article(s), stale after {STALE_AFTER_DAYS} days")
 
     refreshed = 0
+    seen: set = set()
     for _ in range(REFRESH_PER_RUN):
-        candidate = pick_refresh_candidate()
+        candidate = pick_refresh_candidate(exclude=seen)
         if not candidate:
             print("  ℹ️  No stale candidates found — nothing to refresh")
             break
+        # Recorded whether or not the rewrite succeeds: a candidate that just
+        # failed would otherwise be re-picked immediately and fail again.
+        seen.add((candidate["table"], candidate["row"]["id"]))
         if refresh_article(candidate):
             refreshed += 1
 

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
+import { parseRelatedArticles } from '@/lib/relatedArticles'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
@@ -121,7 +122,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data: article } = await supabase
     .from('finance_articles')
-    .select('title, excerpt, slug, category, published_at, cover_image_url')
+    .select('title, title_en, excerpt, slug, slug_en, category, published_at, cover_image_url')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -137,6 +138,14 @@ export async function generateMetadata(
     'Guía práctica de finanzas personales en NewsTide.'
   )
   const url    = `https://www.newstide.news/es/fin/${article.slug}`
+
+  // Mirrors the legacy-duplicate detection in app/en/fin/[slug]/page.tsx, so
+  // both sides of the pair agree on which URL is canonical.
+  const isDuplicateOfSpanish = !!article.title_en && article.title === article.title_en
+  const urlEN = article.slug_en
+    ? `https://www.newstide.news/en/fin/${article.slug_en}`
+    : undefined
+
   const images = article.cover_image_url
     ? [{ url: article.cover_image_url, width: 1200, height: 630, alt: rawTitle }]
     : [{
@@ -149,7 +158,19 @@ export async function generateMetadata(
     description,
     alternates: {
       canonical: url,
-      languages: { 'es': url, 'x-default': url },
+      // hreflang has to be reciprocal: Google only honours an annotation when
+      // the page it points at points back. app/en/fin/[slug] declares
+      // 'es' -> this URL, but this page declared no 'en' return link, so the
+      // whole pair was being discarded and the two translations were left
+      // looking like unrelated near-duplicates.
+      //
+      // The legacy pairs are the exception. Rows published before 2026-08-12
+      // stored the Spanish text in content_en (title === title_en identifies
+      // them exactly), so the English twin is noindex'd and canonicalised
+      // here — pointing hreflang at a noindex URL would undo that.
+      languages: isDuplicateOfSpanish || !urlEN
+        ? { 'es': url, 'x-default': url }
+        : { 'es': url, 'en': urlEN, 'x-default': url },
     },
     openGraph: {
       title: rawTitle,
@@ -200,9 +221,8 @@ export default async function FinanceArticlePageEs({
   // by compute_related_articles() in finance_pipeline.py); falls back to a live
   // query for articles published before that column existed.
   type RelatedFin = { title: string; slug: string; category?: string }
-  const persistedRelatedEs: RelatedFin[] = Array.isArray(article.related_articles)
-    ? article.related_articles.filter((r: { slug?: string }) => r?.slug)
-    : []
+  const persistedRelatedEs: RelatedFin[] = parseRelatedArticles(article.related_articles)
+    .filter((r): r is RelatedFin => !!r.slug && !!r.title)
 
   let related: RelatedFin[] | null = persistedRelatedEs.length > 0 ? persistedRelatedEs : null
   if (!related) {
@@ -234,6 +254,14 @@ export default async function FinanceArticlePageEs({
     inLanguage: 'es',
     isAccessibleForFree: true,
     articleSection: article.category,
+    // AEO/GEO: tells answer engines and voice assistants which parts of the
+    // page are the citable ones. The blog routes have carried this since
+    // launch; the finance routes never did, so the vertical Google holds to
+    // the strictest E-E-A-T standard was also the least quotable one.
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.article-main-title', '.article-byline', '.article-body'],
+    },
     author: {
       '@type': 'Person',
       '@id': AUTHOR_PAGE_ES,
@@ -258,6 +286,19 @@ export default async function FinanceArticlePageEs({
     }),
   }
 
+  // The visual breadcrumb below was never mirrored in structured data, so
+  // Google had to infer the hierarchy from the URL alone. The blog routes
+  // already emit this; the finance routes did not.
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Inicio', item: 'https://www.newstide.news/es' },
+      { '@type': 'ListItem', position: 2, name: 'Finanzas Personales', item: 'https://www.newstide.news/es/fin' },
+      { '@type': 'ListItem', position: 3, name: title, item: url },
+    ],
+  }
+
   const faqSchema = faqs.length > 0 ? {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -278,6 +319,7 @@ export default async function FinanceArticlePageEs({
   return (
     <div className="article-page" lang="es">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
       {faqSchema && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
       )}
@@ -317,7 +359,8 @@ export default async function FinanceArticlePageEs({
 
       <div className="container">
         <div className="article-body-grid">
-          <article>
+          {/* article-body backs the SpeakableSpecification cssSelector above */}
+          <article className="article-body">
             {article.cover_image_url && (
               <div style={{ margin: '0 0 32px' }}>
                 <img

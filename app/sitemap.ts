@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { MetadataRoute } from 'next'
 import { groupByCluster, MIN_CLUSTER_SIZE } from '@/lib/topicClusters'
+import { RETIRED_EN_SLUGS, RETIRED_ES_SLUGS } from '@/lib/consolidatedSlugs'
 
 // ISR 1h: fresh enough for crawlers, avoids cold-start timeouts on every Googlebot hit.
 export const revalidate = 3600
@@ -83,8 +84,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // ── Tech articles ──────────────────────────────────────────────
   // English is canonical in this niche, so a duplicate pair keeps /en/article/
   // and drops the /articulo/ twin.
+  // Retired slugs are excluded here as well as 301'd in next.config.ts: a URL
+  // that redirects but is still advertised in the sitemap sends Google two
+  // contradictory instructions and wastes the crawl on a hop.
   const esArticleUrls = allArticles
-    .filter((a) => !isDupe(a))
+    .filter((a) => !isDupe(a) && !RETIRED_ES_SLUGS.has(a.slug))
     .map((a) => ({
       url:             `https://www.newstide.news/articulo/${a.slug}`,
       lastModified:    new Date(a.published_at),
@@ -93,7 +97,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
 
   const enArticleUrls = allArticles
-    .filter((a) => !!a.slug_en)
+    .filter((a) => !!a.slug_en && !RETIRED_EN_SLUGS.has(a.slug_en))
     .map((a) => ({
       url:             `https://www.newstide.news/en/article/${a.slug_en}`,
       lastModified:    new Date(a.published_at),

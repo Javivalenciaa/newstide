@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
+import { parseRelatedArticles } from '@/lib/relatedArticles'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -317,9 +318,8 @@ export default async function ArticlePageEN({
   // by compute_related_articles() in pipeline.py); only entries with an EN slug
   // are usable here. Falls back to a live query for articles published before
   // that column existed.
-  const persistedRelated: RelatedArticleEN[] = Array.isArray(article.related_articles)
-    ? article.related_articles.filter((r: { slug_en?: string }) => r?.slug_en)
-    : []
+  const persistedRelated: RelatedArticleEN[] = parseRelatedArticles(article.related_articles)
+    .filter((r): r is RelatedArticleEN => !!r.slug_en && !!(r.title_en || r.title))
 
   let relatedEN: RelatedArticleEN[] = persistedRelated.slice(0, 4)
   if (relatedEN.length === 0) {

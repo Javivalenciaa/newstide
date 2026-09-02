@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { supabase } from '@/lib/supabase'
+import { parseRelatedArticles } from '@/lib/relatedArticles'
 import { notFound, permanentRedirect } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -295,13 +296,14 @@ export default async function ArticuloPage({
   // Prefer the persisted related_articles column (computed once at publish time
   // by compute_related_articles() in pipeline.py); fall back to a live query for
   // older articles published before that column existed.
-  const persistedRelated: RelatedArticle[] = Array.isArray(article.related_articles)
-    ? article.related_articles
-        .filter((r: { slug?: string; title?: string }) => r?.slug && r?.title)
-        .map((r: { title: string; slug: string; category?: string }) => ({
-          title: r.title, slug: r.slug, category: r.category || article.category, published_at: article.published_at,
-        }))
-    : []
+  const persistedRelated: RelatedArticle[] = parseRelatedArticles(article.related_articles)
+    .filter((r) => !!r.slug && !!r.title)
+    .map((r) => ({
+      title: r.title as string,
+      slug: r.slug as string,
+      category: r.category || article.category,
+      published_at: article.published_at,
+    }))
 
   let relatedSmart: RelatedArticle[] = persistedRelated.slice(0, 4)
   if (relatedSmart.length === 0) {
@@ -415,7 +417,11 @@ export default async function ArticuloPage({
   } : null
 
   // Track paragraph index to mark only the first real <p> with the speakable class
-  let firstParaRendered = false
+  // Mutable holder rather than a reassigned `let`: react-hooks/immutability
+  // forbids reassigning a variable captured by a render callback (it can leak
+  // across renders). Mutating a property of a const object scoped to this one
+  // render is the same behaviour without the hazard.
+  const firstParaState = { rendered: false }
 
   return (
     <div className="article-page">
@@ -488,8 +494,8 @@ export default async function ArticuloPage({
                 p: ({ children }) => {
                   // Mark the very first rendered paragraph as article-first-paragraph
                   // so SpeakableSpecification and LLM crawlers can extract the lede directly
-                  if (!firstParaRendered) {
-                    firstParaRendered = true
+                  if (!firstParaState.rendered) {
+                    firstParaState.rendered = true
                     return (
                       <p
                         className="article-first-paragraph"
