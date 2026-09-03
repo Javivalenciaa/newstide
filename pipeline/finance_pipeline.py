@@ -16,6 +16,7 @@ from dataforseo import (
     pin_priority_first,
     filter_gsc_queries,
 )
+from claude_response import extract_text as _claude_text, output_tokens as _claude_output_tokens
 from seo_guard import (
     derive_keyword_slug,
     entity_collision,
@@ -1063,10 +1064,12 @@ Al final escribe: EXCERPT: [120 a 155 caracteres en español]"""
             f"conclusión o sección final completa."
         ),
     )
-    output_tokens = message.usage.output_tokens if hasattr(message, "usage") else 8000
+    output_tokens = _claude_output_tokens(message, 8000)
     _register_claude_call(output_tokens)
 
-    raw = message.content[0].text
+    # Never index content[0] directly: a safety decline returns HTTP 200 with an
+    # EMPTY content list, so that raises IndexError instead of saying why.
+    raw = _claude_text(message, context=keyword[:60])
     excerpt = ""
     if "EXCERPT:" in raw:
         parts = raw.split("EXCERPT:")

@@ -45,13 +45,28 @@ UNAMBIGUOUS_BRANDS = {
     # automation
     "zapier", "n8n", "integromat", "workato", "trayio",
     "pipedream", "activepieces",
-    # site builders / CMS / commerce
+    # site builders / CMS / commerce / no-code
     "webflow", "squarespace", "wix", "framer", "carrd", "ghost",
     "wordpress", "shopify", "gumroad", "lemonsqueezy", "podia",
+    "bubble", "adalo", "glide", "appgyver", "softr", "bildr",
+    "teachable", "memberful", "kajabi", "manychat", "hostinger",
     # dev stack
     "supabase", "firebase", "vercel", "netlify", "railway", "render",
     "planetscale", "neon", "prisma", "nextjs", "sveltekit", "remix",
-    "paddle",
+    "paddle", "cloudflare", "heroku", "digitalocean",
+    # web frameworks and runtimes — added 2026-09-03 after "Flask vs. Django"
+    # and "Vercel vs Cloudflare Pages" both published with no entity coverage
+    # at all, because none of these names were in this list.
+    "django", "flask", "fastapi", "express", "nodejs", "deno", "bun",
+    "rails", "laravel", "svelte", "astro", "nuxt", "vue", "angular",
+    "flutter", "reactnative", "ionic", "capacitor",
+    # databases
+    "mongodb", "mysql", "postgres", "postgresql", "redis", "dynamodb",
+    "sqlite", "cockroachdb",
+    # design / product / support
+    "figma", "sketch", "canva", "framer", "elementor",
+    "linear", "jira", "zendesk", "intercom", "twilio", "segment",
+    "dialogflow", "rasa", "activecampaign", "paypal",
     # AI
     "openai", "chatgpt", "claude", "anthropic", "gemini", "perplexity",
     "midjourney", "cursor", "copilot", "mistral", "llama", "jasper",

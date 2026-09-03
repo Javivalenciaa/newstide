@@ -1,5 +1,5 @@
 """
-Content refresh pipeline — re-generates stale articles (>90 days) so
+Content refresh pipeline — re-generates stale articles (see STALE_AFTER_DAYS) so
 time-sensitive content ("best tools 2026", etc.) doesn't decay in rankings.
 
 Standalone script: imports and reuses helper functions from pipeline.py and
@@ -22,6 +22,11 @@ from datetime import datetime, timezone, timedelta
 
 import pipeline as p
 import finance_pipeline as fp
+from claude_response import (
+    ClaudeDeclined,
+    extract_text as _claude_text,
+    output_tokens as _claude_output_tokens,
+)
 
 # Raised from 1 on 2026-09-02, alongside cutting ARTICLES_PER_RUN from 3 to 2
 # in both pipelines: with only 32 of ~784 URLs ever drawing a Search Console
@@ -44,6 +49,13 @@ REFRESH_COOLDOWN_DAYS = 45
 
 SERP_LOOKBACK_DAYS = 28
 MIN_CONTENT_RETENTION = 0.70  # refreshed content must keep at least 70% of original word count
+
+# An article this short is a stub, not something a refresh can improve — the
+# model has nothing to work from and the result would still fail the word-count
+# bar the publish pipeline enforces. The two rows that crashed the 2026-09-03
+# run were 220 and 366 words; they need consolidating or removing, not
+# rewriting. Skipping them here also stops them being re-picked every morning.
+MIN_WORDS_TO_REFRESH = 600
 
 
 def _stale_cutoff() -> str:
@@ -77,7 +89,10 @@ def fetch_refresh_candidates(table: str, title_field: str, slug_field: str) -> l
     try:
         res = (
             p.supabase_client.table(table)
-            .select(f"id, {title_field}, {slug_field}, category, keyword, published_at, updated_at")
+            .select(
+                f"id, {title_field}, {slug_field}, category, keyword, "
+                f"published_at, updated_at, refresh_blocked_at"
+            )
             .lte("published_at", _stale_cutoff())
             .not_.is_(slug_field, "null")
             .order("published_at", desc=False)
@@ -86,8 +101,33 @@ def fetch_refresh_candidates(table: str, title_field: str, slug_field: str) -> l
         )
         rows = res.data or []
     except Exception as e:
-        print(f"  ⚠️  Could not fetch refresh candidates from {table}: {e}")
-        return []
+        # refresh_blocked_at is optional — retry without it so this keeps
+        # working before 20260903_refresh_blocked_column.sql is applied.
+        if "refresh_blocked_at" not in str(e):
+            print(f"  ⚠️  Could not fetch refresh candidates from {table}: {e}")
+            return []
+        try:
+            res = (
+                p.supabase_client.table(table)
+                .select(f"id, {title_field}, {slug_field}, category, keyword, published_at, updated_at")
+                .lte("published_at", _stale_cutoff())
+                .not_.is_(slug_field, "null")
+                .order("published_at", desc=False)
+                .limit(200)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as e2:
+            print(f"  ⚠️  Could not fetch refresh candidates from {table}: {e2}")
+            return []
+
+    # Articles the model has already declined to refresh. Retrying the same
+    # prompt gets the same decline, so without this they are re-picked every
+    # single morning and burn a Claude call each time.
+    blocked = [r for r in rows if r.get("refresh_blocked_at")]
+    if blocked:
+        print(f"  🚫 {len(blocked)} candidate(s) in {table} previously declined by the model — skipping")
+        rows = [r for r in rows if not r.get("refresh_blocked_at")]
 
     # Drop anything refreshed inside the cooldown. Filtered here rather than in
     # the query because updated_at is NULL for every row never refreshed, and a
@@ -185,6 +225,47 @@ def pick_refresh_candidate(exclude: set | None = None) -> dict | None:
     return candidates[0]
 
 
+def _lost_too_much_content(refreshed: str, original: str) -> bool:
+    """True when the rewrite dropped below MIN_CONTENT_RETENTION of the original.
+
+    MIN_CONTENT_RETENTION was declared when this file was written but never
+    referenced — the only length guard in use was p.is_truncated(), which
+    allows a drop to 60% and is not applied at all on the finance path. The
+    prompt says "Do NOT shorten the article", so a refresh that returns a
+    materially shorter article has not done its job, and publishing it makes
+    the page worse than before it was touched.
+    """
+    ref_words = len(original.split())
+    if ref_words == 0:
+        return False
+    kept = len(refreshed.split()) / ref_words
+    if kept < MIN_CONTENT_RETENTION:
+        print(
+            f"  ❌ Refresh kept only {kept*100:.0f}% of the original length "
+            f"(floor is {MIN_CONTENT_RETENTION*100:.0f}%) — skipping update"
+        )
+        return True
+    return False
+
+
+def _mark_refresh_blocked(table: str, article_id, reason: str) -> None:
+    """Record that the model declined this article, so it stops being picked.
+
+    Best-effort: if the column is not there yet the run continues unchanged —
+    the article simply gets retried on the next run, which is the behaviour
+    before this existed.
+    """
+    client = p.supabase_client if table == "articles" else fp.supabase_client
+    try:
+        client.table(table).update({
+            "refresh_blocked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "refresh_blocked_reason": reason[:300],
+        }).eq("id", article_id).execute()
+        print("  📌 Marked as declined — it will not be picked again")
+    except Exception as e:
+        print(f"  ⚠️  Could not mark article as declined (non-critical): {e}")
+
+
 def _strip_h1(raw: str) -> str:
     lines = raw.strip().split("\n")
     if lines and lines[0].strip().startswith("# "):
@@ -220,18 +301,24 @@ Return the FULL updated article in markdown, starting with the H1."""
             "Preserve structure and links unless clearly stale."
         ),
     )
-    p._register_claude_call(message.usage.output_tokens if hasattr(message, "usage") else 6000)
-    raw = _strip_h1(message.content[0].text)
+    p._register_claude_call(_claude_output_tokens(message, 6000))
+    raw = _strip_h1(_claude_text(message, context=title_en[:60]))
 
     if p.is_truncated(raw, content_en):
         print("  ❌ Refreshed content looks truncated/shorter than original — skipping")
+        return False
+    if _lost_too_much_content(raw, content_en):
         return False
     if not p.validate_article_content(raw, label="refresh-raw"):
         print("  ❌ Refreshed content failed validation — skipping update")
         return False
 
     humanized = p.humanize(raw)
-    if not p.validate_article_content(humanized, label="refresh-humanized") or p.is_truncated(humanized, raw):
+    if (
+        not p.validate_article_content(humanized, label="refresh-humanized")
+        or p.is_truncated(humanized, raw)
+        or _lost_too_much_content(humanized, content_en)
+    ):
         humanized = raw
 
     content_en_final = humanized + p.EDITORIAL_NOTE
@@ -280,15 +367,20 @@ Devuelve el ARTÍCULO COMPLETO actualizado en markdown, empezando por el H1."""
             "Preserva estructura y enlaces salvo que estén claramente obsoletos."
         ),
     )
-    fp._register_claude_call(message.usage.output_tokens if hasattr(message, "usage") else 8000)
-    raw = _strip_h1(message.content[0].text)
+    fp._register_claude_call(_claude_output_tokens(message, 8000))
+    raw = _strip_h1(_claude_text(message, context=title[:60]))
 
+    if _lost_too_much_content(raw, content):
+        return False
     if not fp.validate_article_content(raw, label="refresh-raw"):
         print("  ❌ Contenido refrescado inválido — saltando actualización")
         return False
 
     humanized = fp.humanize(raw)
-    if not fp.validate_article_content(humanized, label="refresh-humanizado"):
+    if (
+        not fp.validate_article_content(humanized, label="refresh-humanizado")
+        or _lost_too_much_content(humanized, content)
+    ):
         humanized = raw
 
     content_final = fp.fix_double_quotes(humanized) + fp.EDITORIAL_NOTE_ES + fp.FINANCE_DISCLAIMER_ES
@@ -317,6 +409,16 @@ def refresh_article(candidate: dict) -> bool:
     if not full:
         return False
 
+    # A stub cannot be meaningfully refreshed — see MIN_WORDS_TO_REFRESH.
+    body = full.get("content_en") or full.get("content") or ""
+    words = len(body.split())
+    if words < MIN_WORDS_TO_REFRESH:
+        print(
+            f"\n⏭️  Skipping [{table}] {candidate['page']} — "
+            f"only {words} words, too thin to refresh"
+        )
+        return False
+
     print(f"\n🔄 Refreshing [{table}] {candidate['page']}")
     try:
         if table == "articles":
@@ -324,6 +426,13 @@ def refresh_article(candidate: dict) -> bool:
         return _refresh_finance_article(full)
     except (p.CostLimitExceeded, fp.CostLimitExceeded) as e:
         print(f"\n{e}")
+        return False
+    except ClaudeDeclined as e:
+        # HTTP 200, empty content, stop_reason="refusal". This used to surface
+        # as "list index out of range" from content[0], and because nothing
+        # recorded it the same article was re-picked every single morning.
+        print(f"  🚫 {e}")
+        _mark_refresh_blocked(table, full.get("id"), str(e))
         return False
     except Exception as e:
         print(f"  ❌ Refresh failed: {e}")

@@ -49,6 +49,7 @@ Plataforma de contenido automatizado en producción real, con tráfico activo. N
 - ✅ Consolidación de 7 pares canibalizados (`lib/consolidatedSlugs.ts` → 301 en `next.config.ts` + exclusión del sitemap).
 - ✅ hreflang recíproco en `/es/fin/[slug]`; `BreadcrumbList` + `Speakable` en las dos rutas de finanzas.
 - ✅ `related_articles`: la columna es `text[]`, no `jsonb`, así que cada entrada llega como string JSON. Normalizado en `lib/relatedArticles.ts` — **no asumir que son objetos**. Backfill: `pipeline/backfill_related_articles.py`.
-- 🔴 Pendiente: ejecutar el backfill de `related_articles` (269 filas), alertas de fallo del pipeline, newsletter vía Resend, búsqueda interna.
+- ✅ Respuestas de Claude leídas con `pipeline/claude_response.py` — **nunca hacer `message.content[0]` directamente**: un rechazo de seguridad devuelve HTTP 200 con `content` vacío, `stop_reason="refusal"` y 0 tokens (pasó el 2026-09-03 con dos artículos de ADN sintético). Los artículos rechazados se marcan con `refresh_blocked_at` para no reintentarlos cada día.
+- 🔴 Pendiente: aplicar `supabase/migrations/20260903_refresh_blocked_column.sql`, ejecutar el backfill de `related_articles` (269 filas), alertas de fallo del pipeline, newsletter vía Resend, búsqueda interna.
 
 Ver lista completa de gaps priorizados por impacto en `gaps.md`.
