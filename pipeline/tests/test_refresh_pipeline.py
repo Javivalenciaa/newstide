@@ -115,3 +115,32 @@ def test_declined_articles_are_filtered_out_of_the_candidate_pool(monkeypatch, c
 
     assert [r["id"] for r in out] == [1]
     assert "previously declined" in capsys.readouterr().out
+
+
+def test_refresh_is_rejected_when_it_drops_external_sources():
+    # The 09-03 refresh republished an article whose only four links were the
+    # Unsplash photo and the photographer credit — zero editorial sources.
+    original = "Body. See https://www.cfpb.gov/report and https://oecd.org/study for detail."
+    stripped = "Body. See the reports for detail."
+    assert rp._dropped_sources(stripped, original) is True
+
+
+def test_refresh_is_accepted_when_it_keeps_its_sources():
+    original = "Body. See https://www.cfpb.gov/report for detail."
+    kept = "Updated body. See https://www.cfpb.gov/report for detail."
+    assert rp._dropped_sources(kept, original) is False
+
+
+def test_image_credits_do_not_count_as_editorial_sources():
+    # These are exactly the four links the 09-03 article shipped with.
+    only_images = (
+        "Text https://images.unsplash.com/photo-1643941832709 more "
+        "https://unsplash.com/@davidjessephoto and https://www.newstide.news/en/article/x"
+    )
+    assert rp._editorial_sources(only_images) == set()
+
+
+def test_an_article_that_never_had_sources_is_not_blocked():
+    # Blocking it would freeze a pre-existing problem forever; the guard only
+    # catches a refresh making sourcing worse.
+    assert rp._dropped_sources("new text", "old text") is False

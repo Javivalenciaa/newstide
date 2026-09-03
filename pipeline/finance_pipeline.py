@@ -19,6 +19,7 @@ from dataforseo import (
 from claude_response import extract_text as _claude_text, output_tokens as _claude_output_tokens
 from seo_guard import (
     derive_keyword_slug,
+    format_diversity_reorder,
     entity_collision,
     extract_entities,
 )
@@ -1009,7 +1010,16 @@ def build_candidate_pool(recent_articles: list[dict]) -> list[str]:
     _kw_metrics = fetch_keyword_metrics(unique, language_code="es")
     unique = sort_pool_by_score(unique, _kw_metrics)
     unique = cluster_aware_reorder(unique, recent_articles)
-    # LAST on purpose: the two calls above each re-sort the whole pool, so
+    # Format diversity, after cluster depth and before the GSC pin. The entity
+    # guard stops the SAME comparison shipping twice; it does nothing about the
+    # archive becoming ALL comparisons. On 2026-09-03 both articles of the day
+    # were "X vs Y" and 21 of the last 60 (35%) are comparisons, on top of 47
+    # programmatic comparison pages. A stable re-sort, so nothing is dropped —
+    # an over-represented format just goes to the back of the queue.
+    unique = format_diversity_reorder(
+        unique, [a.get("title") or a.get("keyword", "") for a in recent_articles]
+    )
+    # LAST on purpose: the calls above each re-sort the whole pool, so
     # pinning earlier would be undone. GSC queries are proven demand on this
     # site and should be the first topics written each run.
     unique = pin_priority_first(unique, _gsc_keys)

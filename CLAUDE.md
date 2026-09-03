@@ -29,7 +29,7 @@ Plataforma de contenido automatizado en producción real, con tráfico activo. N
 3. **No eliminar** `fetch_related_articles()` ni `inject_internal_links()` (ya insertan 2-3 enlaces dentro del cuerpo del artículo vía prompt). Cualquier tarea de internal linking es ADICIONAL a esto, no lo sustituye.
 4. Toda llamada nueva a Supabase va en `try/except` con `print()` de warning y fallback seguro — nunca debe romper el pipeline.
 5. Solo `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` en Supabase. Nunca renombrar/eliminar columnas.
-6. No crear ramas salvo que se pida explícitamente. Commit directo a `main` tras validar sintaxis/tipos/lint.
+6. **La rama activa de despliegue es `newstide-v2`, NO `main`.** Todo el trabajo va ahí; comprobar con `git log origin/newstide-v2 --oneline -1` antes de cualquier push, sin fiarse de `origin/HEAD` (que apunta a `main`). No crear ramas salvo que se pida explícitamente.
 7. Antes de tocar cualquier archivo, léelo completo primero. Si algo en el código real no coincide con este documento, usa lo que encuentres en el código, no lo que dice aquí.
 
 ## Volumen de publicación (decidido con datos el 2026-09-02 — no subir sin medir)
@@ -49,6 +49,8 @@ Plataforma de contenido automatizado en producción real, con tráfico activo. N
 - ✅ Consolidación de 7 pares canibalizados (`lib/consolidatedSlugs.ts` → 301 en `next.config.ts` + exclusión del sitemap).
 - ✅ hreflang recíproco en `/es/fin/[slug]`; `BreadcrumbList` + `Speakable` en las dos rutas de finanzas.
 - ✅ `related_articles`: la columna es `text[]`, no `jsonb`, así que cada entrada llega como string JSON. Normalizado en `lib/relatedArticles.ts` — **no asumir que son objetos**. Backfill: `pipeline/backfill_related_articles.py`.
+- ✅ Diversidad de formato (`format_diversity_reorder` en `seo_guard.py`): la guardia de entidades impide repetir *una* comparativa, no que *todo* sea comparativas (35% de los últimos 60 + 47 páginas pSEO). Reordena, nunca descarta.
+- ✅ El refresh no puede empeorar el sourcing: `_dropped_sources()` rechaza una reescritura con menos fuentes externas que el original (créditos de Unsplash no cuentan).
 - ✅ Respuestas de Claude leídas con `pipeline/claude_response.py` — **nunca hacer `message.content[0]` directamente**: un rechazo de seguridad devuelve HTTP 200 con `content` vacío, `stop_reason="refusal"` y 0 tokens (pasó el 2026-09-03 con dos artículos de ADN sintético). Los artículos rechazados se marcan con `refresh_blocked_at` para no reintentarlos cada día.
 - 🔴 Pendiente: aplicar `supabase/migrations/20260903_refresh_blocked_column.sql`, ejecutar el backfill de `related_articles` (269 filas), alertas de fallo del pipeline, newsletter vía Resend, búsqueda interna.
 

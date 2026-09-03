@@ -18,6 +18,7 @@ and published_at are never touched, so URLs and datePublished never change.
 
 Runs once a day via .github/workflows/content-refresh.yml.
 """
+import re
 from datetime import datetime, timezone, timedelta
 
 import pipeline as p
@@ -225,6 +226,50 @@ def pick_refresh_candidate(exclude: set | None = None) -> dict | None:
     return candidates[0]
 
 
+_EDITORIAL_LINK_RE = re.compile(r'https?://[^\s\)\"\'<>]+')
+
+
+def _editorial_sources(content: str) -> set:
+    """External sources in the body, excluding our own site and image credits.
+
+    Mirrors the exclusions in p.has_external_link() — Unsplash photo URLs and
+    photographer credit links are not sources. The 2026-09-03 refresh shipped
+    an article whose only four links were exactly those, which is why the
+    boolean check was not enough to catch the regression.
+    """
+    return {
+        link
+        for link in _EDITORIAL_LINK_RE.findall(content or "")
+        if "newstide.news" not in link and "unsplash.com" not in link
+    }
+
+
+def _dropped_sources(refreshed: str, original: str) -> bool:
+    """True when the rewrite lost external sources the original had.
+
+    Deliberately not "the result must have sources": an article that never had
+    any is a pre-existing problem, and blocking its refresh would freeze it
+    forever. What must never happen is a refresh making sourcing *worse* —
+    the prompt explicitly says "Keep all existing external links", so fewer
+    sources out than in means the model ignored it.
+
+    On 2026-09-03 the one article that did refresh came out with zero
+    editorial sources. validate_article_content() only warns about that, so it
+    published anyway and the page lost E-E-A-T signal it is very hard to
+    notice missing.
+    """
+    before = _editorial_sources(original)
+    after = _editorial_sources(refreshed)
+    if len(after) >= len(before):
+        return False
+    lost = len(before) - len(after)
+    print(
+        f"  ❌ Refresh dropped {lost} external source(s) "
+        f"({len(before)} → {len(after)}) — skipping update to protect E-E-A-T"
+    )
+    return True
+
+
 def _lost_too_much_content(refreshed: str, original: str) -> bool:
     """True when the rewrite dropped below MIN_CONTENT_RETENTION of the original.
 
@@ -309,6 +354,8 @@ Return the FULL updated article in markdown, starting with the H1."""
         return False
     if _lost_too_much_content(raw, content_en):
         return False
+    if _dropped_sources(raw, content_en):
+        return False
     if not p.validate_article_content(raw, label="refresh-raw"):
         print("  ❌ Refreshed content failed validation — skipping update")
         return False
@@ -318,6 +365,7 @@ Return the FULL updated article in markdown, starting with the H1."""
         not p.validate_article_content(humanized, label="refresh-humanized")
         or p.is_truncated(humanized, raw)
         or _lost_too_much_content(humanized, content_en)
+        or _dropped_sources(humanized, raw)
     ):
         humanized = raw
 
@@ -372,6 +420,8 @@ Devuelve el ARTÍCULO COMPLETO actualizado en markdown, empezando por el H1."""
 
     if _lost_too_much_content(raw, content):
         return False
+    if _dropped_sources(raw, content):
+        return False
     if not fp.validate_article_content(raw, label="refresh-raw"):
         print("  ❌ Contenido refrescado inválido — saltando actualización")
         return False
@@ -380,6 +430,7 @@ Devuelve el ARTÍCULO COMPLETO actualizado en markdown, empezando por el H1."""
     if (
         not fp.validate_article_content(humanized, label="refresh-humanizado")
         or _lost_too_much_content(humanized, content)
+        or _dropped_sources(humanized, raw)
     ):
         humanized = raw
 

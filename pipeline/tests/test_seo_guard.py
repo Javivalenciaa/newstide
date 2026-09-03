@@ -105,3 +105,46 @@ def test_collision_tolerates_empty_and_none_titles():
 
 def test_entity_signature_is_order_independent():
     assert g.entity_signature("Airtable vs Asana") == g.entity_signature("Asana vs Airtable")
+
+
+# ── FORMAT DIVERSITY ─────────────────────────────────────────────────────────
+def test_classify_format_buckets_the_real_title_shapes():
+    assert g.classify_format("Airtable vs. Asana: A Complete Tool Comparison") == g.FORMAT_COMPARISON
+    assert g.classify_format("Best SEO Tools for Indie Hackers in 2026") == g.FORMAT_LISTICLE
+    assert g.classify_format("How to Build a Web App with Django in 7 Steps") == g.FORMAT_HOWTO
+    assert g.classify_format("Why Your Social Media Strategy Fails") == g.FORMAT_OTHER
+
+
+def test_classify_format_handles_spanish_titles():
+    assert g.classify_format("Cómo enviar dinero a México paso a paso") == g.FORMAT_HOWTO
+    assert g.classify_format("Los mejores bancos para hispanos en USA") == g.FORMAT_LISTICLE
+    assert g.classify_format("Chime vs Bank of America: cuál conviene") == g.FORMAT_COMPARISON
+
+
+def test_saturated_format_is_pushed_behind_the_others():
+    # Recent window is 100% comparisons — well over the 40% cap.
+    recent = ["Airtable vs Asana", "Zapier vs Make", "Vercel vs Netlify"]
+    pool = [
+        "Notion vs Coda: which ships faster",          # comparison, saturated
+        "How to launch a SaaS in 30 days",             # howto, unseen
+    ]
+    assert g.format_diversity_reorder(pool, recent)[0] == "How to launch a SaaS in 30 days"
+
+
+def test_reorder_never_drops_or_duplicates_candidates():
+    recent = ["Airtable vs Asana"] * 10
+    pool = ["A vs B", "How to X", "Best Y tools", "Something else"]
+    out = g.format_diversity_reorder(pool, recent)
+    assert sorted(out) == sorted(pool)
+
+
+def test_reorder_is_a_noop_when_nothing_is_saturated():
+    # Four formats evenly split — each at 25%, under the 40% cap.
+    recent = ["A vs B", "How to X", "Best Y tools", "Something else"]
+    pool = ["C vs D", "How to Z"]
+    assert g.format_diversity_reorder(pool, recent) == pool
+
+
+def test_reorder_is_a_noop_with_no_history():
+    pool = ["C vs D", "How to Z"]
+    assert g.format_diversity_reorder(pool, []) == pool

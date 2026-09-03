@@ -241,3 +241,89 @@ def entity_collision(candidate: str, existing_titles, min_overlap: int = 2) -> s
 def entity_signature(title: str) -> str:
     """Stable key for an entity set — 'airtable|asana'. Empty when no brands."""
     return "|".join(sorted(extract_entities(title)))
+
+
+# ── FORMAT DIVERSITY ─────────────────────────────────────────────────────────
+# The entity guard stops the same comparison being published twice. It does
+# nothing about the archive becoming ALL comparisons, which is a different
+# problem: on 2026-09-03 both articles of the day were "X vs Y", and 21 of the
+# last 60 (35%) are comparisons — the single largest format — on top of 47
+# programmatic comparison pages in pseo_pages. A site made of one shape reads
+# as a template farm regardless of how good each individual page is.
+_FORMAT_LISTICLE = re.compile(r"^\s*(?:\d+\s+)?(best|top|greatest|mejores|las mejores|los mejores)\b", re.IGNORECASE)
+_FORMAT_HOWTO = re.compile(
+    r"^\s*(how to|build|launch|set up|setup|create|ship|make|automate|"
+    r"como|cómo|crea|monta|lanza|configura|automatiza)\b",
+    re.IGNORECASE,
+)
+
+FORMAT_COMPARISON = "comparison"
+FORMAT_LISTICLE = "listicle"
+FORMAT_HOWTO = "howto"
+FORMAT_OTHER = "other"
+
+# Above this share of the recent window, a format stops being boosted and gets
+# demoted behind everything else. Not a hard block: the pool is re-ordered, so
+# if every remaining candidate is a comparison one still gets published rather
+# than the run producing nothing.
+FORMAT_SHARE_CAP = 0.40
+
+
+# Deliberately stricter than _COMPARISON_MARKERS. That one is tuned to decide
+# whether an ambiguous brand name is being used as a product, so it is
+# generous and includes "mejor(es)" / "better" — which appear in every Spanish
+# "Los mejores bancos..." listicle. Reusing it here classified those listicles
+# as comparisons. Format classification needs an explicit head-to-head.
+_FORMAT_COMPARISON = re.compile(
+    r"\b(vs\.?|versus|frente a)\b|\bcompar(?:ison|ed|ing|ativa|acion)\b|\balternativ",
+    re.IGNORECASE,
+)
+
+
+def classify_format(title: str) -> str:
+    """Bucket a title by the shape of page it is, not by its subject.
+
+    Listicle is tested before comparison: "Los mejores X" and "Best X tools"
+    are listicles even when they compare things, and they are a different page
+    shape competing for a different query.
+    """
+    if not title:
+        return FORMAT_OTHER
+    if _FORMAT_LISTICLE.search(title):
+        return FORMAT_LISTICLE
+    if _FORMAT_COMPARISON.search(title):
+        return FORMAT_COMPARISON
+    if _FORMAT_HOWTO.search(title):
+        return FORMAT_HOWTO
+    return FORMAT_OTHER
+
+
+def format_shares(titles) -> dict:
+    """Share of the recent window held by each format bucket."""
+    counted = [t for t in titles if t]
+    if not counted:
+        return {}
+    shares: dict = {}
+    for t in counted:
+        key = classify_format(t)
+        shares[key] = shares.get(key, 0) + 1
+    return {k: v / len(counted) for k, v in shares.items()}
+
+
+def format_diversity_reorder(pool: list, recent_titles, cap: float = FORMAT_SHARE_CAP) -> list:
+    """Push candidates whose format is already over-represented to the back.
+
+    A stable re-sort layered on top of the existing keyword-score and
+    cluster-depth ordering — same list, same length, nothing dropped. Python's
+    sort is stable, so candidates that tie here keep the order the previous
+    passes gave them.
+    """
+    shares = format_shares(recent_titles)
+    if not shares:
+        return pool
+
+    def rank(candidate: str) -> int:
+        # 0 sorts first: under the cap. 1 sorts last: already saturated.
+        return 1 if shares.get(classify_format(candidate), 0.0) >= cap else 0
+
+    return sorted(pool, key=rank)
